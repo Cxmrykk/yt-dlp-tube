@@ -1,0 +1,19 @@
+{% for s in videos %}
+{% set s_url = s.url or ('https://www.youtube.com/watch?v=' ~ s.id) %}
+<a href="/watch?url={{ s_url | urlencode }}" class="s-card">
+    <div class="s-thumb">
+        <img src="{{ s.thumbnail or (s.thumbnails and s.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ s.id ~ '/hqdefault.jpg') }}" loading="lazy">
+        <span class="duration">{{ s.duration | format_time }}</span>
+    </div>
+    <div class="s-info">
+        <span class="s-title">{{ s.title }}</span>
+        <span class="s-channel">{{ s.uploader or s.channel or 'Unknown' }}</span>
+        <span class="s-channel">
+            {% set views = s.view_count | format_views %}
+            {% if views %}{{ views }} views{% endif %}
+            {% set t = s.published_text | default(s.timestamp | time_ago) %}
+            {% if t %}{% if views %} • {% endif %}{{ t }}{% endif %}
+        </span>
+    </div>
+</a>
+{% endfor %}

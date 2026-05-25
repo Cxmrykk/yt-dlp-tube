@@ -11,6 +11,23 @@
 <h2 style="margin-top: 0;">Settings & Subscriptions</h2>
 
 <div class="add-form">
+    <h3 style="margin-top: 0;">Playback Settings</h3>
+    <label style="display: block; margin-bottom: 10px; color: var(--text-muted);">Preferred Resolution:</label>
+    <select id="pref-res" onchange="localStorage.setItem('prefRes', this.value)" style="width: 100%; padding: 12px; background: #111; color: white; border: 1px solid #444; border-radius: 6px; font-size: 1rem; cursor: pointer; outline: none;">
+        <option value="auto">Auto (Detect by Screen Size)</option>
+        <option value="2160">2160p (4K)</option>
+        <option value="1440">1440p (2K)</option>
+        <option value="1080">1080p</option>
+        <option value="720">720p</option>
+        <option value="480">480p</option>
+        <option value="360">360p</option>
+    </select>
+    <script>
+        document.getElementById('pref-res').value = localStorage.getItem('prefRes') || 'auto';
+    </script>
+</div>
+
+<div class="add-form">
     <h3 style="margin-top: 0;">Add Channel via URL</h3>
     <form action="/settings" method="POST">
         <input type="hidden" name="action" value="add">

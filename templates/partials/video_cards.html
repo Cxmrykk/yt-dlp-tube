@@ -1,25 +1,30 @@
 {% for video in videos %}
 {% set uploader_name = video.uploader | default(video.channel_name | default('Unknown')) %}
 {% set channel_link = video.channel_url | default(video.uploader_url | default('https://www.youtube.com/@' ~ uploader_name)) %}
-{% set vid_url = video.url | default('https://www.youtube.com/watch?v=' ~ video.id) %}
+{% set vid_url = video.url or ('https://www.youtube.com/watch?v=' ~ video.id) %}
 
 <div class="video-card">
     <a href="/watch?url={{ vid_url | urlencode }}">
         <div class="thumbnail">
-            <img src="{{ video.thumbnail | default((video.thumbnails and video.thumbnails[-1].url) | default('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg')) }}" alt="Thumbnail" loading="lazy">
+            <img src="{{ video.thumbnail or (video.thumbnails and video.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg') }}" alt="Thumbnail" loading="lazy">
             <span class="duration">{{ video.duration | format_time }}</span>
         </div>
     </a>
     <div class="video-info">
         <a href="/channel?url={{ channel_link | urlencode }}">
-            <img class="channel-avatar" src="{{ video.channel_icon | default('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff') }}" loading="lazy">
+            <img class="channel-avatar" src="{{ video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff') }}" loading="lazy">
         </a>
         <div class="video-text">
             <a href="/watch?url={{ vid_url | urlencode }}" class="video-title">{{ video.title | default('Untitled') }}</a>
             <a href="/channel?url={{ channel_link | urlencode }}" class="channel-name">
                 {{ uploader_name }}
             </a>
-            <span style="color: var(--text-muted); font-size: 0.85rem;">{{ video.view_count | default('0') }} views</span>
+            <span style="color: var(--text-muted); font-size: 0.85rem;">
+                {% set views = video.view_count | format_views %}
+                {% if views %}{{ views }} views{% endif %}
+                {% set t = video.published_text | default(video.timestamp | time_ago) %}
+                {% if t %}{% if views %} • {% endif %}{{ t }}{% endif %}
+            </span>
         </div>
     </div>
 </div>
