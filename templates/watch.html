@@ -234,23 +234,41 @@
     let suggestedLoading = false;
     const suggestedQuery = "{{ video.id }}";
     
+    function loadSuggestedVideos() {
+        suggestedLoading = true;
+        suggestedPage++;
+        document.getElementById('suggested-loader').innerText = 'Loading more...';
+        
+        fetch(`/api/videos?type=suggested&query=${encodeURIComponent(suggestedQuery)}&page=${suggestedPage}`)
+            .then(r => r.text())
+            .then(html => {
+                if(html.trim() !== '') {
+                    document.getElementById('suggested-grid').insertAdjacentHTML('beforeend', html);
+                    suggestedLoading = false;
+                    document.getElementById('suggested-loader').innerText = 'Scroll for more';
+                    
+                    // Check if still visible to load more automatically
+                    setTimeout(() => {
+                        if (!suggestedLoading) {
+                            const loader = document.getElementById('suggested-loader');
+                            const scrollArea = document.getElementById('suggested-scroll');
+                            const loaderRect = loader.getBoundingClientRect();
+                            const scrollRect = scrollArea.getBoundingClientRect();
+                            
+                            if (loaderRect.top <= scrollRect.bottom + 200) {
+                                loadSuggestedVideos();
+                            }
+                        }
+                    }, 100);
+                } else {
+                    document.getElementById('suggested-loader').innerText = "No more videos";
+                }
+            });
+    }
+
     const suggObserver = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !suggestedLoading) {
-            suggestedLoading = true;
-            suggestedPage++;
-            document.getElementById('suggested-loader').innerText = 'Loading more...';
-            
-            fetch(`/api/videos?type=suggested&query=${encodeURIComponent(suggestedQuery)}&page=${suggestedPage}`)
-                .then(r => r.text())
-                .then(html => {
-                    if(html.trim() !== '') {
-                        document.getElementById('suggested-grid').insertAdjacentHTML('beforeend', html);
-                        suggestedLoading = false;
-                        document.getElementById('suggested-loader').innerText = 'Scroll for more';
-                    } else {
-                        document.getElementById('suggested-loader').innerText = "No more videos";
-                    }
-                });
+            loadSuggestedVideos();
         }
     }, { root: document.getElementById('suggested-scroll'), rootMargin: "200px" });
 

@@ -1,15 +1,36 @@
-from flask import Flask, render_template, request, redirect, url_for
+from flask import Flask, render_template, request, redirect, url_for, jsonify
 import yt_dlp
 import json
 import os
 import concurrent.futures
-import xml.etree.ElementTree as ET
-import urllib.request
 import itertools
 from datetime import datetime
+import time
 
 app = Flask(__name__)
 SUBS_FILE = 'subscriptions.json'
+SETTINGS_FILE = 'settings.json'
+
+DEFAULT_SETTINGS = {
+    'concurrent_requests': 3,
+    'min_delay_ms': 150,
+    'per_page': 15
+}
+
+feed_cache = {'data': [], 'expires': 0}
+
+def get_settings():
+    if os.path.exists(SETTINGS_FILE):
+        try:
+            with open(SETTINGS_FILE, 'r') as f:
+                data = json.load(f)
+                return {**DEFAULT_SETTINGS, **data}
+        except: pass
+    return DEFAULT_SETTINGS.copy()
+
+def save_settings(settings):
+    with open(SETTINGS_FILE, 'w') as f:
+        json.dump(settings, f)
 
 def get_subs():
     if os.path.exists(SUBS_FILE):
@@ -20,6 +41,8 @@ def get_subs():
 def save_subs(subs):
     with open(SUBS_FILE, 'w') as f:
         json.dump(subs, f)
+    # Invalidate feed cache on subscription change
+    feed_cache['expires'] = 0
 
 def fix_youtube_url(url):
     if 'youtube.com' in url and ('/@' in url or '/c/' in url or '/channel/' in url):
@@ -38,104 +61,64 @@ def fetch_channel_info(url):
             icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
             title = info.get('title', 'Unknown Channel').replace(' - Videos', '')
             
-            # YouTube requires a UC... ID for RSS feeds. Extract it safely.
             channel_id = info.get('channel_id') or info.get('playlist_channel_id') or info.get('playlist_id') or info.get('id', '')
-            if channel_id.startswith('UU'):  # Convert Uploads playlist ID to Channel ID
+            if channel_id.startswith('UU'):  
                 channel_id = 'UC' + channel_id[2:]
                 
             return {"name": title, "url": url, "icon": icon, "id": channel_id}
     except Exception:
         return {"name": "Unknown", "url": url, "icon": "", "id": ""}
 
-def fetch_rss_videos(sub):
-    """Bypass yt-dlp entirely and fetch blazing fast XML metadata for a channel"""
-    vids = []
-    if not sub.get('id'):
-        return vids
+def get_flat_feed(page=1):
+    settings = get_settings()
+    per_page = settings['per_page']
+    
+    if time.time() > feed_cache['expires']:
+        subs = get_subs()
         
-    url = f"https://www.youtube.com/feeds/videos.xml?channel_id={sub['id']}"
-    try:
-        req = urllib.request.Request(url, headers={'User-Agent': 'Mozilla/5.0'})
-        with urllib.request.urlopen(req, timeout=5) as resp:
-            xml_data = resp.read()
-            
-        root = ET.fromstring(xml_data)
-        ns = {
-            'atom': 'http://www.w3.org/2005/Atom',
-            'yt': 'http://www.youtube.com/xml/schemas/2015',
-            'media': 'http://search.yahoo.com/mrss/'
-        }
-        
-        for entry in root.findall('atom:entry', ns):
-            vid_id = entry.find('yt:videoId', ns).text
-            title = entry.find('atom:title', ns).text
-            published = entry.find('atom:published', ns).text
-            
-            try:
-                # Safely parse date by stripping out the timezone and T character
-                # Format: 2024-05-25T13:54:04+00:00 -> 2024-05-25 13:54:04
-                dt_str = published[:19].replace('T', ' ')
-                timestamp = datetime.strptime(dt_str, "%Y-%m-%d %H:%M:%S").timestamp()
-            except:
-                timestamp = 0
-
-            media_group = entry.find('media:group', ns)
-            thumbnail = ""
-            views = None
-            
-            if media_group is not None:
-                thumb_node = media_group.find('media:thumbnail', ns)
-                if thumb_node is not None:
-                    thumbnail = thumb_node.attrib.get('url', '')
+        needs_save = False
+        for sub in subs:
+            if not sub.get('id'):
+                c_info = fetch_channel_info(sub['url'])
+                sub['id'] = c_info.get('id', '')
+                sub['icon'] = c_info.get('icon', sub.get('icon', ''))
+                sub['name'] = c_info.get('name', sub.get('name', 'Unknown'))
+                needs_save = True
                 
-                # Carefully traverse nodes to avoid ElementTree path issues
-                community_node = media_group.find('media:community', ns)
-                if community_node is not None:
-                    stats_node = community_node.find('media:statistics', ns)
-                    if stats_node is not None:
-                        views = stats_node.attrib.get('views')
+        if needs_save:
+            save_subs(subs)
 
-            vids.append({
-                'id': vid_id,
-                'title': title,
-                'thumbnail': thumbnail,
-                'view_count': int(views) if views else None,
-                'duration': None,
-                'timestamp': timestamp,
-                'url': f"https://www.youtube.com/watch?v={vid_id}",
-                'channel_name': sub['name'],
-                'channel_icon': sub.get('icon', ''),
-                'channel_url': sub['url']
-            })
-    except Exception:
-        pass
-    return vids
+        def fetch_flat(sub):
+            ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': max(20, per_page), 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
+                    if info and info.get('entries'):
+                        for e in info['entries']:
+                            if e:
+                                e['channel_name'] = sub['name']
+                                e['channel_icon'] = sub.get('icon', '')
+                                e['channel_url'] = sub['url']
+                        return [e for e in info['entries'] if e]
+            except Exception:
+                pass
+            return []
 
-def get_feed_videos(page=1):
-    subs = get_subs()
-    
-    # Check if we need to migrate/repair any missing IDs
-    needs_save = False
-    for sub in subs:
-        if not sub.get('id'):
-            c_info = fetch_channel_info(sub['url'])
-            sub['id'] = c_info.get('id', '')
-            sub['icon'] = c_info.get('icon', sub.get('icon', ''))
-            sub['name'] = c_info.get('name', sub.get('name', 'Unknown'))
-            needs_save = True
+        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+            results = list(executor.map(fetch_flat, subs))
             
-    if needs_save:
-        save_subs(subs)
-
-    # ONLY use RSS feeds for the home page for guaranteed speed and robust timestamps
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = list(executor.map(fetch_rss_videos, subs))
+        interleaved = []
+        if results:
+            max_len = max([len(r) for r in results] + [0])
+            for i in range(max_len):
+                for r in results:
+                    if i < len(r):
+                        interleaved.append(r[i])
         
-    all_videos = [v for sublist in results for v in sublist if v]
-    all_videos.sort(key=lambda x: x.get('timestamp', 0) or 0, reverse=True)
-    
-    # Slice the master feed list for pagination natively
-    per_page = 20
+        feed_cache['data'] = interleaved
+        feed_cache['expires'] = time.time() + 600
+
+    all_videos = feed_cache['data']
     start = (page - 1) * per_page
     end = page * per_page
     return all_videos[start:end]
@@ -184,23 +167,21 @@ def time_ago(timestamp):
         return ""
 
 @app.context_processor
-def inject_subs():
-    return dict(subs=get_subs())
+def inject_globals():
+    return dict(
+        subs=get_subs(),
+        app_settings=get_settings()
+    )
 
 @app.route('/')
 def feed():
-    return render_template('feed.html', videos=get_feed_videos(page=1), title="Your Feed", type="feed", query="")
+    return render_template('feed.html', title="Your Feed", type="feed", query="")
 
 @app.route('/search')
 def search():
     query = request.args.get('q')
     if not query: return redirect(url_for('feed'))
-    
-    ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlistend': 15}
-    with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-        info = ydl.extract_info(f"ytsearch15:{query}", download=False)
-        videos = info.get('entries', []) if info else []
-    return render_template('feed.html', videos=videos, title=f"Search: {query}", type="search", query=query)
+    return render_template('feed.html', title=f"Search: {query}", type="search", query=query)
 
 @app.route('/watch')
 def watch():
@@ -244,10 +225,11 @@ def watch():
         if info.get('uploader_url') and s['url'].strip('/') == info['uploader_url'].strip('/'):
             channel_icon = s.get('icon', '')
 
+    settings = get_settings()
     suggested = []
     try:
-        with yt_dlp.YoutubeDL({'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlistend': 12}) as ydl:
-            search_query = f"ytsearch12:{info.get('uploader', '')} {info.get('title', '')}"
+        with yt_dlp.YoutubeDL({'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlistend': settings['per_page']}) as ydl:
+            search_query = f"ytsearch{settings['per_page']}:{info.get('uploader', '')} {info.get('title', '')}"
             s_info = ydl.extract_info(search_query, download=False)
             if s_info:
                 suggested = [e for e in s_info.get('entries', []) if e['id'] != info['id']]
@@ -262,82 +244,106 @@ def channel():
     channel_url = request.args.get('url')
     if not channel_url: return "Channel URL required", 400
 
-    ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlistend': 15}
+    c_info = fetch_channel_info(channel_url)
+    channel_name = c_info.get('name', 'Unknown Channel')
+    channel_icon = c_info.get('icon', '')
+    is_subbed = any(s['url'] == channel_url for s in get_subs())
+    
+    return render_template('channel.html', channel_name=channel_name, 
+                           url=channel_url, is_subbed=is_subbed, channel_icon=channel_icon, type="channel")
+
+@app.route('/api/videos_list')
+def api_videos_list():
+    page = int(request.args.get('page', 1))
+    req_type = request.args.get('type', 'feed')
+    query = request.args.get('query', '')
+    
+    settings = get_settings()
+    per_page = settings['per_page']
+    
+    videos = []
+    if req_type == 'feed':
+        videos = get_flat_feed(page)
+    elif req_type == 'search' and query:
+        start = (page - 1) * per_page + 1
+        end = page * per_page
+        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
+            videos = info.get('entries', []) if info else []
+    elif req_type == 'channel' and query:
+        start = (page - 1) * per_page + 1
+        end = page * per_page
+        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(fix_youtube_url(query), download=False)
+            if info:
+                c_name = info.get('title', 'Unknown').replace(' - Videos', '')
+                c_icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
+                for e in info.get('entries', []):
+                    if e and e.get('_type') != 'playlist':
+                        e['channel_name'] = c_name
+                        e['channel_icon'] = c_icon
+                        e['channel_url'] = query
+                        videos.append(e)
+
+    sanitized = []
+    for v in videos:
+        if v:
+            sanitized.append({
+                'id': v.get('id'),
+                'url': v.get('url'),
+                'channel_name': v.get('channel_name'),
+                'channel_icon': v.get('channel_icon'),
+                'channel_url': v.get('channel_url')
+            })
+            
+    return jsonify(sanitized)
+
+@app.route('/api/video_card')
+def api_video_card():
+    url = request.args.get('url')
+    if not url: return "", 400
+    
+    channel_name = request.args.get('channel_name', '')
+    channel_icon = request.args.get('channel_icon', '')
+    channel_url = request.args.get('channel_url', '')
+
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(fix_youtube_url(channel_url), download=False)
-            if not info: return "Error loading channel", 500
-            
-            channel_name = info.get('title', 'Unknown Channel').replace(' - Videos', '')
-            videos = []
-            channel_icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
-            
-            channel_id = info.get('channel_id') or info.get('playlist_channel_id') or info.get('playlist_id') or info.get('id', '')
-            if channel_id.startswith('UU'):
-                channel_id = 'UC' + channel_id[2:]
-            
-            # 1. Use RSS for the first page for fast, accurate dates and view counts
-            if channel_id:
-                sub_mock = {'id': channel_id, 'name': channel_name, 'icon': channel_icon, 'url': channel_url}
-                videos = fetch_rss_videos(sub_mock)
+            info = ydl.extract_info(url, download=False)
+            if info:
+                if channel_name: info['channel_name'] = channel_name
+                if channel_icon: info['channel_icon'] = channel_icon
+                if channel_url: info['channel_url'] = channel_url
                 
-            # 2. Fallback to yt-dlp flat playlist if RSS fails or has 0 items
-            if not videos:
-                for entry in info.get('entries', []):
-                    if entry and entry.get('_type') != 'playlist':
-                        entry['channel_name'] = channel_name
-                        entry['channel_icon'] = channel_icon
-                        entry['channel_url'] = channel_url
-                        videos.append(entry)
+                if not info.get('timestamp') and info.get('upload_date'):
+                    info['timestamp'] = info['upload_date']
                     
-    except Exception as e:
-        return f"Error loading channel: {e}", 500
-
-    is_subbed = any(s['url'] == channel_url for s in get_subs())
-    return render_template('channel.html', videos=videos, channel_name=channel_name, 
-                           url=channel_url, is_subbed=is_subbed, channel_icon=channel_icon, type="channel")
+                return render_template('partials/video_cards.html', videos=[info])
+    except Exception:
+        pass
+    return ""
 
 @app.route('/api/videos')
 def api_videos():
     page = int(request.args.get('page', 1))
     req_type = request.args.get('type', 'feed')
     query = request.args.get('query', '')
+    settings = get_settings()
+    per_page = settings['per_page']
     
     videos = []
-    if req_type == 'feed':
-        videos = get_feed_videos(page)
-    elif req_type == 'search' and query:
-        start = (page - 1) * 15 + 1
-        end = page * 15
-        with yt_dlp.YoutubeDL({'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}) as ydl:
-            info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
-            videos = info.get('entries', []) if info else []
-    elif req_type == 'channel' and query:
-        # Seamlessly handoff to yt-dlp since RSS only supplies the first 15 videos
-        per_page = 15
+    if req_type == 'suggested' and query:
         start = (page - 1) * per_page + 1
         end = page * per_page
-        
-        with yt_dlp.YoutubeDL({'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}) as ydl:
-            info = ydl.extract_info(fix_youtube_url(query), download=False)
-            if info:
-                channel_name = info.get('title', 'Unknown Channel').replace(' - Videos', '')
-                channel_icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
-                for entry in info.get('entries', []):
-                    if entry and entry.get('_type') != 'playlist':
-                        entry['channel_name'] = channel_name
-                        entry['channel_icon'] = channel_icon
-                        entry['channel_url'] = query
-                        videos.append(entry)
-    elif req_type == 'suggested' and query:
-        start = (page - 1) * 12 + 1
-        end = page * 12
         with yt_dlp.YoutubeDL({'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
         return render_template('partials/suggested_cards.html', videos=videos)
 
-    return render_template('partials/video_cards.html', videos=videos)
+    return render_template('partials/video_cards.html', videos=[])
 
 @app.route('/api/comments')
 def api_comments():
@@ -356,7 +362,6 @@ def api_comments():
             if not info: return "Error loading comments", 500
             comments_raw = info.get('comments', [])
             
-            # Construct Hierarchical Tree
             comments_dict = {}
             tree = []
             
@@ -379,8 +384,10 @@ def api_comments():
         return f"<p style='color:var(--accent);'>Error loading comments: {e}</p>"
 
 @app.route('/settings', methods=['GET', 'POST'])
-def settings():
+def settings_page():
     subs = get_subs()
+    app_settings = get_settings()
+    
     if request.method == 'POST':
         action = request.form.get('action')
         url = request.form.get('url')
@@ -389,13 +396,22 @@ def settings():
             if not any(s['url'] == url for s in subs):
                 c_info = fetch_channel_info(url)
                 subs.append({"name": c_info['name'], "url": url, "icon": c_info['icon'], "id": c_info.get('id', '')})
+            save_subs(subs)
         elif action == 'remove' and url:
             subs = [s for s in subs if s['url'] != url]
-            
-        save_subs(subs)
-        return redirect(request.referrer or url_for('settings'))
+            save_subs(subs)
+        elif action == 'update_settings':
+            try:
+                app_settings['concurrent_requests'] = int(request.form.get('concurrent_requests', 3))
+                app_settings['min_delay_ms'] = int(request.form.get('min_delay_ms', 150))
+                app_settings['per_page'] = int(request.form.get('per_page', 15))
+                save_settings(app_settings)
+            except ValueError:
+                pass
+                
+        return redirect(request.referrer or url_for('settings_page'))
 
-    return render_template('settings.html', subs=subs)
+    return render_template('settings.html', subs=subs, app_settings=app_settings)
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000)
