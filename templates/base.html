@@ -1,0 +1,87 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>yt-dlp Tube</title>
+    <style>
+        :root {
+            --bg-color: #0f0f0f; --nav-bg: #212121;
+            --text-color: #ffffff; --text-muted: #aaaaaa;
+            --accent: #ff0000; --card-bg: #1a1a1a;
+        }
+        body {
+            margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            background-color: var(--bg-color); color: var(--text-color);
+        }
+        nav {
+            background-color: var(--nav-bg); padding: 12px 20px;
+            display: flex; justify-content: space-between; align-items: center;
+            position: sticky; top: 0; z-index: 1000; height: 40px;
+        }
+        nav a { color: var(--text-color); text-decoration: none; font-weight: bold; font-size: 1.2rem; }
+        .nav-links a { margin-left: 20px; font-size: 1rem; font-weight: normal; }
+        .search-bar { display: flex; }
+        .search-bar input { padding: 8px; border-radius: 20px 0 0 20px; border: 1px solid #333; background: #121212; color: white; width: 400px; padding-left: 15px;}
+        .search-bar button { padding: 8px 20px; border-radius: 0 20px 20px 0; border: 1px solid #333; background: #333; color: white; cursor: pointer;}
+        
+        .layout { display: flex; min-height: calc(100vh - 64px); }
+        .sidebar { width: 240px; background: var(--nav-bg); padding: 20px 10px; position: sticky; top: 64px; height: calc(100vh - 104px); overflow-y: auto; }
+        .sidebar h3 { font-size: 1rem; color: var(--text-muted); margin: 0 0 10px 10px; text-transform: uppercase; }
+        .sidebar a { display: flex; align-items: center; gap: 12px; color: var(--text-color); text-decoration: none; padding: 10px; border-radius: 8px; font-size: 0.95rem; }
+        .sidebar a:hover { background: #333; }
+        .sidebar img { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
+        
+        .main-content { flex: 1; padding: 20px; overflow-x: hidden; }
+        .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
+        .video-card { display: flex; flex-direction: column; gap: 10px; }
+        .thumbnail { position: relative; width: 100%; aspect-ratio: 16/9; background: #333; border-radius: 12px; overflow: hidden;}
+        .thumbnail img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;}
+        .thumbnail:hover img { transform: scale(1.05); }
+        .duration { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;}
+        
+        .video-info { display: flex; gap: 12px; }
+        .channel-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #333; }
+        .video-text { display: flex; flex-direction: column; }
+        .video-title { font-size: 1rem; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; color: white; margin-bottom: 4px;}
+        .channel-name { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; }
+        .channel-name:hover { color: white; }
+        
+        .btn { background: #333; color: white; padding: 8px 16px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block;}
+        .btn:hover { background: #444; }
+        .btn-danger { background: var(--text-color); color: var(--bg-color); }
+        .btn-danger:hover { background: #ddd; }
+        
+        /* Spinner */
+        #loader { text-align: center; padding: 20px; display: none; color: var(--text-muted); }
+    </style>
+</head>
+<body>
+    <nav>
+        <a href="/">▶ yt-dlp Tube</a>
+        <form class="search-bar" action="/search" method="GET">
+            <input type="text" name="q" placeholder="Search..." required>
+            <button type="submit">Search</button>
+        </form>
+        <div class="nav-links">
+            <a href="/settings">Settings</a>
+        </div>
+    </nav>
+    <div class="layout">
+        <aside class="sidebar">
+            <a href="/">🏠 Home Feed</a>
+            <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
+            <h3>Subscriptions</h3>
+            {% for sub in subs %}
+                <a href="/channel?url={{ sub.url }}">
+                    <img src="{{ sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff' }}"> 
+                    <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sub.name }}</span>
+                </a>
+            {% endfor %}
+        </aside>
+        <main class="main-content">
+            {% block content %}{% endblock %}
+        </main>
+    </div>
+</body>
+</html>

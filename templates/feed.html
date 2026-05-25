@@ -1,0 +1,40 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<h2 style="margin-top: 0;">{{ title }}</h2>
+
+<div class="video-grid" id="video-grid">
+    {% include 'partials/video_cards.html' %}
+</div>
+
+<div id="loader">Loading more videos...</div>
+
+<script>
+    let page = 1;
+    let loading = false;
+    const reqType = "{{ type }}";
+    const reqQuery = "{{ query }}";
+    
+    // Infinite Scroll
+    const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !loading) {
+            loading = true;
+            document.getElementById('loader').style.display = 'block';
+            page++;
+            
+            fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(reqQuery)}&page=${page}`)
+                .then(r => r.text())
+                .then(html => {
+                    if(html.trim() !== '') {
+                        document.getElementById('video-grid').insertAdjacentHTML('beforeend', html);
+                        loading = false;
+                    } else {
+                        document.getElementById('loader').innerText = "No more videos";
+                    }
+                });
+        }
+    }, { rootMargin: "200px" });
+
+    observer.observe(document.getElementById('loader'));
+</script>
+{% endblock %}

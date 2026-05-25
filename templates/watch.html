@@ -1,0 +1,137 @@
+{% extends 'base.html' %}
+
+{% block content %}
+{% set uploader_name = video.uploader | default(video.channel | default('Unknown')) %}
+{% set channel_link = video.uploader_url | default(video.channel_url | default('https://www.youtube.com/@' ~ uploader_name)) %}
+
+<style>
+    .watch-layout { display: grid; grid-template-columns: 1fr 380px; gap: 24px; max-width: 1600px; margin: 0 auto; }
+    @media (max-width: 1100px) { .watch-layout { grid-template-columns: 1fr; } }
+    
+    .player-wrapper { width: 100%; background: black; border-radius: 12px; overflow: hidden; margin-bottom: 15px; position: relative;}
+    video { width: 100%; aspect-ratio: 16/9; outline: none; }
+    
+    .video-title { font-size: 1.4rem; font-weight: bold; margin: 10px 0; color: white; -webkit-line-clamp: unset; line-height: 1.3;}
+    .channel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; }
+    .channel-left { display: flex; align-items: center; gap: 15px; }
+    .channel-left img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; }
+    .desc-box { background: var(--card-bg); padding: 15px; border-radius: 12px; white-space: pre-wrap; font-size: 0.95rem; line-height: 1.5; color: #ddd;}
+    
+    .suggested-list { display: flex; flex-direction: column; gap: 15px; }
+    .s-card { display: flex; gap: 10px; text-decoration: none; }
+    .s-thumb { width: 160px; min-width: 160px; aspect-ratio: 16/9; border-radius: 8px; overflow: hidden; position: relative;}
+    .s-thumb img { width: 100%; height: 100%; object-fit: cover; }
+    .s-info { display: flex; flex-direction: column; }
+    .s-title { color: white; font-size: 0.95rem; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 5px;}
+    .s-channel { color: var(--text-muted); font-size: 0.85rem; }
+    
+    select { background: #333; color: white; border: none; padding: 8px 12px; border-radius: 20px; font-weight: bold; outline: none; cursor: pointer;}
+</style>
+
+<div class="watch-layout">
+    <div class="main-video">
+        <div class="player-wrapper">
+            <!-- Dual Player Setup for High Res Streams -->
+            <video id="vid-player" controls autoplay>
+                {% if resolutions %}
+                    <source src="{{ resolutions[0].url }}" type="video/mp4">
+                {% else %}
+                    <source src="{{ video.url }}" type="video/mp4">
+                {% endif %}
+            </video>
+            
+            {% if best_audio %}
+            <audio id="aud-player" style="display:none;">
+                <source src="{{ best_audio.url }}" type="audio/webm">
+            </audio>
+            {% endif %}
+        </div>
+        
+        <h1 class="video-title">{{ video.title }}</h1>
+        
+        <div class="channel-header">
+            <div class="channel-left">
+                <a href="/channel?url={{ channel_link | urlencode }}">
+                    <img src="{{ channel_icon | default('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff') }}">
+                </a>
+                <div>
+                    <a href="/channel?url={{ channel_link | urlencode }}" style="color: white; text-decoration: none; font-weight: bold; font-size: 1.1rem;">
+                        {{ uploader_name }}
+                    </a>
+                    <div style="color: var(--text-muted); font-size: 0.85rem;">{{ video.view_count | default('0') }} views</div>
+                </div>
+            </div>
+            
+            <div class="channel-right" style="display: flex; gap: 10px; align-items: center;">
+                {% if resolutions %}
+                <select id="quality-selector" onchange="changeResolution(this.value)">
+                    {% for r in resolutions %}
+                        <option value="{{ r.url }}">{{ r.height }}p{% if r.fps > 30 %} {{ r.fps }}fps{% endif %}</option>
+                    {% endfor %}
+                </select>
+                {% endif %}
+                
+                <form action="/settings" method="POST" style="margin: 0;">
+                    <input type="hidden" name="url" value="{{ channel_link }}">
+                    <input type="hidden" name="name" value="{{ uploader_name }}">
+                    <input type="hidden" name="action" value="add">
+                    <button type="submit" class="btn btn-danger">Subscribe</button>
+                </form>
+            </div>
+        </div>
+
+        <div class="desc-box">{{ video.description }}</div>
+    </div>
+
+    <div class="suggested-list">
+        <h3 style="margin-top: 0;">Up Next</h3>
+        {% for s in suggested %}
+        {% set s_url = s.url | default('https://www.youtube.com/watch?v=' ~ s.id) %}
+        <a href="/watch?url={{ s_url | urlencode }}" class="s-card">
+            <div class="s-thumb">
+                <img src="{{ s.thumbnail | default((s.thumbnails and s.thumbnails[-1].url) | default('https://i.ytimg.com/vi/' ~ s.id ~ '/hqdefault.jpg')) }}" loading="lazy">
+                <span class="duration">{{ s.duration | format_time }}</span>
+            </div>
+            <div class="s-info">
+                <span class="s-title">{{ s.title }}</span>
+                <span class="s-channel">{{ s.uploader | default(s.channel | default('Unknown')) }}</span>
+                <span class="s-channel">{{ s.view_count | default('0') }} views</span>
+            </div>
+        </a>
+        {% endfor %}
+    </div>
+</div>
+
+<script>
+    const video = document.getElementById('vid-player');
+    const audio = document.getElementById('aud-player');
+
+    // Dual-Player Synchronization
+    if (audio) {
+        video.onplay = () => audio.play();
+        video.onpause = () => audio.pause();
+        video.onseeked = () => { audio.currentTime = video.currentTime; };
+        video.onwaiting = () => audio.pause();
+        video.onplaying = () => audio.play();
+        video.onratechange = () => { audio.playbackRate = video.playbackRate; };
+        
+        // Ensure volume is controlled via video player
+        video.onvolumechange = () => { 
+            audio.volume = video.volume; 
+            audio.muted = video.muted;
+        };
+        video.volume = 1; // Default
+        video.muted = false;
+    }
+
+    function changeResolution(url) {
+        const currentTime = video.currentTime;
+        const isPaused = video.paused;
+        video.src = url;
+        video.currentTime = currentTime;
+        if (!isPaused) {
+            video.play();
+        }
+    }
+</script>
+{% endblock %}

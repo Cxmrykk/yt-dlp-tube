@@ -1,0 +1,60 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; background: var(--card-bg); padding: 30px; border-radius: 12px;">
+    <div style="display: flex; align-items: center; gap: 20px;">
+        <img src="{{ channel_icon or 'https://ui-avatars.com/api/?name='~channel_name~'&background=333&color=fff' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover;">
+        <div>
+            <h1 style="margin: 0 0 10px 0;">{{ channel_name }}</h1>
+            <span style="color: var(--text-muted);">{{ url }}</span>
+        </div>
+    </div>
+    
+    <form action="/settings" method="POST" style="margin: 0;">
+        <input type="hidden" name="url" value="{{ url }}">
+        <input type="hidden" name="name" value="{{ channel_name }}">
+        
+        {% if is_subbed %}
+            <input type="hidden" name="action" value="remove">
+            <button type="submit" class="btn">Subscribed ✓</button>
+        {% else %}
+            <input type="hidden" name="action" value="add">
+            <button type="submit" class="btn btn-danger">Subscribe</button>
+        {% endif %}
+    </form>
+</div>
+
+<div class="video-grid" id="video-grid">
+    {% include 'partials/video_cards.html' %}
+</div>
+
+<div id="loader">Loading more videos...</div>
+
+<script>
+    let page = 1;
+    let loading = false;
+    const reqType = "channel";
+    const reqQuery = "{{ url }}";
+    
+    const observer = new IntersectionObserver((entries) => {
+        if (entries[0].isIntersecting && !loading) {
+            loading = true;
+            document.getElementById('loader').style.display = 'block';
+            page++;
+            
+            fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(reqQuery)}&page=${page}`)
+                .then(r => r.text())
+                .then(html => {
+                    if(html.trim() !== '') {
+                        document.getElementById('video-grid').insertAdjacentHTML('beforeend', html);
+                        loading = false;
+                    } else {
+                        document.getElementById('loader').innerText = "No more videos";
+                    }
+                });
+        }
+    }, { rootMargin: "200px" });
+
+    observer.observe(document.getElementById('loader'));
+</script>
+{% endblock %}
