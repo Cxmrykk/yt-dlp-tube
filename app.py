@@ -3,21 +3,21 @@ import yt_dlp
 import json
 import os
 import concurrent.futures
-import itertools
+import threading
 from datetime import datetime
 import time
 
 app = Flask(__name__)
 SUBS_FILE = 'subscriptions.json'
 SETTINGS_FILE = 'settings.json'
+VIDEO_DATES_FILE = 'video_dates.json'
 
 DEFAULT_SETTINGS = {
-    'concurrent_requests': 3,
-    'min_delay_ms': 150,
+    'background_interval_mins': 30,
     'per_page': 15
 }
 
-feed_cache = {'data': [], 'expires': 0}
+feed_cache = {'data': [], 'last_update': 0}
 
 def get_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -41,8 +41,38 @@ def get_subs():
 def save_subs(subs):
     with open(SUBS_FILE, 'w') as f:
         json.dump(subs, f)
-    # Invalidate feed cache on subscription change
-    feed_cache['expires'] = 0
+
+def get_video_dates():
+    if os.path.exists(VIDEO_DATES_FILE):
+        try:
+            with open(VIDEO_DATES_FILE, 'r') as f:
+                return json.load(f)
+        except: pass
+    return {}
+
+def save_video_dates(dates):
+    with open(VIDEO_DATES_FILE, 'w') as f:
+        json.dump(dates, f)
+
+def sync_video_dates(entries):
+    dates_cache = get_video_dates()
+    changed = False
+    now = time.time()
+    
+    for e in entries:
+        if not e: continue
+        vid = e.get('id')
+        if not vid: continue
+        
+        # Cache the discovery date for this video
+        if vid not in dates_cache:
+            dates_cache[vid] = now
+            changed = True
+            
+        e['timestamp'] = dates_cache[vid]
+        
+    if changed:
+        save_video_dates(dates_cache)
 
 def fix_youtube_url(url):
     if 'youtube.com' in url and ('/@' in url or '/c/' in url or '/channel/' in url):
@@ -69,54 +99,60 @@ def fetch_channel_info(url):
     except Exception:
         return {"name": "Unknown", "url": url, "icon": "", "id": ""}
 
+def update_feed_now():
+    subs = get_subs()
+    settings = get_settings()
+    # Fetch a deep enough pool to ensure pagination works well
+    fetch_limit = max(50, settings['per_page'] * 3) 
+    
+    def fetch_flat(sub):
+        ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': fetch_limit, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
+        try:
+            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
+                if info and info.get('entries'):
+                    for e in info['entries']:
+                        if e:
+                            e['channel_name'] = sub['name']
+                            e['channel_icon'] = sub.get('icon', '')
+                            e['channel_url'] = sub['url']
+                    return [e for e in info['entries'] if e]
+        except Exception:
+            pass
+        return []
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
+        results = list(executor.map(fetch_flat, subs))
+        
+    interleaved = []
+    if results:
+        max_len = max([len(r) for r in results] + [0])
+        for i in range(max_len):
+            for r in results:
+                if i < len(r):
+                    interleaved.append(r[i])
+    
+    sync_video_dates(interleaved)
+    feed_cache['data'] = interleaved
+    feed_cache['last_update'] = time.time()
+
+def bg_worker():
+    while True:
+        update_feed_now()
+        settings = get_settings()
+        interval_seconds = settings.get('background_interval_mins', 30) * 60
+        time.sleep(interval_seconds)
+
+# Start background thread (avoiding double execution in Werkzeug dev server)
+if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    threading.Thread(target=bg_worker, daemon=True).start()
+
 def get_flat_feed(page=1):
     settings = get_settings()
     per_page = settings['per_page']
     
-    if time.time() > feed_cache['expires']:
-        subs = get_subs()
-        
-        needs_save = False
-        for sub in subs:
-            if not sub.get('id'):
-                c_info = fetch_channel_info(sub['url'])
-                sub['id'] = c_info.get('id', '')
-                sub['icon'] = c_info.get('icon', sub.get('icon', ''))
-                sub['name'] = c_info.get('name', sub.get('name', 'Unknown'))
-                needs_save = True
-                
-        if needs_save:
-            save_subs(subs)
-
-        def fetch_flat(sub):
-            ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': max(20, per_page), 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
-            try:
-                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
-                    if info and info.get('entries'):
-                        for e in info['entries']:
-                            if e:
-                                e['channel_name'] = sub['name']
-                                e['channel_icon'] = sub.get('icon', '')
-                                e['channel_url'] = sub['url']
-                        return [e for e in info['entries'] if e]
-            except Exception:
-                pass
-            return []
-
-        with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-            results = list(executor.map(fetch_flat, subs))
-            
-        interleaved = []
-        if results:
-            max_len = max([len(r) for r in results] + [0])
-            for i in range(max_len):
-                for r in results:
-                    if i < len(r):
-                        interleaved.append(r[i])
-        
-        feed_cache['data'] = interleaved
-        feed_cache['expires'] = time.time() + 600
+    if not feed_cache['data']:
+        update_feed_now()
 
     all_videos = feed_cache['data']
     start = (page - 1) * per_page
@@ -252,25 +288,19 @@ def channel():
     return render_template('channel.html', channel_name=channel_name, 
                            url=channel_url, is_subbed=is_subbed, channel_icon=channel_icon, type="channel")
 
-@app.route('/api/videos_list')
-def api_videos_list():
+@app.route('/api/videos')
+def api_videos():
     page = int(request.args.get('page', 1))
     req_type = request.args.get('type', 'feed')
     query = request.args.get('query', '')
-    
     settings = get_settings()
     per_page = settings['per_page']
     
     videos = []
     if req_type == 'feed':
         videos = get_flat_feed(page)
-    elif req_type == 'search' and query:
-        start = (page - 1) * per_page + 1
-        end = page * per_page
-        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
-            videos = info.get('entries', []) if info else []
+        return render_template('partials/video_cards.html', videos=videos)
+        
     elif req_type == 'channel' and query:
         start = (page - 1) * per_page + 1
         end = page * per_page
@@ -286,59 +316,25 @@ def api_videos_list():
                         e['channel_icon'] = c_icon
                         e['channel_url'] = query
                         videos.append(e)
-
-    sanitized = []
-    for v in videos:
-        if v:
-            sanitized.append({
-                'id': v.get('id'),
-                'url': v.get('url'),
-                'channel_name': v.get('channel_name'),
-                'channel_icon': v.get('channel_icon'),
-                'channel_url': v.get('channel_url')
-            })
-            
-    return jsonify(sanitized)
-
-@app.route('/api/video_card')
-def api_video_card():
-    url = request.args.get('url')
-    if not url: return "", 400
-    
-    channel_name = request.args.get('channel_name', '')
-    channel_icon = request.args.get('channel_icon', '')
-    channel_url = request.args.get('channel_url', '')
-
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
-    try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if info:
-                if channel_name: info['channel_name'] = channel_name
-                if channel_icon: info['channel_icon'] = channel_icon
-                if channel_url: info['channel_url'] = channel_url
-                
-                if not info.get('timestamp') and info.get('upload_date'):
-                    info['timestamp'] = info['upload_date']
-                    
-                return render_template('partials/video_cards.html', videos=[info])
-    except Exception:
-        pass
-    return ""
-
-@app.route('/api/videos')
-def api_videos():
-    page = int(request.args.get('page', 1))
-    req_type = request.args.get('type', 'feed')
-    query = request.args.get('query', '')
-    settings = get_settings()
-    per_page = settings['per_page']
-    
-    videos = []
-    if req_type == 'suggested' and query:
+        sync_video_dates(videos)
+        return render_template('partials/video_cards.html', videos=videos)
+        
+    elif req_type == 'search' and query:
         start = (page - 1) * per_page + 1
         end = page * per_page
-        with yt_dlp.YoutubeDL({'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}) as ydl:
+        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
+            if info:
+                videos = info.get('entries', [])
+        sync_video_dates(videos)
+        return render_template('partials/video_cards.html', videos=videos)
+        
+    elif req_type == 'suggested' and query:
+        start = (page - 1) * per_page + 1
+        end = page * per_page
+        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
         return render_template('partials/suggested_cards.html', videos=videos)
@@ -402,8 +398,7 @@ def settings_page():
             save_subs(subs)
         elif action == 'update_settings':
             try:
-                app_settings['concurrent_requests'] = int(request.form.get('concurrent_requests', 3))
-                app_settings['min_delay_ms'] = int(request.form.get('min_delay_ms', 150))
+                app_settings['background_interval_mins'] = int(request.form.get('background_interval_mins', 30))
                 app_settings['per_page'] = int(request.form.get('per_page', 15))
                 save_settings(app_settings)
             except ValueError:

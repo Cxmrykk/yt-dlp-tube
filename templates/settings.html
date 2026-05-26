@@ -32,11 +32,8 @@
     <form action="/settings" method="POST">
         <input type="hidden" name="action" value="update_settings">
         
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Concurrent Requests (Workers):</label>
-        <input type="number" name="concurrent_requests" value="{{ app_settings.concurrent_requests }}" min="1" max="10" required>
-        
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Minimum Delay Between Requests (ms):</label>
-        <input type="number" name="min_delay_ms" value="{{ app_settings.min_delay_ms }}" min="0" max="5000" required>
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Background Fetch Interval (minutes):</label>
+        <input type="number" name="background_interval_mins" value="{{ app_settings.background_interval_mins }}" min="5" max="1440" required>
         
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Videos Loaded Per Scroll Page:</label>
         <input type="number" name="per_page" value="{{ app_settings.per_page }}" min="1" max="50" required>

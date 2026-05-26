@@ -20,10 +20,8 @@
                 {{ uploader_name }}
             </a>
             <span style="color: var(--text-muted); font-size: 0.85rem;">
-                {% set views = video.view_count | format_views %}
-                {% if views %}{{ views }} views{% endif %}
-                {% set t = video.published_text | default(video.timestamp | time_ago) %}
-                {% if t %}{% if views %} • {% endif %}{{ t }}{% endif %}
+                {% set t = video.timestamp | time_ago %}
+                {% if t %}{{ t }}{% endif %}
             </span>
         </div>
     </div>
