@@ -6,6 +6,7 @@ import concurrent.futures
 import threading
 from datetime import datetime
 import time
+import itertools
 
 app = Flask(__name__)
 SUBS_FILE = 'subscriptions.json'
@@ -18,6 +19,10 @@ DEFAULT_SETTINGS = {
 }
 
 feed_cache = {'data': [], 'last_update': 0}
+
+# Simple cache so we don't refetch the exact same page if the user refreshes
+COMMENTS_CACHE = {} 
+COMMENTS_LOCK = threading.Lock()
 
 def get_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -64,7 +69,6 @@ def sync_video_dates(entries):
         vid = e.get('id')
         if not vid: continue
         
-        # Cache the discovery date for this video
         if vid not in dates_cache:
             dates_cache[vid] = now
             changed = True
@@ -102,7 +106,6 @@ def fetch_channel_info(url):
 def update_feed_now():
     subs = get_subs()
     settings = get_settings()
-    # Fetch a deep enough pool to ensure pagination works well
     fetch_limit = max(50, settings['per_page'] * 3) 
     
     def fetch_flat(sub):
@@ -143,7 +146,6 @@ def bg_worker():
         interval_seconds = settings.get('background_interval_mins', 30) * 60
         time.sleep(interval_seconds)
 
-# Start background thread (avoiding double execution in Werkzeug dev server)
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     threading.Thread(target=bg_worker, daemon=True).start()
 
@@ -159,8 +161,7 @@ def get_flat_feed(page=1):
     end = page * per_page
     return all_videos[start:end]
 
-@app.template_filter('format_time')
-def format_time(s):
+def format_time_str(s):
     if not s: return "0:00"
     try:
         m, s = divmod(int(float(s)), 60)
@@ -170,8 +171,7 @@ def format_time(s):
     except (ValueError, TypeError):
         return "0:00"
 
-@app.template_filter('format_views')
-def format_views(num):
+def format_views_str(num):
     if num is None or num == '': return None
     try:
         num = int(num)
@@ -182,8 +182,7 @@ def format_views(num):
     except:
         return str(num)
 
-@app.template_filter('time_ago')
-def time_ago(timestamp):
+def time_ago_str(timestamp):
     if not timestamp: return ""
     try:
         timestamp = str(timestamp)
@@ -201,6 +200,15 @@ def time_ago(timestamp):
         return f"{int(diff//31536000)} years ago"
     except:
         return ""
+
+@app.template_filter('format_time')
+def format_time(s): return format_time_str(s)
+
+@app.template_filter('format_views')
+def format_views(num): return format_views_str(num)
+
+@app.template_filter('time_ago')
+def time_ago(timestamp): return time_ago_str(timestamp)
 
 @app.context_processor
 def inject_globals():
@@ -227,16 +235,23 @@ def watch():
             video_url = f"https://www.youtube.com/watch?v={request.args.get('v')}"
         else:
             return "Video URL required", 400
+    return render_template('watch.html', video_url=video_url)
 
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
+@app.route('/api/info')
+def api_info():
+    video_url = request.args.get('url')
+    if not video_url:
+        return jsonify({"error": "Video URL required"}), 400
+
+    ydl_opts = {'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'getcomments': False}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
     except Exception as e:
-        return f"Error loading video: {e}", 500
+        return jsonify({"error": str(e)}), 500
 
     if not info:
-        return "Video unavailable (may be members-only or deleted).", 404
+        return jsonify({"error": "Video unavailable"}), 404
 
     audio_formats = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
     video_formats = [f for f in info.get('formats', []) if f.get('vcodec') != 'none' and f.get('ext') in ['mp4', 'webm']]
@@ -257,36 +272,56 @@ def watch():
     resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none'} for r in resolutions]
 
     channel_icon = ""
+    uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
     for s in get_subs():
-        if info.get('uploader_url') and s['url'].strip('/') == info['uploader_url'].strip('/'):
+        if s['url'].strip('/') == uploader_url.strip('/'):
             channel_icon = s.get('icon', '')
 
-    settings = get_settings()
-    suggested = []
-    try:
-        with yt_dlp.YoutubeDL({'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlistend': settings['per_page']}) as ydl:
-            search_query = f"ytsearch{settings['per_page']}:{info.get('uploader', '')} {info.get('title', '')}"
-            s_info = ydl.extract_info(search_query, download=False)
-            if s_info:
-                suggested = [e for e in s_info.get('entries', []) if e['id'] != info['id']]
-    except Exception: pass
+    title_words = info.get('title', 'video').replace('|', ' ').replace('-', ' ').split()
+    broad_query = ' '.join(title_words[:4]).strip()
+    if len(broad_query) < 3: broad_query = info.get('uploader', 'youtube')
 
-    return render_template('watch.html', video=info, resolutions=resolutions, 
-                           resolutions_json=json.dumps(resolutions_list), 
-                           best_audio=best_audio, suggested=suggested, channel_icon=channel_icon)
+    return jsonify({
+        "id": info.get('id'),
+        "title": info.get('title', 'Untitled'),
+        "uploader": info.get('uploader') or info.get('channel') or 'Unknown',
+        "uploader_url": uploader_url,
+        "view_count": format_views_str(info.get('view_count')),
+        "time_ago": time_ago_str(info.get('timestamp') or info.get('upload_date')),
+        "description": info.get('description', ''),
+        "channel_icon": channel_icon,
+        "resolutions": resolutions_list,
+        "best_audio": best_audio.get('url') if best_audio else None,
+        "search_query": broad_query
+    })
 
 @app.route('/channel')
 def channel():
     channel_url = request.args.get('url')
     if not channel_url: return "Channel URL required", 400
 
-    c_info = fetch_channel_info(channel_url)
-    channel_name = c_info.get('name', 'Unknown Channel')
-    channel_icon = c_info.get('icon', '')
-    is_subbed = any(s['url'] == channel_url for s in get_subs())
+    subs = get_subs()
+    sub = next((s for s in subs if s['url'].strip('/') == channel_url.strip('/')), None)
     
-    return render_template('channel.html', channel_name=channel_name, 
-                           url=channel_url, is_subbed=is_subbed, channel_icon=channel_icon, type="channel")
+    return render_template(
+        'channel.html', 
+        url=channel_url, 
+        channel_name=sub['name'] if sub else "Loading...", 
+        channel_icon=sub['icon'] if sub else "", 
+        is_subbed=bool(sub),
+        needs_fetch=not bool(sub)
+    )
+
+@app.route('/api/channel_info')
+def api_channel_info():
+    url = request.args.get('url')
+    c_info = fetch_channel_info(url)
+    is_subbed = any(s['url'].strip('/') == url.strip('/') for s in get_subs())
+    return jsonify({
+        "name": c_info.get('name', 'Unknown Channel'),
+        "icon": c_info.get('icon', ''),
+        "is_subbed": is_subbed
+    })
 
 @app.route('/api/videos')
 def api_videos():
@@ -299,7 +334,7 @@ def api_videos():
     videos = []
     if req_type == 'feed':
         videos = get_flat_feed(page)
-        return render_template('partials/video_cards.html', videos=videos)
+        return render_template('partials/video_cards.html', videos=videos, show_date=True)
         
     elif req_type == 'channel' and query:
         start = (page - 1) * per_page + 1
@@ -317,7 +352,7 @@ def api_videos():
                         e['channel_url'] = query
                         videos.append(e)
         sync_video_dates(videos)
-        return render_template('partials/video_cards.html', videos=videos)
+        return render_template('partials/video_cards.html', videos=videos, show_date=False)
         
     elif req_type == 'search' and query:
         start = (page - 1) * per_page + 1
@@ -328,7 +363,7 @@ def api_videos():
             if info:
                 videos = info.get('entries', [])
         sync_video_dates(videos)
-        return render_template('partials/video_cards.html', videos=videos)
+        return render_template('partials/video_cards.html', videos=videos, show_date=True)
         
     elif req_type == 'suggested' and query:
         start = (page - 1) * per_page + 1
@@ -341,43 +376,92 @@ def api_videos():
 
     return render_template('partials/video_cards.html', videos=[])
 
+
 @app.route('/api/comments')
 def api_comments():
     url = request.args.get('url')
+    page = int(request.args.get('page', 1))
+    sort = request.args.get('sort', 'top')  # Default to top
+    per_page = 15
+
     if not url: return "No URL provided", 400
-    ydl_opts = {
-        'quiet': True, 
-        'no_warnings': True,
-        'ignoreerrors': True,
-        'getcomments': True,
-        'extractor_args': {'youtube': ['max-comments=40']}
-    }
+    if sort not in ('top', 'new'): sort = 'top'
+
+    target_start = (page - 1) * per_page
+    target_end = page * per_page
+    
+    # Create a unique cache key based on URL AND sort order
+    cache_key = f"{url}|{sort}"
+
+    with COMMENTS_LOCK:
+        # Safe memory cleanup: close old yt-dlp sessions
+        if len(COMMENTS_CACHE) > 50:
+            for c_item in COMMENTS_CACHE.values():
+                if c_item.get('ydl'):
+                    try: c_item['ydl'].close()
+                    except Exception: pass
+            COMMENTS_CACHE.clear()
+
+        # If we don't have a live session for this exact URL+Sort combination, set one up
+        if cache_key not in COMMENTS_CACHE:
+            ydl_opts = {
+                'quiet': True,
+                'no_warnings': True,
+                'ignoreerrors': True,
+                'ignore_no_formats_error': True,
+                'getcomments': True,
+                'skip_download': True,
+                'format': 'none', 
+                'extractor_args': {
+                    'youtube': {
+                        'comment_sort': [sort],
+                        'max-comments': ['all,all'] # Fetches top-level AND nested replies lazily
+                    }
+                }
+            }
+            
+            ydl = yt_dlp.YoutubeDL(ydl_opts)
+            
+            try:
+                info = ydl.extract_info(url, download=False, process=True)
+
+                if not info or info.get('_type') in ('playlist', 'multi_video'):
+                    ydl.close()
+                    return "<p style='color:var(--text-muted);'>Comments not supported.</p>"
+
+                lazy_list = info.get('comments')
+                if lazy_list is None:
+                    ydl.close()
+                    return "<p style='color:var(--text-muted);'>Comments disabled or not supported.</p>"
+
+                COMMENTS_CACHE[cache_key] = {
+                    'lazy_list': lazy_list,
+                    'ydl': ydl,
+                    'exhausted': False
+                }
+            except Exception as e:
+                ydl.close()
+                return f"<p style='color:var(--accent);'>Error initializing comments: {e}</p>"
+
+        cache_data = COMMENTS_CACHE[cache_key]
+
+    # Outside the lock, slice the LazyList. 
     try:
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(url, download=False)
-            if not info: return "Error loading comments", 500
-            comments_raw = info.get('comments', [])
-            
-            comments_dict = {}
-            tree = []
-            
-            for c in comments_raw:
-                c['replies'] = []
-                comments_dict[c['id']] = c
-                
-            for c in comments_raw:
-                parent_id = c.get('parent')
-                if parent_id == 'root' or not parent_id:
-                    tree.append(c)
-                else:
-                    if parent_id in comments_dict:
-                        comments_dict[parent_id]['replies'].append(c)
-                    else:
-                        tree.append(c)
-                        
-            return render_template('partials/comments.html', comments=tree)
+        chunk_plus_one = cache_data['lazy_list'][target_start : target_end + 1]
     except Exception as e:
         return f"<p style='color:var(--accent);'>Error loading comments: {e}</p>"
+
+    chunk = chunk_plus_one[:per_page]
+
+    with COMMENTS_LOCK:
+        if len(chunk_plus_one) <= per_page:
+            cache_data['exhausted'] = True
+
+    if not chunk:
+        return "" if page > 1 else "<p style='color:var(--text-muted);'>No comments found.</p>"
+
+    return render_template('partials/comments.html', comments=chunk)
+
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings_page():

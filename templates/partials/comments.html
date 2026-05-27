@@ -1,25 +1,30 @@
 {% macro render_comment(comment, is_reply=False) %}
-<div class="comment" style="display: flex; gap: 12px; margin-bottom: {% if is_reply %}15px{% else %}20px{% endif %}; margin-left: {% if is_reply %}40px{% else %}0{% endif %};">
-    <img src="{{ comment.author_thumbnail or ('https://ui-avatars.com/api/?name=' ~ (comment.author | urlencode) ~ '&background=333&color=fff') }}" style="width: {% if is_reply %}30px{% else %}40px{% endif %}; height: {% if is_reply %}30px{% else %}40px{% endif %}; border-radius: 50%; object-fit: cover;">
-    <div>
+<div class="comment" style="display: flex; gap: 12px; margin-bottom: {% if is_reply %}12px{% else %}20px{% endif %}; margin-top: {% if is_reply %}10px{% else %}0{% endif %};">
+    <img src="{{ comment.author_thumbnail or ('https://ui-avatars.com/api/?name=' ~ (comment.author | urlencode) ~ '&background=333&color=fff') }}" style="width: {% if is_reply %}28px{% else %}40px{% endif %}; height: {% if is_reply %}28px{% else %}40px{% endif %}; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
+    <div style="min-width: 0; flex: 1;">
         <div style="font-size: 0.9rem; font-weight: bold; margin-bottom: 5px;">
             {{ comment.author }} 
             <span style="color: var(--text-muted); font-size: 0.8rem; font-weight: normal; margin-left: 8px;">
                 {{ comment.time_text or '' }}
             </span>
         </div>
-        <div style="font-size: 0.95rem; line-height: 1.4; color: #eee; white-space: pre-wrap;">{{ comment.text }}</div>
+        <div style="font-size: 0.95rem; line-height: 1.4; color: #eee; white-space: pre-wrap; word-break: break-word;">{{ comment.text }}</div>
         <div style="margin-top: 5px; font-size: 0.85rem; color: var(--text-muted);">
             {% set c_views = comment.like_count | format_views %}
             👍 {{ c_views if c_views else '0' }}
         </div>
         
         {% if comment.replies %}
-            <div class="replies" style="margin-top: 15px;">
-                {% for reply in comment.replies %}
-                    {{ render_comment(reply, is_reply=True) }}
-                {% endfor %}
-            </div>
+            <details class="replies-box" style="margin-top: 8px;">
+                <summary style="cursor: pointer; font-size: 0.9rem; color: #3ea6ff; font-weight: bold; outline: none; user-select: none;">
+                    {{ comment.replies|length }} replies
+                </summary>
+                <div class="replies" style="margin-top: 15px; padding-left: 12px; border-left: 2px solid #333;">
+                    {% for reply in comment.replies %}
+                        {{ render_comment(reply, is_reply=True) }}
+                    {% endfor %}
+                </div>
+            </details>
         {% endif %}
     </div>
 </div>
@@ -27,6 +32,4 @@
 
 {% for comment in comments %}
     {{ render_comment(comment) }}
-{% else %}
-    <p>No comments found.</p>
 {% endfor %}

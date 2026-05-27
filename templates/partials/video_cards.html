@@ -19,10 +19,14 @@
             <a href="/channel?url={{ channel_link | urlencode }}" class="channel-name">
                 {{ uploader_name }}
             </a>
+            
+            {% if show_date %}
             <span style="color: var(--text-muted); font-size: 0.85rem;">
                 {% set t = video.timestamp | time_ago %}
                 {% if t %}{{ t }}{% endif %}
             </span>
+            {% endif %}
+            
         </div>
     </div>
 </div>

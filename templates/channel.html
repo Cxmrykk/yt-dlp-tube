@@ -3,24 +3,21 @@
 {% block content %}
 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; background: var(--card-bg); padding: 30px; border-radius: 12px;">
     <div style="display: flex; align-items: center; gap: 20px;">
-        <img src="{{ channel_icon or 'https://ui-avatars.com/api/?name='~channel_name~'&background=333&color=fff' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover;">
+        <img id="ch-icon" src="{{ channel_icon or 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #333;">
         <div>
-            <h1 style="margin: 0 0 10px 0;">{{ channel_name }}</h1>
+            <h1 id="ch-name" style="margin: 0 0 10px 0;">{{ channel_name }}</h1>
             <span style="color: var(--text-muted);">{{ url }}</span>
         </div>
     </div>
     
     <form action="/settings" method="POST" style="margin: 0;">
         <input type="hidden" name="url" value="{{ url }}">
-        <input type="hidden" name="name" value="{{ channel_name }}">
+        <input type="hidden" id="form-ch-name" name="name" value="{{ channel_name }}">
+        <input type="hidden" id="form-action" name="action" value="{{ 'remove' if is_subbed else 'add' }}">
         
-        {% if is_subbed %}
-            <input type="hidden" name="action" value="remove">
-            <button type="submit" class="btn">Subscribed ✓</button>
-        {% else %}
-            <input type="hidden" name="action" value="add">
-            <button type="submit" class="btn btn-danger">Subscribe</button>
-        {% endif %}
+        <button type="submit" id="sub-btn" class="btn {{ '' if is_subbed else 'btn-danger' }}" style="display: {{ 'block' if channel_name != 'Loading...' else 'none' }}">
+            {{ 'Subscribed ✓' if is_subbed else 'Subscribe' }}
+        </button>
     </form>
 </div>
 
@@ -31,16 +28,45 @@
 <div id="loader">Scroll down for more</div>
 
 <script>
+    // 1. Hydrate Channel Header instantly if it's not cached in subs
+    const needsFetch = {{ 'true' if needs_fetch else 'false' }};
+    const chUrl = "{{ url }}";
+    
+    if (needsFetch) {
+        fetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
+            .then(r => r.json())
+            .then(data => {
+                document.getElementById('ch-name').innerText = data.name;
+                document.getElementById('form-ch-name').value = data.name;
+                
+                const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=333&color=fff`;
+                document.getElementById('ch-icon').src = data.icon || fallbackAvatar;
+                
+                const subBtn = document.getElementById('sub-btn');
+                subBtn.style.display = 'block';
+                
+                if(data.is_subbed) {
+                    document.getElementById('form-action').value = 'remove';
+                    subBtn.className = 'btn';
+                    subBtn.innerText = 'Subscribed ✓';
+                } else {
+                    document.getElementById('form-action').value = 'add';
+                    subBtn.className = 'btn btn-danger';
+                    subBtn.innerText = 'Subscribe';
+                }
+            });
+    }
+
+    // 2. Infinite scroll grid
     let page = 1;
     let loading = false;
     const reqType = "channel";
-    const reqQuery = "{{ url }}";
     
     function loadVideos() {
         loading = true;
         document.getElementById('loader').innerText = 'Loading videos...';
         
-        fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(reqQuery)}&page=${page}`)
+        fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(chUrl)}&page=${page}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
