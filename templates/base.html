@@ -20,7 +20,9 @@
             position: sticky; top: 0; z-index: 1000; height: 40px;
         }
         nav a { color: var(--text-color); text-decoration: none; font-weight: bold; font-size: 1.2rem; display: flex; align-items: center; gap: 8px;}
-        .nav-links a { margin-left: 20px; font-size: 1rem; font-weight: normal; }
+        .nav-links { display: flex; align-items: center; gap: 20px; }
+        .nav-links a { font-size: 1rem; font-weight: normal; margin-left: 0; }
+        .nav-links a.logout { color: #ff4a4a; }
         .search-bar { display: flex; }
         .search-bar input { padding: 8px; border-radius: 20px 0 0 20px; border: 1px solid #333; background: #121212; color: white; width: 400px; padding-left: 15px;}
         .search-bar button { padding: 8px 20px; border-radius: 0 20px 20px 0; border: 1px solid #333; background: #333; color: white; cursor: pointer;}
@@ -71,6 +73,7 @@
         </form>
         <div class="nav-links">
             <a href="/settings">Settings</a>
+            <a href="/logout" class="logout">Logout</a>
         </div>
     </nav>
     <div class="layout">

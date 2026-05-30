@@ -1,17 +1,18 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session
 import yt_dlp
 import json
 import os
 import concurrent.futures
 import threading
-from datetime import datetime
+from datetime import datetime, timedelta
 import time
-import itertools
+import secrets
 
 app = Flask(__name__)
 SUBS_FILE = 'subscriptions.json'
 SETTINGS_FILE = 'settings.json'
 VIDEO_DATES_FILE = 'video_dates.json'
+AUTH_FILE = 'secret.key'
 
 DEFAULT_SETTINGS = {
     'background_interval_mins': 30,
@@ -28,6 +29,76 @@ COMMENTS_CACHE = {}
 COMMENTS_LOCK = threading.Lock()
 CHANNEL_ICON_CACHE = {}
 
+# --- Authentication Initialization ---
+APP_SECRET_TOKEN = None
+
+def init_auth():
+    global APP_SECRET_TOKEN
+    if os.path.exists(AUTH_FILE):
+        try:
+            with open(AUTH_FILE, 'r') as f:
+                APP_SECRET_TOKEN = f.read().strip()
+        except Exception as e:
+            print(f"Error reading auth file: {e}")
+            
+    if not APP_SECRET_TOKEN:
+        APP_SECRET_TOKEN = secrets.token_urlsafe(32)
+        try:
+            with open(AUTH_FILE, 'w') as f:
+                f.write(APP_SECRET_TOKEN)
+            print("\n" + "="*70)
+            print("🔒 YT-DLP TUBE: AUTHENTICATION SECRET KEY GENERATED 🔒")
+            print("This is your ONE-TIME display of the secret key.")
+            print(f"\nSecret Key: {APP_SECRET_TOKEN}\n")
+            print(f"To reset, delete the '{AUTH_FILE}' file and restart the server.")
+            print("="*70 + "\n")
+        except Exception as e:
+            print(f"Error writing auth file: {e}")
+
+init_auth()
+
+# Flask uses this to cryptographically sign session cookies. 
+# Changing the key (by deleting the file) automatically logs everyone out.
+app.secret_key = APP_SECRET_TOKEN 
+app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
+
+@app.before_request
+def require_auth():
+    # Allow unrestricted access to the login route and static assets
+    if request.endpoint == 'login' or (request.endpoint and request.endpoint.startswith('static')):
+        return
+
+    # Check if the user is authenticated
+    if not session.get('authenticated'):
+        # If it's an API request from the frontend, return 401 JSON
+        if request.path.startswith('/api/'):
+            return jsonify({"error": "Unauthorized"}), 401
+        # Otherwise, redirect browser to login page
+        return redirect(url_for('login'))
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if session.get('authenticated'):
+        return redirect(url_for('feed'))
+        
+    error = None
+    if request.method == 'POST':
+        provided_key = request.form.get('secret_key', '').strip()
+        if provided_key == APP_SECRET_TOKEN:
+            session.permanent = True
+            session['authenticated'] = True
+            return redirect(url_for('feed'))
+        else:
+            error = "Invalid secret key. Please check your console."
+            
+    return render_template('login.html', error=error)
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
+
+# --- Helper Functions ---
 def get_settings():
     if os.path.exists(SETTINGS_FILE):
         try:
@@ -167,11 +238,13 @@ def update_feed_now():
     feed_cache['last_update'] = time.time()
 
 def bg_worker():
-    while True:
-        update_feed_now()
-        settings = get_settings()
-        interval_seconds = settings.get('background_interval_mins', 30) * 60
-        time.sleep(interval_seconds)
+    # Only run worker code with application context enabled
+    with app.app_context():
+        while True:
+            update_feed_now()
+            settings = get_settings()
+            interval_seconds = settings.get('background_interval_mins', 30) * 60
+            time.sleep(interval_seconds)
 
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     threading.Thread(target=bg_worker, daemon=True).start()
