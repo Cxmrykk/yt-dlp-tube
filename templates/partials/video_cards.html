@@ -11,22 +11,23 @@
         </div>
     </a>
     <div class="video-info">
-        <a href="/channel?url={{ channel_link | urlencode }}">
-            <img class="channel-avatar" src="{{ video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff') }}" loading="lazy">
-        </a>
-        <div class="video-text">
-            <a href="/watch?url={{ vid_url | urlencode }}" class="video-title">{{ video.title | default('Untitled') }}</a>
-            <a href="/channel?url={{ channel_link | urlencode }}" class="channel-name">
-                {{ uploader_name }}
+        <a href="/watch?url={{ vid_url | urlencode }}" class="video-title">{{ video.title | default('Untitled') }}</a>
+        <div class="video-meta-row">
+            <a href="/channel?url={{ channel_link | urlencode }}">
+                <img class="channel-avatar" src="{{ video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff') }}" loading="lazy">
             </a>
-            
-            {% if show_date %}
-            <span style="color: var(--text-muted); font-size: 0.85rem;">
-                {% set t = video.timestamp | time_ago %}
-                {% if t %}{{ t }}{% endif %}
-            </span>
-            {% endif %}
-            
+            <div class="video-text">
+                <a href="/channel?url={{ channel_link | urlencode }}" class="channel-name">
+                    {{ uploader_name }}
+                </a>
+                
+                {% if show_date %}
+                <span style="color: var(--text-muted); font-size: 0.85rem;">
+                    {% set t = video.timestamp | time_ago %}
+                    {% if t %}{{ t }}{% endif %}
+                </span>
+                {% endif %}
+            </div>
         </div>
     </div>
 </div>

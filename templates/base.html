@@ -19,7 +19,7 @@
             display: flex; justify-content: space-between; align-items: center;
             position: sticky; top: 0; z-index: 1000; height: 40px;
         }
-        nav a { color: var(--text-color); text-decoration: none; font-weight: bold; font-size: 1.2rem; }
+        nav a { color: var(--text-color); text-decoration: none; font-weight: bold; font-size: 1.2rem; display: flex; align-items: center; gap: 8px;}
         .nav-links a { margin-left: 20px; font-size: 1rem; font-weight: normal; }
         .search-bar { display: flex; }
         .search-bar input { padding: 8px; border-radius: 20px 0 0 20px; border: 1px solid #333; background: #121212; color: white; width: 400px; padding-left: 15px;}
@@ -36,18 +36,18 @@
         .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
         .video-card { display: flex; flex-direction: column; gap: 10px; }
         .thumbnail { position: relative; width: 100%; aspect-ratio: 16/9; background: #333; border-radius: 12px; overflow: hidden;}
-        .thumbnail img { width: 100%; height: 100%; object-fit: cover; transition: transform 0.2s;}
-        .thumbnail:hover img { transform: scale(1.05); }
-        .duration { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold;}
+        .thumbnail img { width: 100%; height: 100%; object-fit: cover; }
+        .duration { position: absolute; bottom: 8px; right: 8px; background: rgba(0,0,0,0.8); padding: 2px 6px; border-radius: 4px; font-size: 0.8rem; font-weight: bold; color: white;}
         
-        .video-info { display: flex; gap: 12px; }
-        .channel-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #333; }
+        .video-info { display: flex; flex-direction: column; gap: 8px; }
+        .video-meta-row { display: flex; gap: 12px; align-items: center; }
+        .channel-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #333; flex-shrink: 0; }
         .video-text { display: flex; flex-direction: column; }
-        .video-title { font-size: 1rem; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; color: white; margin-bottom: 4px;}
+        .video-title { font-size: 1rem; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; color: white; margin-bottom: 0;}
         .channel-name { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; }
         .channel-name:hover { color: white; }
         
-        .btn { background: #333; color: white; padding: 8px 16px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-block;}
+        .btn { background: #333; color: white; padding: 8px 16px; border: none; border-radius: 20px; cursor: pointer; font-weight: bold; text-decoration: none; display: inline-flex; align-items: center;}
         .btn:hover { background: #444; }
         .btn-danger { background: var(--text-color); color: var(--bg-color); }
         .btn-danger:hover { background: #ddd; }
@@ -58,7 +58,10 @@
 </head>
 <body>
     <nav>
-        <a href="/">▶ yt-dlp Tube</a>
+        <a href="/">
+            <svg viewBox="0 0 24 24" width="28" height="28" fill="var(--accent)"><path d="M8 5v14l11-7z"/></svg>
+            yt-dlp Tube
+        </a>
         <form class="search-bar" action="/search" method="GET">
             <input type="text" name="q" placeholder="Search..." required>
             <button type="submit">Search</button>
@@ -69,7 +72,10 @@
     </nav>
     <div class="layout">
         <aside class="sidebar">
-            <a href="/">🏠 Home Feed</a>
+            <a href="/">
+                <svg viewBox="0 0 24 24" width="22" height="22" fill="currentColor"><path d="M10 20v-6h4v6h5v-8h3L12 3 2 12h3v8z"/></svg>
+                Home Feed
+            </a>
             <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
             <h3>Subscriptions</h3>
             {% for sub in subs %}

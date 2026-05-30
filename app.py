@@ -15,7 +15,8 @@ VIDEO_DATES_FILE = 'video_dates.json'
 
 DEFAULT_SETTINGS = {
     'background_interval_mins': 30,
-    'per_page': 15
+    'per_page': 15,
+    'desc_preview_height': 100
 }
 
 feed_cache = {'data': [], 'last_update': 0}
@@ -134,6 +135,10 @@ def update_feed_now():
                     interleaved.append(r[i])
     
     sync_video_dates(interleaved)
+    
+    # Properly sort by the populated timestamp so videos are in exact chronological order
+    interleaved.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
+    
     feed_cache['data'] = interleaved
     feed_cache['last_update'] = time.time()
 
@@ -488,6 +493,7 @@ def settings_page():
             try:
                 app_settings['background_interval_mins'] = int(request.form.get('background_interval_mins', 30))
                 app_settings['per_page'] = int(request.form.get('per_page', 15))
+                app_settings['desc_preview_height'] = int(request.form.get('desc_preview_height', 100))
                 save_settings(app_settings)
             except ValueError:
                 pass
