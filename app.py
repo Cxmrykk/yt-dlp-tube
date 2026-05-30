@@ -22,6 +22,7 @@ DEFAULT_SETTINGS = {
 feed_cache = {'data': [], 'last_update': 0}
 COMMENTS_CACHE = {} 
 COMMENTS_LOCK = threading.Lock()
+CHANNEL_ICON_CACHE = {}
 
 def get_settings():
     if os.path.exists(SETTINGS_FILE):
@@ -76,6 +77,19 @@ def sync_video_dates(entries):
         
     if changed:
         save_video_dates(dates_cache)
+
+def purge_channel_from_feed(url):
+    if not url: return
+    n_url = url.strip('/').split('?')[0].lower()
+    feed_cache['data'] = [v for v in feed_cache.get('data', []) if v.get('channel_url', '').strip('/').split('?')[0].lower() != n_url]
+
+def get_cached_icon(url):
+    if not url: return ""
+    n_url = url.strip('/').split('?')[0].lower()
+    for s in get_subs():
+        if s['url'].strip('/').split('?')[0].lower() == n_url:
+            return s.get('icon', '')
+    return CHANNEL_ICON_CACHE.get(n_url, "")
 
 def fix_youtube_url(url):
     if 'youtube.com' in url and ('/@' in url or '/c/' in url or '/channel/' in url):
@@ -142,7 +156,6 @@ def update_feed_now():
     
     sync_video_dates(interleaved)
     
-    # Properly sort by the populated timestamp so videos are in exact chronological order
     interleaved.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
     
     feed_cache['data'] = interleaved
@@ -280,7 +293,6 @@ def api_info():
     resolutions = sorted(unique_resolutions.values(), key=lambda x: x.get('height', 0), reverse=True)
     resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none'} for r in resolutions]
 
-    # Verify if subscribed
     uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
     channel_icon = ""
     is_subbed = False
@@ -328,6 +340,7 @@ def api_toggle_sub():
     if existing:
         subs = [s for s in subs if s['url'].strip('/').split('?')[0].lower() != n_url]
         save_subs(subs)
+        purge_channel_from_feed(url)
         return jsonify({"status": "removed", "is_subbed": False})
     else:
         if not icon or not name or name == 'Unknown':
@@ -409,7 +422,34 @@ def api_videos():
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             if info:
                 videos = info.get('entries', [])
-        sync_video_dates(videos)
+                
+        # Concurrently fetch channel icons for the search page results if missing from cache
+        channels_to_fetch = set()
+        for v in videos:
+            c_url = v.get('channel_url') or v.get('uploader_url')
+            if c_url:
+                if not get_cached_icon(c_url):
+                    channels_to_fetch.add(c_url)
+        
+        if channels_to_fetch:
+            def fetch_icon(curl):
+                cinfo = fetch_channel_info(curl)
+                return curl, cinfo.get('icon', '')
+            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                results = executor.map(fetch_icon, channels_to_fetch)
+                for curl, icon in results:
+                    if icon:
+                        CHANNEL_ICON_CACHE[curl.strip('/').split('?')[0].lower()] = icon
+        
+        for v in videos:
+            c_url = v.get('channel_url') or v.get('uploader_url')
+            if c_url:
+                icon = get_cached_icon(c_url)
+                if icon:
+                    v['channel_icon'] = icon
+
+        # We consciously omit sync_video_dates(videos) here so that we default
+        # to true upload date metadata provided by yt-dlp.
         return render_template('partials/video_cards.html', videos=videos, show_date=True)
         
     elif req_type == 'suggested' and query:
@@ -495,8 +535,10 @@ def settings_page():
                 subs.append({"name": c_info['name'], "url": url, "icon": c_info['icon'], "id": c_info.get('id', '')})
             save_subs(subs)
         elif action == 'remove' and url:
-            subs = [s for s in subs if s['url'] != url]
+            n_url = url.strip('/').split('?')[0].lower()
+            subs = [s for s in subs if s['url'].strip('/').split('?')[0].lower() != n_url]
             save_subs(subs)
+            purge_channel_from_feed(url)
         elif action == 'update_settings':
             try:
                 app_settings['background_interval_mins'] = int(request.form.get('background_interval_mins', 30))
