@@ -89,7 +89,7 @@ def fetch_channel_info(url):
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(fix_youtube_url(url), download=False)
             if not info:
-                return {"name": "Unknown", "url": url, "icon": "", "id": ""}
+                return {"name": "Unknown", "url": url, "icon": "", "id": "", "subscriber_count": None}
                 
             icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
             title = info.get('title', 'Unknown Channel').replace(' - Videos', '')
@@ -98,9 +98,15 @@ def fetch_channel_info(url):
             if channel_id.startswith('UU'):  
                 channel_id = 'UC' + channel_id[2:]
                 
-            return {"name": title, "url": url, "icon": icon, "id": channel_id}
+            return {
+                "name": title, 
+                "url": url, 
+                "icon": icon, 
+                "id": channel_id, 
+                "subscriber_count": info.get('channel_follower_count')
+            }
     except Exception:
-        return {"name": "Unknown", "url": url, "icon": "", "id": ""}
+        return {"name": "Unknown", "url": url, "icon": "", "id": "", "subscriber_count": None}
 
 def update_feed_now():
     subs = get_subs()
@@ -295,6 +301,7 @@ def api_info():
         "title": info.get('title', 'Untitled'),
         "uploader": info.get('uploader') or info.get('channel') or 'Unknown',
         "uploader_url": uploader_url,
+        "subscriber_count": format_views_str(info.get('channel_follower_count')),
         "view_count": format_views_str(info.get('view_count')),
         "time_ago": time_ago_str(info.get('timestamp') or info.get('upload_date')),
         "description": info.get('description', ''),
@@ -359,7 +366,8 @@ def api_channel_info():
     return jsonify({
         "name": c_info.get('name', 'Unknown Channel'),
         "icon": c_info.get('icon', ''),
-        "is_subbed": is_subbed
+        "is_subbed": is_subbed,
+        "subscriber_count": format_views_str(c_info.get('subscriber_count'))
     })
 
 @app.route('/api/videos')

@@ -5,8 +5,11 @@
     <div style="display: flex; align-items: center; gap: 20px;">
         <img id="ch-icon" src="{{ channel_icon or 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #333;">
         <div>
-            <h1 id="ch-name" style="margin: 0 0 10px 0;">{{ channel_name }}</h1>
-            <span style="color: var(--text-muted);">{{ url }}</span>
+            <h1 id="ch-name" style="margin: 0 0 5px 0;">{{ channel_name }}</h1>
+            <div style="display: flex; gap: 15px; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px;">
+                <span id="ch-subs"></span>
+                <span>{{ url }}</span>
+            </div>
         </div>
     </div>
     
@@ -32,6 +35,9 @@
             .then(r => r.json())
             .then(data => {
                 document.getElementById('ch-name').innerText = data.name;
+                if (data.subscriber_count) {
+                    document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers';
+                }
                 currentChannel.name = data.name;
                 
                 const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=333&color=fff`;
@@ -43,6 +49,14 @@
             });
     } else {
         updateSubButton();
+        // Even if we don't 'need fetch' to subscribe, fetching the subcount silently in the background keeps UI populated
+        fetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
+            .then(r => r.json())
+            .then(data => {
+                if (data.subscriber_count) {
+                    document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers';
+                }
+            });
     }
 
     function updateSubButton() {

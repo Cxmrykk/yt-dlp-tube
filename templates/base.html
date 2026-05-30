@@ -43,7 +43,10 @@
         .video-meta-row { display: flex; gap: 12px; align-items: center; }
         .channel-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #333; flex-shrink: 0; }
         .video-text { display: flex; flex-direction: column; }
-        .video-title { font-size: 1rem; font-weight: 600; line-height: 1.4; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; color: white; margin-bottom: 0;}
+        
+        /* height forces EXACTLY two lines so channel icons underneath it stay perfectly aligned across the layout */
+        .video-title { font-size: 1rem; font-weight: 600; line-height: 1.4; height: 2.8em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; color: white; margin-bottom: 0;}
+        
         .channel-name { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; }
         .channel-name:hover { color: white; }
         

@@ -58,6 +58,11 @@
     }
     .progress-area:hover .progress-track, .video-container.scrubbing .progress-track { height: 6px; }
 
+    .progress-loaded {
+        position: absolute; top: 0; left: 0; height: 100%; width: 0%;
+        background: rgba(255, 255, 255, 0.4); border-radius: 2px; pointer-events: none; transition: width 0.1s;
+    }
+
     .progress-filled {
         position: absolute; top: 0; left: 0; height: 100%; width: 0%;
         background: #f03; border-radius: 2px; pointer-events: none;
@@ -177,6 +182,7 @@
                 <span id="hoverTime">0:00</span>
             </div>
             <div class="progress-track" id="progressTrack">
+                <div class="progress-loaded" id="progressLoaded"></div>
                 <div class="progress-filled" id="progressBar"></div>
                 <div class="progress-thumb" id="progressThumb"></div>
             </div>
@@ -219,6 +225,7 @@
     const pauseIcon = document.getElementById('pauseIcon');
     const progressArea = document.getElementById('progressArea');
     const progressBar = document.getElementById('progressBar');
+    const progressLoaded = document.getElementById('progressLoaded');
     const progressThumb = document.getElementById('progressThumb');
     const hoverTooltip = document.getElementById('hoverTooltip');
     const hoverTimeDisplay = document.getElementById('hoverTime');
@@ -323,9 +330,26 @@
             const p = mainVideo.play();
             if (p !== undefined) {
                 p.then(() => {
-                    playIcon.style.display = 'none';
-                    pauseIcon.style.display = 'block';
-                    videoContainer.classList.remove('paused');
+                    // Start audio explicitly if dual audio
+                    if (isDualAudio) {
+                        const ap = audio.play();
+                        if (ap !== undefined) {
+                            ap.catch(e => {
+                                // If audio auto-play is blocked, pause mainVideo so they stay in sync
+                                if (e.name === 'NotAllowedError') {
+                                    mainVideo.pause();
+                                    playIcon.style.display = 'block';
+                                    pauseIcon.style.display = 'none';
+                                    videoContainer.classList.add('paused');
+                                }
+                            });
+                        }
+                    }
+                    if (!mainVideo.paused) {
+                        playIcon.style.display = 'none';
+                        pauseIcon.style.display = 'block';
+                        videoContainer.classList.remove('paused');
+                    }
                 }).catch(err => {
                     playIcon.style.display = 'block';
                     pauseIcon.style.display = 'none';
@@ -379,7 +403,19 @@
     }
 
     function setupMediaSync() {
-        mainVideo.addEventListener('play', () => { if (isDualAudio) audio.play().catch(()=>{}); });
+        mainVideo.addEventListener('play', () => { 
+            if (isDualAudio && audio.paused) {
+                const p = audio.play();
+                if (p !== undefined) {
+                    p.catch(e => {
+                        // Re-verify on manual click if browser still blocks
+                        if (e.name === 'NotAllowedError') {
+                            mainVideo.pause();
+                        }
+                    });
+                }
+            } 
+        });
         mainVideo.addEventListener('pause', () => { if (isDualAudio) audio.pause(); });
         mainVideo.addEventListener('seeking', syncAudio);
         mainVideo.addEventListener('seeked', syncAudio);
@@ -399,7 +435,11 @@
     function togglePlay() {
         if (mainVideo.paused) {
             let p = mainVideo.play();
-            if(p) p.catch(()=>{});
+            if(p) {
+                p.then(() => {
+                    if (isDualAudio && audio.paused) audio.play().catch(()=>{});
+                }).catch(()=>{});
+            }
             playIcon.style.display = 'none';
             pauseIcon.style.display = 'block';
             videoContainer.classList.remove('paused');
@@ -427,7 +467,23 @@
         durationDisplay.textContent = formatTime(mainVideo.duration);
     });
 
+    function updateBuffer() {
+        if (mainVideo.duration > 0 && mainVideo.buffered.length > 0) {
+            for (let i = 0; i < mainVideo.buffered.length; i++) {
+                if (mainVideo.buffered.start(mainVideo.buffered.length - 1 - i) <= mainVideo.currentTime) {
+                    const bufferedEnd = mainVideo.buffered.end(mainVideo.buffered.length - 1 - i);
+                    const percent = (bufferedEnd / mainVideo.duration) * 100;
+                    progressLoaded.style.width = `${percent}%`;
+                    break;
+                }
+            }
+        }
+    }
+    
+    mainVideo.addEventListener('progress', updateBuffer);
+
     mainVideo.addEventListener('timeupdate', () => {
+        updateBuffer(); // Also verify buffer during typical playback updates
         if (!isScrubbing && mainVideo.duration) {
             const percent = (mainVideo.currentTime / mainVideo.duration) * 100;
             progressBar.style.width = `${percent}%`;

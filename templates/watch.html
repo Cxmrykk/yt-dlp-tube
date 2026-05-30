@@ -13,7 +13,7 @@
     .video-title { font-size: 1.4rem; font-weight: bold; margin: 10px 0; color: white; line-height: 1.3; flex-shrink: 0;}
     .channel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-shrink: 0; flex-wrap: wrap; gap: 10px;}
     .channel-left { display: flex; align-items: center; gap: 15px; }
-    .channel-left img { width: 40px; height: 40px; border-radius: 50%; object-fit: cover; background: #333;}
+    .channel-left img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #333;}
     
     /* Description Styles */
     .desc-box { 
@@ -59,14 +59,15 @@
                 <a href="#" id="ui-channel-link">
                     <img id="ui-channel-icon" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
                 </a>
-                <div>
-                    <a href="#" id="ui-channel-name" style="color: white; text-decoration: none; font-weight: bold; font-size: 1.1rem;">
+                <div style="display: flex; flex-direction: column;">
+                    <a href="#" id="ui-channel-name" style="color: white; text-decoration: none; font-weight: bold; font-size: 1.1rem; line-height: 1.2;">
                         Loading...
                     </a>
-                    <div id="ui-video-stats" style="color: var(--text-muted); font-size: 0.85rem;"></div>
+                    <span id="ui-channel-subs" style="color: var(--text-muted); font-size: 0.85rem;"></span>
                 </div>
                 <button class="btn" id="ui-sub-btn" onclick="toggleSubscribe()" style="display:none; margin-left: 10px;">Subscribe</button>
             </div>
+            <div id="ui-video-stats" style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500; background: #222; padding: 6px 12px; border-radius: 8px;"></div>
         </div>
 
         <div class="desc-box" id="descBox">
@@ -130,6 +131,10 @@
             document.getElementById('ui-channel-name').innerText = data.uploader;
             document.getElementById('ui-channel-name').href = `/channel?url=${encodeURIComponent(data.uploader_url)}`;
             document.getElementById('ui-channel-link').href = `/channel?url=${encodeURIComponent(data.uploader_url)}`;
+            
+            if (data.subscriber_count) {
+                document.getElementById('ui-channel-subs').innerText = data.subscriber_count + ' subscribers';
+            }
             
             const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.uploader)}&background=333&color=fff`;
             document.getElementById('ui-channel-icon').src = data.channel_icon || fallbackAvatar;
