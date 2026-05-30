@@ -597,6 +597,17 @@ def api_comments():
     if not chunk: return "" if page > 1 else "<p style='color:var(--text-muted);'>No comments found.</p>"
     return render_template('partials/comments.html', comments=chunk)
 
+@app.route('/settings/export')
+def export_subs():
+    subs = get_subs()
+    urls = [s['url'] for s in subs]
+    return app.response_class(
+        response=json.dumps(urls, indent=4),
+        status=200,
+        mimetype='application/json',
+        headers={"Content-disposition": "attachment; filename=subscriptions.json"}
+    )
+
 @app.route('/settings', methods=['GET', 'POST'])
 def settings_page():
     subs = get_subs()
@@ -611,11 +622,52 @@ def settings_page():
                 c_info = fetch_channel_info(url)
                 subs.append({"name": c_info['name'], "url": url, "icon": c_info['icon'], "id": c_info.get('id', '')})
             save_subs(subs)
+            
         elif action == 'remove' and url:
             n_url = url.strip('/').split('?')[0].lower()
             subs = [s for s in subs if s['url'].strip('/').split('?')[0].lower() != n_url]
             save_subs(subs)
             purge_channel_from_feed(url)
+            
+        elif action == 'import_subs':
+            file = request.files.get('import_file')
+            if file and file.filename.endswith('.json'):
+                try:
+                    imported_urls = json.load(file)
+                    if isinstance(imported_urls, list):
+                        existing_urls = {s['url'].strip('/').split('?')[0].lower() for s in subs}
+                        urls_to_add = []
+                        
+                        for u in imported_urls:
+                            if isinstance(u, str):
+                                n_url = u.strip('/').split('?')[0].lower()
+                                if n_url not in existing_urls:
+                                    urls_to_add.append(u)
+                                    existing_urls.add(n_url)
+                        
+                        if urls_to_add:
+                            def fetch_and_format(u):
+                                c_info = fetch_channel_info(u)
+                                return {"name": c_info['name'], "url": u, "icon": c_info['icon'], "id": c_info.get('id', '')}
+                                
+                            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                                results = executor.map(fetch_and_format, urls_to_add)
+                                for r in results:
+                                    subs.append(r)
+                            save_subs(subs)
+                            
+                            # Trigger background feed rebuild
+                            def background_feed_update():
+                                with app.app_context():
+                                    update_feed_now()
+                            threading.Thread(target=background_feed_update).start()
+                except Exception as e:
+                    print(f"Import error: {e}")
+                    
+        elif action == 'reset_subs':
+            save_subs([])
+            feed_cache['data'] = []
+            
         elif action == 'update_settings':
             try:
                 app_settings['background_interval_mins'] = int(request.form.get('background_interval_mins', 30))
@@ -624,6 +676,7 @@ def settings_page():
                 save_settings(app_settings)
             except ValueError:
                 pass
+                
         elif action == 'update_shortcuts':
             app_settings['shortcut_pause'] = request.form.get('shortcut_pause', 'Space')
             app_settings['shortcut_seek_fwd'] = request.form.get('shortcut_seek_fwd', 'ArrowRight')

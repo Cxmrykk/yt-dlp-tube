@@ -5,7 +5,10 @@
     .sub-list { list-style: none; padding: 0; max-width: 700px;}
     .sub-item { display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); padding: 15px; margin-bottom: 10px; border-radius: 8px;}
     .add-form { background: var(--card-bg); padding: 25px; border-radius: 8px; max-width: 650px; margin-bottom: 30px;}
-    .add-form input { padding: 12px; width: calc(100% - 26px); margin-bottom: 15px; background: #111; color: white; border: 1px solid #444; border-radius: 6px; font-size: 1rem;}
+    .add-form input[type="text"], .add-form input[type="number"], .add-form select { 
+        padding: 12px; width: calc(100% - 26px); margin-bottom: 15px; 
+        background: #111; color: white; border: 1px solid #444; border-radius: 6px; font-size: 1rem;
+    }
 </style>
 
 <h2 style="margin-top: 0;">Settings & Subscriptions</h2>
@@ -82,6 +85,41 @@
         <input type="text" name="url" placeholder="Channel URL (e.g. https://www.youtube.com/@mkbhd)" required>
         <button type="submit" class="btn btn-danger">Add Subscription</button>
     </form>
+</div>
+
+<div class="add-form">
+    <h3 style="margin-top: 0; margin-bottom: 15px;">Manage Subscriptions</h3>
+    
+    <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
+        
+        <!-- Export Button -->
+        <a href="/settings/export" class="btn" style="text-decoration: none;">Export JSON</a>
+        
+        <!-- Hidden Import Form -->
+        <form id="importForm" action="/settings" method="POST" enctype="multipart/form-data" style="margin: 0;">
+            <input type="hidden" name="action" value="import_subs">
+            
+            <!-- Hidden file input triggers form submission automatically when a file is selected -->
+            <input type="file" id="import_file" name="import_file" accept=".json" style="display: none;" 
+                   onchange="if(this.value) { document.getElementById('importBtn').innerText = 'Importing...'; this.form.submit(); }">
+                   
+            <button type="button" id="importBtn" class="btn" onclick="document.getElementById('import_file').click();">
+                Import JSON
+            </button>
+        </form>
+        
+        <!-- Reset Button -->
+        <form action="/settings" method="POST" style="margin: 0; margin-left: auto;" 
+              onsubmit="return confirm('⚠️ Are you sure you want to delete ALL subscriptions? This cannot be undone.');">
+            <input type="hidden" name="action" value="reset_subs">
+            <button type="submit" class="btn" style="background: #d32f2f; color: white;">Reset All</button>
+        </form>
+
+    </div>
+    
+    <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 15px; margin-bottom: 0;">
+        * Importing a JSON file containing an array of channel URLs will append them to your current list.
+    </p>
 </div>
 
 <h3>Your Subscriptions</h3>

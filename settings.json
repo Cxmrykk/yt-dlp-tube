@@ -1,0 +1,1 @@
+{"background_interval_mins": 30, "per_page": 25, "concurrent_requests": 5, "min_delay_ms": 150}
