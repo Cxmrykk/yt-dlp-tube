@@ -1,6 +1,6 @@
-{% macro render_comment(comment, is_reply=False) %}
-<div class="comment" style="display: flex; gap: 12px; margin-bottom: {% if is_reply %}12px{% else %}20px{% endif %}; margin-top: {% if is_reply %}10px{% else %}0{% endif %};">
-    <img src="{{ comment.author_thumbnail or ('https://ui-avatars.com/api/?name=' ~ (comment.author | urlencode) ~ '&background=333&color=fff') }}" style="width: {% if is_reply %}28px{% else %}40px{% endif %}; height: {% if is_reply %}28px{% else %}40px{% endif %}; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
+{% for comment in comments %}
+<div class="comment" id="comment-{{ comment.id }}" data-parent="{{ comment.parent or 'root' }}" style="display: flex; gap: 12px; margin-bottom: 20px;">
+    <img src="{{ comment.author_thumbnail or ('https://ui-avatars.com/api/?name=' ~ (comment.author | urlencode) ~ '&background=333&color=fff') }}" style="width: 40px; height: 40px; border-radius: 50%; object-fit: cover; flex-shrink: 0;">
     <div style="min-width: 0; flex: 1;">
         <div style="font-size: 0.9rem; font-weight: bold; margin-bottom: 5px;">
             {{ comment.author }} 
@@ -15,23 +15,14 @@
             {{ c_views if c_views else '0' }}
         </div>
         
-        {% if comment.replies %}
-            <details class="replies-box" style="margin-top: 8px;">
-                <summary>
-                    <svg class="reply-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
-                    {{ comment.replies|length }} replies
-                </summary>
-                <div class="replies" style="margin-top: 15px; padding-left: 12px; border-left: 2px solid #333;">
-                    {% for reply in comment.replies %}
-                        {{ render_comment(reply, is_reply=True) }}
-                    {% endfor %}
-                </div>
-            </details>
-        {% endif %}
+        <details class="replies-box" id="replies-box-{{ comment.id }}" style="display: none; margin-top: 8px;">
+            <summary style="cursor: pointer; color: #3ea6ff; font-weight: bold; user-select: none; outline: none; list-style: none; display: flex; align-items: center; gap: 4px;">
+                <svg class="reply-icon" viewBox="0 0 24 24" width="18" height="18" fill="currentColor"><path d="M7 10l5 5 5-5z"/></svg>
+                <span id="reply-count-{{ comment.id }}">0</span> replies
+            </summary>
+            <div class="replies" id="replies-container-{{ comment.id }}" style="margin-top: 15px; padding-left: 12px; border-left: 2px solid #333;">
+            </div>
+        </details>
     </div>
 </div>
-{% endmacro %}
-
-{% for comment in comments %}
-    {{ render_comment(comment) }}
 {% endfor %}

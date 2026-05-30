@@ -22,17 +22,33 @@
         justify-content:center; color: var(--text-muted); font-weight: bold; background: #111; z-index: 10;
     }
 
+    /* Shortcut Overlays */
+    .shortcut-overlay {
+        position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+        background: rgba(0,0,0,0.6); border-radius: 50%; width: 70px; height: 70px;
+        display: flex; align-items: center; justify-content: center;
+        opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s;
+        z-index: 15;
+    }
+    .shortcut-overlay.show { opacity: 1; transform: translate(-50%, -50%) scale(1.2); transition: transform 0.1s; }
+    .shortcut-overlay svg { width: 40px; height: 40px; fill: white; }
+
     .controls-container {
         position: absolute; bottom: 0; left: 0; right: 0;
         background: linear-gradient(to top, rgba(0,0,0,0.85) 0%, rgba(0,0,0,0.4) 60%, transparent 100%);
         padding: 0 15px 10px 15px; display: flex; flex-direction: column;
-        transition: opacity 0.3s ease; opacity: 0; z-index: 20;
+        transition: opacity 0.3s ease; opacity: 0; z-index: 20; cursor: default;
     }
 
-    .video-container:hover .controls-container,
+    /* Interactive hiding logic */
+    .video-container.hide-cursor { cursor: none; }
+    
+    .video-container.user-active .controls-container,
     .video-container.paused .controls-container,
     .video-container.scrubbing .controls-container,
     .video-container.menu-open .controls-container { opacity: 1; }
+
+    .controls-container:hover { opacity: 1 !important; }
 
     .progress-area {
         position: relative; height: 18px; display: flex; align-items: center; cursor: pointer; margin-bottom: 5px;
@@ -143,8 +159,9 @@
 <div class="video-container paused" id="videoContainer">
     <div id="video-skeleton" class="skeleton-loader">Fetching video stream...</div>
     <div class="buffering-spinner"></div>
+    <div class="shortcut-overlay" id="shortcutOverlay"></div>
     
-    <video id="vid-player" class="main-video" playsinline style="display:none;"></video>
+    <video id="vid-player" class="main-video" playsinline preload="auto" style="display:none;"></video>
     <audio id="aud-player" preload="auto" style="display:none;"></audio>
     
     <div class="settings-menu" id="settingsMenu">
@@ -195,7 +212,9 @@
                 </button>
                 <div class="volume-container">
                     <button id="muteBtn" title="Mute/Unmute">
-                        <svg viewBox="0 0 24 24"><path d="M 11.60 2.08 L 11.48 2.14 L 3.91 6.68 C 3.02 7.21 2.28 7.97 1.77 8.87 C 1.26 9.77 1.00 10.79 1 11.83 V 12.16 L 1.01 12.56 C 1.07 13.52 1.37 14.46 1.87 15.29 C 2.38 16.12 3.08 16.81 3.91 17.31 L 11.48 21.85 C 11.63 21.94 11.80 21.99 11.98 21.99 C 12.16 22.00 12.33 21.95 12.49 21.87 C 12.64 21.78 12.77 21.65 12.86 21.50 C 12.95 21.35 13 21.17 13 21 V 3 C 12.99 2.83 12.95 2.67 12.87 2.52 C 12.80 2.37 12.68 2.25 12.54 2.16 C 12.41 2.07 12.25 2.01 12.08 2.00 C 11.92 1.98 11.75 2.01 11.60 2.08 Z M 15.53 7.05 C 16.5 8 17 9.5 17 12 C 17 14.5 16.5 16 15.53 16.95 M 18.36 4.22 C 20 6 21 8.5 21 12 C 21 15.5 20 18 18.36 19.77" fill="none" stroke="white" stroke-width="2" stroke-linecap="round"/></svg>
+                        <svg id="volHighIcon" viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>
+                        <svg id="volLowIcon" viewBox="0 0 24 24" style="display: none;"><path d="M5 9v6h4l5 5V4L9 9H5zm11.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>
+                        <svg id="volMutedIcon" viewBox="0 0 24 24" style="display: none;"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>
                     </button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.05" value="1">
                 </div>
@@ -206,7 +225,8 @@
                     <svg viewBox="0 0 24 24"><path d="M12.84 1H11.15C10.72 .99 10.30 1.14 9.95 1.40C9.60 1.66 9.35 2.02 9.23 2.44L9.19 2.61C9.11 3.00 8.96 3.38 8.73 3.71C8.51 4.04 8.22 4.33 7.89 4.55L7.75 4.64C7.37 4.85 6.96 4.98 6.53 5.02C6.11 5.06 5.68 5.01 5.27 4.87C4.86 4.73 4.42 4.73 4.00 4.86C3.59 5.00 3.23 5.26 2.99 5.62L2.89 5.77L2.05 7.23C1.82 7.63 1.73 8.10 1.81 8.55C1.88 9.01 2.12 9.43 2.47 9.73L2.58 9.84C3.15 10.39 3.50 11.15 3.50 12L3.49 12.16C3.47 12.56 3.37 12.95 3.19 13.31C3.01 13.67 2.77 13.99 2.47 14.26C2.12 14.56 1.88 14.98 1.81 15.43C1.73 15.89 1.82 16.36 2.05 16.76L2.89 18.22L2.99 18.37C3.24 18.73 3.59 18.99 4.01 19.13C4.42 19.26 4.86 19.26 5.27 19.12L5.42 19.07C5.81 18.96 6.21 18.93 6.61 18.98C7.01 19.03 7.40 19.15 7.75 19.36L7.89 19.44C8.22 19.66 8.51 19.95 8.73 20.28C8.96 20.61 9.11 20.99 9.19 21.38C9.28 21.84 9.52 22.24 9.88 22.54C10.24 22.83 10.69 23.00 11.15 23H12.84C13.30 23.00 13.75 22.83 14.11 22.54C14.47 22.24 14.71 21.84 14.80 21.38C14.89 20.96 15.06 20.56 15.31 20.21C15.55 19.86 15.88 19.57 16.25 19.36L16.39 19.28C16.75 19.10 17.14 18.99 17.54 18.96C17.94 18.94 18.34 18.99 18.72 19.12L18.89 19.17C19.31 19.27 19.75 19.24 20.15 19.07C20.55 18.90 20.88 18.60 21.10 18.23L21.95 16.76C22.18 16.36 22.26 15.89 22.19 15.43C22.11 14.98 21.88 14.56 21.53 14.26C21.23 13.99 20.98 13.67 20.80 13.31C20.63 12.95 20.52 12.56 20.50 12.16L20.50 12C20.50 11.57 20.59 11.14 20.77 10.75C20.94 10.36 21.20 10.01 21.53 9.73C21.88 9.43 22.11 9.01 22.19 8.55C22.26 8.10 22.18 7.63 21.95 7.23L21.10 5.76C20.88 5.39 20.55 5.09 20.15 4.92C19.76 4.75 19.31 4.72 18.89 4.82L18.72 4.87C18.34 5.00 17.94 5.05 17.54 5.03C17.14 5.00 16.75 4.89 16.4 4.71L16.25 4.63C15.88 4.42 15.56 4.13 15.31 3.78C15.06 3.43 14.89 3.03 14.80 2.61C14.71 2.15 14.47 1.74 14.11 1.45C13.75 1.16 13.30 .99 12.84 1ZM11.15 3H12.84C12.98 3.70 13.26 4.36 13.68 4.94C14.09 5.52 14.63 6.01 15.25 6.37C15.87 6.72 16.55 6.94 17.26 7.01C17.97 7.08 18.69 6.99 19.37 6.76L20.21 8.23C19.67 8.69 19.24 9.27 18.94 9.92C18.65 10.57 18.50 11.28 18.5 12C18.50 12.71 18.65 13.42 18.95 14.07C19.24 14.72 19.67 15.29 20.21 15.76L19.37 17.23C18.69 16.99 17.97 16.91 17.26 16.98C16.55 17.05 15.86 17.27 15.25 17.63C14.63 17.98 14.09 18.47 13.68 19.05C13.26 19.63 12.98 20.29 12.84 21H11.15C11.01 20.29 10.73 19.63 10.31 19.05C9.90 18.47 9.36 17.98 8.75 17.62C8.13 17.27 7.44 17.05 6.73 16.98C6.02 16.91 5.30 16.99 4.62 17.23L3.78 15.76C4.32 15.29 4.75 14.71 5.05 14.06C5.34 13.41 5.49 12.71 5.5 12C5.50 11.28 5.34 10.57 5.05 9.92C4.75 9.27 4.32 8.69 3.78 8.23L4.62 6.76C5.30 7.00 6.02 7.08 6.73 7.01C7.44 6.94 8.13 6.72 8.75 6.37C9.36 6.01 9.90 5.52 10.31 4.94C10.73 4.36 11.01 3.70 11.15 3ZM12.00 8C10.94 8 9.92 8.42 9.17 9.17C8.42 9.92 8.00 10.93 8.00 12C8.00 13.06 8.42 14.07 9.17 14.82C9.92 15.57 10.94 16 12.00 16C13.06 16 14.08 15.57 14.83 14.82C15.58 14.07 16.00 13.06 16.00 12C16.00 10.93 15.58 9.92 14.83 9.17C14.08 8.42 13.06 8 12.00 8ZM12.00 10H12L12.20 10.01C12.69 10.06 13.15 10.29 13.48 10.65C13.81 11.02 14.00 11.50 14 12L13.99 12.20C13.95 12.58 13.80 12.95 13.55 13.25C13.31 13.55 12.98 13.78 12.62 13.90C12.25 14.02 11.85 14.03 11.48 13.93C11.11 13.83 10.77 13.62 10.51 13.34C10.25 13.05 10.08 12.69 10.02 12.31C9.96 11.93 10.01 11.54 10.17 11.18C10.32 10.83 10.58 10.53 10.91 10.32C11.23 10.11 11.61 10.00 12 10"/></svg>
                 </button>
                 <button id="fullscreenBtn" title="Fullscreen">
-                    <svg viewBox="0 0 24 24"><path d="M10 3H3V10C3 10.26 3.10 10.51 3.29 10.70C3.48 10.89 3.73 11 4 11C4.26 11 4.51 10.89 4.70 10.70C4.89 10.51 5 10.26 5 10V6.41L9.29 10.70L9.36 10.77C9.56 10.92 9.80 11.00 10.04 10.99C10.29 10.98 10.52 10.87 10.70 10.70C10.87 10.52 10.98 10.29 10.99 10.04C11.00 9.80 10.92 9.56 10.77 9.36L10.70 9.29L6.41 5H10C10.26 5 10.51 4.89 10.70 4.70C10.89 4.51 11 4.26 11 4C11 3.73 10.89 3.48 10.70 3.29C10.51 3.10 10.26 3 10 3ZM20 13C19.73 13 19.48 13.10 19.29 13.29C19.10 13.48 19 13.73 19 14V17.58L14.70 13.29L14.63 13.22C14.43 13.07 14.19 12.99 13.95 13.00C13.70 13.01 13.47 13.12 13.29 13.29C13.12 13.47 13.01 13.70 13.00 13.95C12.99 14.19 13.07 14.43 13.22 14.63L13.29 14.70L17.58 19H14C13.73 19 13.48 19.10 13.29 19.29C13.10 19.48 13 19.73 13 20C13 20.26 13.10 20.51 13.29 20.70C13.48 20.89 13.73 21 14 21H21V14C21 13.73 20.89 13.48 20.70 13.29C20.51 13.10 20.26 13 20 13Z"/></svg>
+                    <svg id="fsIconEnter" viewBox="0 0 24 24"><path d="M7 14H5v5h5v-2H7v-3zm-2-4h2V7h3V5H5v5zm12 7h-3v2h5v-5h-2v3zM14 5v2h3v3h2V5h-5z"/></svg>
+                    <svg id="fsIconExit" viewBox="0 0 24 24" style="display: none;"><path d="M5 16h3v3h2v-5H5v2zm3-8H5v2h5V5H8v3zm6 11h2v-3h3v-2h-5v5zm2-11V5h-2v5h5V8h-3z"/></svg>
                 </button>
             </div>
         </div>
@@ -229,11 +249,18 @@
     const progressThumb = document.getElementById('progressThumb');
     const hoverTooltip = document.getElementById('hoverTooltip');
     const hoverTimeDisplay = document.getElementById('hoverTime');
+    
     const muteBtn = document.getElementById('muteBtn');
     const volumeSlider = document.getElementById('volumeSlider');
+    const volHighIcon = document.getElementById('volHighIcon');
+    const volLowIcon = document.getElementById('volLowIcon');
+    const volMutedIcon = document.getElementById('volMutedIcon');
+    
     const currentTimeDisplay = document.getElementById('currentTime');
     const durationDisplay = document.getElementById('duration');
     const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const fsIconEnter = document.getElementById('fsIconEnter');
+    const fsIconExit = document.getElementById('fsIconExit');
 
     const settingsBtn = document.getElementById('settingsBtn');
     const settingsMenu = document.getElementById('settingsMenu');
@@ -249,7 +276,24 @@
     let isDualAudio = false;
     let resolutionsList = [];
 
-    // Dynamic Menu Data Definition
+    // Keyboard Shortcuts config
+    const userShortcuts = {
+        pause: "{{ app_settings.shortcut_pause | default('Space') }}",
+        seekFwd: "{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}",
+        seekBwd: "{{ app_settings.shortcut_seek_bwd | default('ArrowLeft') }}",
+        mute: "{{ app_settings.shortcut_mute | default('m') }}"
+    };
+
+    // Overlay SVG icons
+    const iconSvgPlay = `<svg viewBox="0 0 36 36"><path d="M 12 8 L 12 28 L 28 18 Z" /></svg>`;
+    const iconSvgPause = `<svg viewBox="0 0 36 36"><path d="M 12 8 L 12 28 L 16 28 L 16 8 Z M 20 8 L 20 28 L 24 28 L 24 8 Z" /></svg>`;
+    const iconSvgFwd = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+    const iconSvgBwd = `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>`;
+    const iconSvgMute = `<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>`;
+    const iconSvgVolHigh = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
+    const iconSvgVolLow = `<svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 5V4L9 9H5zm11.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`;
+
+    // --- Dynamic Menu Data ---
     const menuData = {
         speed: {
             title: "Playback speed",
@@ -272,6 +316,95 @@
             onSelect: (val, label) => changeResolution(val, label)
         }
     };
+
+    // --- Defensive Checks against NaN ---
+    function getValidDuration(vid) {
+        return (vid && typeof vid.duration === 'number' && !isNaN(vid.duration) && isFinite(vid.duration)) ? vid.duration : 0;
+    }
+
+    // --- Inactivity UI Logic ---
+    let inactivityTimeout;
+    function resetInactivity() {
+        videoContainer.classList.add('user-active');
+        videoContainer.classList.remove('hide-cursor');
+        clearTimeout(inactivityTimeout);
+        inactivityTimeout = setTimeout(() => {
+            if (!mainVideo.paused && !settingsMenu.classList.contains('open')) {
+                videoContainer.classList.remove('user-active');
+                videoContainer.classList.add('hide-cursor');
+            }
+        }, 2500);
+    }
+    
+    videoContainer.addEventListener('mousemove', resetInactivity);
+    videoContainer.addEventListener('mousedown', resetInactivity);
+    videoContainer.addEventListener('touchstart', resetInactivity);
+    videoContainer.addEventListener('mouseleave', () => {
+        if (!mainVideo.paused && !settingsMenu.classList.contains('open')) {
+            videoContainer.classList.remove('user-active');
+        }
+    });
+
+    // Ensure controls hovered keeps UI alive permanently
+    document.querySelector('.controls-container').addEventListener('mouseenter', () => {
+        clearTimeout(inactivityTimeout);
+        videoContainer.classList.add('user-active');
+        videoContainer.classList.remove('hide-cursor');
+    });
+    document.querySelector('.controls-container').addEventListener('mouseleave', resetInactivity);
+
+    // --- Utility Methods ---
+    function showOverlay(svgContent) {
+        const overlay = document.getElementById('shortcutOverlay');
+        overlay.innerHTML = svgContent;
+        overlay.classList.remove('show');
+        void overlay.offsetWidth; 
+        overlay.classList.add('show');
+        clearTimeout(overlay.timeout);
+        overlay.timeout = setTimeout(() => overlay.classList.remove('show'), 400);
+    }
+
+    function updateVolumeIcons() {
+        const vol = mainVideo.muted ? 0 : mainVideo.volume;
+        volHighIcon.style.display = vol > 0.5 ? 'block' : 'none';
+        volLowIcon.style.display = (vol > 0 && vol <= 0.5) ? 'block' : 'none';
+        volMutedIcon.style.display = vol === 0 ? 'block' : 'none';
+    }
+
+    // --- Keyboard Shortcuts ---
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        
+        let key = e.key === ' ' ? 'Space' : e.key;
+
+        if (key === userShortcuts.pause) {
+            e.preventDefault();
+            togglePlay();
+            showOverlay(mainVideo.paused ? iconSvgPause : iconSvgPlay);
+        } else if (key === userShortcuts.seekFwd) {
+            e.preventDefault();
+            const dur = getValidDuration(mainVideo);
+            if (dur > 0) {
+                mainVideo.currentTime = Math.min(dur, mainVideo.currentTime + 10);
+                if(isDualAudio) audio.currentTime = mainVideo.currentTime;
+                showOverlay(iconSvgFwd);
+            }
+        } else if (key === userShortcuts.seekBwd) {
+            e.preventDefault();
+            const dur = getValidDuration(mainVideo);
+            if (dur > 0) {
+                mainVideo.currentTime = Math.max(0, mainVideo.currentTime - 10);
+                if(isDualAudio) audio.currentTime = mainVideo.currentTime;
+                showOverlay(iconSvgBwd);
+            }
+        } else if (key === userShortcuts.mute) {
+            e.preventDefault();
+            toggleMute();
+            if (mainVideo.muted || mainVideo.volume === 0) showOverlay(iconSvgMute);
+            else if (mainVideo.volume > 0.5) showOverlay(iconSvgVolHigh);
+            else showOverlay(iconSvgVolLow);
+        }
+    });
 
     // --- Buffering & Spinner Hooks ---
     mainVideo.addEventListener('waiting', () => videoContainer.classList.add('buffering'));
@@ -302,7 +435,7 @@
             bestMatch = { url: r.url, label: `${r.height}p`, has_audio: r.has_audio };
         }
 
-        // Set lowest quality for fast-loading tooltip previews
+        // Setup Hover tooltip lowest-resolution preview source
         if (resolutionsList.length > 0) {
             previewVideo.src = resolutionsList[resolutionsList.length - 1].url;
         }
@@ -324,40 +457,15 @@
         mainVideo.style.display = 'block';
 
         setupMediaSync();
+        updateVolumeIcons();
 
-        // Autoplay Logic - Instant load on metadata
         mainVideo.addEventListener('loadedmetadata', () => {
-            const p = mainVideo.play();
-            if (p !== undefined) {
-                p.then(() => {
-                    if (isDualAudio) {
-                        const ap = audio.play();
-                        if (ap !== undefined) {
-                            ap.catch(e => {
-                                if (e.name === 'NotAllowedError') {
-                                    mainVideo.pause();
-                                    playIcon.style.display = 'block';
-                                    pauseIcon.style.display = 'none';
-                                    videoContainer.classList.add('paused');
-                                }
-                            });
-                        }
-                    }
-                    if (!mainVideo.paused) {
-                        playIcon.style.display = 'none';
-                        pauseIcon.style.display = 'block';
-                        videoContainer.classList.remove('paused');
-                    }
-                }).catch(err => {
-                    playIcon.style.display = 'block';
-                    pauseIcon.style.display = 'none';
-                    videoContainer.classList.add('paused');
-                });
-            }
+            playIcon.style.display = 'block';
+            pauseIcon.style.display = 'none';
+            videoContainer.classList.add('paused');
         }, {once: true});
     }
 
-    // Prevents DOMException "AbortError" by waiting for stream to finish loading before seeking
     function changeResolution(url, label) {
         const resObj = resolutionsList.find(r => r.url === url);
         isDualAudio = resObj ? !resObj.has_audio : false;
@@ -366,21 +474,22 @@
         const isPaused = mainVideo.paused;
         const currentRate = mainVideo.playbackRate;
         
-        // Hide UI to show spinner
         videoContainer.classList.add('buffering');
         mainVideo.src = url;
         
         mainVideo.addEventListener('loadedmetadata', () => {
-            mainVideo.currentTime = currentTime;
-            mainVideo.playbackRate = currentRate;
-            
-            if (isDualAudio) {
-                audio.currentTime = currentTime;
-                audio.muted = mainVideo.muted;
-                audio.volume = mainVideo.volume;
-                audio.playbackRate = currentRate;
-            } else {
-                audio.pause();
+            if (isFinite(currentTime)) {
+                mainVideo.currentTime = currentTime;
+                mainVideo.playbackRate = currentRate;
+                
+                if (isDualAudio) {
+                    audio.currentTime = currentTime;
+                    audio.muted = mainVideo.muted;
+                    audio.volume = mainVideo.volume;
+                    audio.playbackRate = currentRate;
+                } else {
+                    audio.pause();
+                }
             }
             
             document.getElementById('lbl-quality').innerText = label;
@@ -395,7 +504,7 @@
 
     function syncAudio() {
         if (!isDualAudio) return;
-        if (Math.abs(mainVideo.currentTime - audio.currentTime) > 0.3) {
+        if (isFinite(mainVideo.currentTime) && Math.abs(mainVideo.currentTime - audio.currentTime) > 0.3) {
             audio.currentTime = mainVideo.currentTime;
         }
     }
@@ -406,10 +515,7 @@
                 const p = audio.play();
                 if (p !== undefined) {
                     p.catch(e => {
-                        // Re-verify on manual click if browser still blocks
-                        if (e.name === 'NotAllowedError') {
-                            mainVideo.pause();
-                        }
+                        if (e.name === 'NotAllowedError') mainVideo.pause();
                     });
                 }
             } 
@@ -420,7 +526,6 @@
         mainVideo.addEventListener('waiting', () => { if (isDualAudio) audio.pause(); });
         mainVideo.addEventListener('playing', () => { if (isDualAudio) audio.play().catch(()=>{}); });
         
-        // Watchdog to correct subtle drift over time without aggressive timeupdate stutters
         setInterval(() => {
             if (isDualAudio && !mainVideo.paused && !isScrubbing && mainVideo.readyState >= 3) {
                 syncAudio();
@@ -441,11 +546,13 @@
             playIcon.style.display = 'none';
             pauseIcon.style.display = 'block';
             videoContainer.classList.remove('paused');
+            resetInactivity();
         } else {
             mainVideo.pause();
             playIcon.style.display = 'block';
             pauseIcon.style.display = 'none';
             videoContainer.classList.add('paused');
+            resetInactivity();
         }
     }
 
@@ -462,15 +569,16 @@
     }
 
     mainVideo.addEventListener('loadedmetadata', () => {
-        durationDisplay.textContent = formatTime(mainVideo.duration);
+        durationDisplay.textContent = formatTime(getValidDuration(mainVideo));
     });
 
     function updateBuffer() {
-        if (mainVideo.duration > 0 && mainVideo.buffered.length > 0) {
+        const dur = getValidDuration(mainVideo);
+        if (dur > 0 && mainVideo.buffered.length > 0) {
             for (let i = 0; i < mainVideo.buffered.length; i++) {
                 if (mainVideo.buffered.start(mainVideo.buffered.length - 1 - i) <= mainVideo.currentTime) {
                     const bufferedEnd = mainVideo.buffered.end(mainVideo.buffered.length - 1 - i);
-                    const percent = (bufferedEnd / mainVideo.duration) * 100;
+                    const percent = (bufferedEnd / dur) * 100;
                     progressLoaded.style.width = `${percent}%`;
                     break;
                 }
@@ -481,9 +589,10 @@
     mainVideo.addEventListener('progress', updateBuffer);
 
     mainVideo.addEventListener('timeupdate', () => {
-        updateBuffer(); // Also verify buffer during typical playback updates
-        if (!isScrubbing && mainVideo.duration) {
-            const percent = (mainVideo.currentTime / mainVideo.duration) * 100;
+        updateBuffer(); 
+        const dur = getValidDuration(mainVideo);
+        if (!isScrubbing && dur > 0) {
+            const percent = (mainVideo.currentTime / dur) * 100;
             progressBar.style.width = `${percent}%`;
             progressThumb.style.left = `${percent}%`;
             currentTimeDisplay.textContent = formatTime(mainVideo.currentTime);
@@ -491,15 +600,20 @@
     });
 
     function handleScrub(e) {
+        const dur = getValidDuration(mainVideo);
+        if (dur <= 0) return;
+
         const rect = progressArea.getBoundingClientRect();
         let percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)); 
         progressBar.style.width = `${percent * 100}%`;
         progressThumb.style.left = `${percent * 100}%`;
         
-        const scrubTime = percent * mainVideo.duration;
-        mainVideo.currentTime = scrubTime;
-        if(isDualAudio) audio.currentTime = scrubTime;
-        currentTimeDisplay.textContent = formatTime(scrubTime);
+        const scrubTime = percent * dur;
+        if (isFinite(scrubTime)) {
+            mainVideo.currentTime = scrubTime;
+            if(isDualAudio) audio.currentTime = scrubTime;
+            currentTimeDisplay.textContent = formatTime(scrubTime);
+        }
     }
 
     progressArea.addEventListener('mousedown', (e) => {
@@ -530,9 +644,10 @@
 
     let lastPreviewUpdate = 0;
     progressArea.addEventListener('mousemove', (e) => {
+        const dur = getValidDuration(mainVideo);
         const rect = progressArea.getBoundingClientRect();
         let percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
-        const hoverTime = percent * mainVideo.duration;
+        const hoverTime = percent * dur;
         hoverTimeDisplay.textContent = formatTime(hoverTime);
 
         const tooltipWidth = 200; 
@@ -541,34 +656,52 @@
 
         hoverTooltip.style.left = `${clampedPos}px`;
 
-        // Throttle decoding to save resources & prevent freezing
-        if (Date.now() - lastPreviewUpdate > 100 && previewVideo.readyState >= 1) {
+        if (isFinite(hoverTime) && !previewVideo.seeking && Date.now() - lastPreviewUpdate > 100 && previewVideo.readyState >= 1) {
             previewVideo.currentTime = hoverTime;
             lastPreviewUpdate = Date.now();
         }
     });
 
-    muteBtn.addEventListener('click', () => {
+    function toggleMute() {
         mainVideo.muted = !mainVideo.muted;
         audio.muted = mainVideo.muted;
         volumeSlider.value = mainVideo.muted ? 0 : (mainVideo.volume || 1);
-    });
+        updateVolumeIcons();
+    }
+
+    muteBtn.addEventListener('click', toggleMute);
 
     volumeSlider.addEventListener('input', (e) => {
         mainVideo.volume = e.target.value;
         audio.volume = e.target.value;
         mainVideo.muted = e.target.value === '0';
         audio.muted = mainVideo.muted;
+        updateVolumeIcons();
     });
 
     fullscreenBtn.addEventListener('click', () => {
-        if (!document.fullscreenElement) {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
             if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
             else if (videoContainer.webkitRequestFullscreen) videoContainer.webkitRequestFullscreen();
         } else {
             if (document.exitFullscreen) document.exitFullscreen();
             else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
         }
+    });
+
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach(evt => {
+        document.addEventListener(evt, () => {
+            const isFS = document.fullscreenElement || document.webkitFullscreenElement;
+            if (isFS) {
+                videoContainer.classList.remove('user-active');
+                videoContainer.classList.add('hide-cursor');
+                if (fsIconEnter) fsIconEnter.style.display = 'none';
+                if (fsIconExit) fsIconExit.style.display = 'block';
+            } else {
+                if (fsIconEnter) fsIconEnter.style.display = 'block';
+                if (fsIconExit) fsIconExit.style.display = 'none';
+            }
+        });
     });
 
     // --- Settings Menu System ---

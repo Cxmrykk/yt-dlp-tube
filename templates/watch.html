@@ -42,8 +42,18 @@
     .s-thumb { width: 160px; min-width: 160px; aspect-ratio: 16/9; border-radius: 8px; overflow: hidden; position: relative; background: #333;}
     .s-thumb img { width: 100%; height: 100%; object-fit: cover; }
     .s-info { display: flex; flex-direction: column; }
-    .s-title { color: white; font-size: 0.95rem; font-weight: 600; line-height: 1.3; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 5px;}
+    .s-title { 
+        color: white; font-size: 0.95rem; font-weight: 600; line-height: 1.3; 
+        height: 2.6em; /* Forces exactly 2 lines of height so all suggested cards align beautifully */
+        display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; margin-bottom: 5px;
+    }
     .s-channel { color: var(--text-muted); font-size: 0.85rem; }
+
+    /* Suggested Channel Marquee Effect */
+    .marquee-wrapper { width: 100%; overflow: hidden; display: flex; align-items: center; }
+    .marquee-text { display: block; white-space: nowrap; transition: transform 0.2s ease-out; }
+    .marquee-wrapper:not(.scrolling) .marquee-text { width: 100%; overflow: hidden; text-overflow: ellipsis; }
+    .marquee-wrapper.scrolling .marquee-text { width: auto; text-overflow: clip; padding-right: 10px; }
 </style>
 
 <div class="watch-layout">
@@ -245,7 +255,40 @@
             .then(r => { if (!r.ok) throw new Error("Server Error"); return r.text(); })
             .then(html => {
                 if (html.trim() !== '') {
-                    document.getElementById('comments-container').insertAdjacentHTML('beforeend', html);
+                    const temp = document.createElement('div');
+                    temp.innerHTML = html;
+                    
+                    // Identify replies and move them to their respective parent elements
+                    const comments = Array.from(temp.querySelectorAll('.comment'));
+                    comments.forEach(comment => {
+                        const parentId = comment.getAttribute('data-parent');
+                        if (parentId && parentId !== 'root' && parentId !== 'None') {
+                            const parentBox = document.getElementById('replies-box-' + parentId) || temp.querySelector('#replies-box-' + parentId);
+                            const parentContainer = document.getElementById('replies-container-' + parentId) || temp.querySelector('#replies-container-' + parentId);
+                            const countEl = document.getElementById('reply-count-' + parentId) || temp.querySelector('#reply-count-' + parentId);
+                            
+                            if (parentContainer) {
+                                // Sub-styling for replies
+                                comment.style.marginBottom = '12px';
+                                comment.style.marginTop = '10px';
+                                const img = comment.querySelector('img');
+                                if (img) { img.style.width = '28px'; img.style.height = '28px'; }
+                                
+                                parentContainer.appendChild(comment);
+                                if (parentBox) parentBox.style.display = 'block';
+                                if (countEl) countEl.innerText = (parseInt(countEl.innerText) || 0) + 1;
+                            } else {
+                                // Fallback append if parent couldn't be resolved
+                                document.getElementById('comments-container').appendChild(comment);
+                            }
+                        }
+                    });
+                    
+                    // Anything left in temp is either a root comment or unresolved reply, attach to root
+                    Array.from(temp.children).forEach(child => {
+                        document.getElementById('comments-container').appendChild(child);
+                    });
+
                     commentsPage++; commentsLoading = false;
                     document.getElementById('comments-loader').innerText = 'Scroll for more comments';
                 } else {
@@ -260,5 +303,44 @@
     const commentsObserver = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !commentsLoading && !commentsFinished && suggestedQuery) loadComments();
     }, { rootMargin: "200px" });
+
+    // --- 3. Hover Scrolling Logic for Suggested Video Channel Names ---
+    document.addEventListener('mouseover', (e) => {
+        const card = e.target.closest('.s-card');
+        if (card && !card.dataset.hoverSetup) {
+            card.dataset.hoverSetup = 'true';
+            
+            card.addEventListener('mouseenter', function() {
+                const wrapper = this.querySelector('.marquee-wrapper');
+                const text = this.querySelector('.marquee-text');
+                if (!wrapper || !text) return;
+                
+                // Temporarily lift restrictions to get actual scrollWidth
+                wrapper.classList.add('scrolling');
+                const dist = text.scrollWidth - wrapper.clientWidth;
+                
+                if (dist > 0) {
+                    const duration = Math.max(1.5, dist / 30); // Base speed ~30px per sec
+                    text.style.transition = `transform ${duration}s linear`;
+                    text.style.transform = `translateX(-${dist}px)`;
+                } else {
+                    wrapper.classList.remove('scrolling');
+                }
+            });
+            
+            card.addEventListener('mouseleave', function() {
+                const wrapper = this.querySelector('.marquee-wrapper');
+                const text = this.querySelector('.marquee-text');
+                if (!wrapper || !text) return;
+                
+                text.style.transition = 'none';
+                text.style.transform = 'translateX(0)';
+                wrapper.classList.remove('scrolling');
+            });
+            
+            // Trigger immediately for the first hover stroke
+            card.dispatchEvent(new Event('mouseenter'));
+        }
+    });
 </script>
 {% endblock %}

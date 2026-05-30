@@ -16,7 +16,11 @@ VIDEO_DATES_FILE = 'video_dates.json'
 DEFAULT_SETTINGS = {
     'background_interval_mins': 30,
     'per_page': 15,
-    'desc_preview_height': 100
+    'desc_preview_height': 100,
+    'shortcut_pause': 'Space',
+    'shortcut_seek_fwd': 'ArrowRight',
+    'shortcut_seek_bwd': 'ArrowLeft',
+    'shortcut_mute': 'm'
 }
 
 feed_cache = {'data': [], 'last_update': 0}
@@ -448,9 +452,7 @@ def api_videos():
             if info:
                 videos = info.get('entries', [])
                 
-        # Concurrently fetch channel icons for the search page results if missing from cache
         fetch_missing_icons(videos)
-
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
         
     elif req_type == 'suggested' and query:
@@ -461,9 +463,7 @@ def api_videos():
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
             
-        # Concurrently fetch channel icons for suggested
         fetch_missing_icons(videos)
-        
         return render_template('partials/suggested_cards.html', videos=videos)
 
     return render_template('partials/video_cards.html', videos=[])
@@ -473,7 +473,7 @@ def api_comments():
     url = request.args.get('url')
     page = int(request.args.get('page', 1))
     sort = request.args.get('sort', 'top')
-    per_page = 15
+    per_page = 30
 
     if not url: return "No URL provided", 400
     if sort not in ('top', 'new'): sort = 'top'
@@ -551,6 +551,12 @@ def settings_page():
                 save_settings(app_settings)
             except ValueError:
                 pass
+        elif action == 'update_shortcuts':
+            app_settings['shortcut_pause'] = request.form.get('shortcut_pause', 'Space')
+            app_settings['shortcut_seek_fwd'] = request.form.get('shortcut_seek_fwd', 'ArrowRight')
+            app_settings['shortcut_seek_bwd'] = request.form.get('shortcut_seek_bwd', 'ArrowLeft')
+            app_settings['shortcut_mute'] = request.form.get('shortcut_mute', 'm')
+            save_settings(app_settings)
                 
         return redirect(request.referrer or url_for('settings_page'))
 

@@ -46,6 +46,36 @@
 </div>
 
 <div class="add-form">
+    <h3 style="margin-top: 0;">Keyboard Shortcuts</h3>
+    <form action="/settings" method="POST">
+        <input type="hidden" name="action" value="update_shortcuts">
+        
+        <script>
+            function captureKey(e) {
+                e.preventDefault();
+                let key = e.key;
+                if (key === ' ') key = 'Space';
+                e.target.value = key;
+            }
+        </script>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Pause / Play:</label>
+        <input type="text" name="shortcut_pause" value="{{ app_settings.shortcut_pause | default('Space') }}" onkeydown="captureKey(event)" required>
+        
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Seek Forward:</label>
+        <input type="text" name="shortcut_seek_fwd" value="{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}" onkeydown="captureKey(event)" required>
+        
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Seek Backward:</label>
+        <input type="text" name="shortcut_seek_bwd" value="{{ app_settings.shortcut_seek_bwd | default('ArrowLeft') }}" onkeydown="captureKey(event)" required>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Mute / Unmute:</label>
+        <input type="text" name="shortcut_mute" value="{{ app_settings.shortcut_mute | default('m') }}" onkeydown="captureKey(event)" required>
+
+        <button type="submit" class="btn btn-danger">Save Shortcuts</button>
+    </form>
+</div>
+
+<div class="add-form">
     <h3 style="margin-top: 0;">Add Channel via URL</h3>
     <form action="/settings" method="POST">
         <input type="hidden" name="action" value="add">
