@@ -139,6 +139,21 @@
             const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.uploader)}&background=333&color=fff`;
             document.getElementById('ui-channel-icon').src = data.channel_icon || fallbackAvatar;
             
+            currentChannel = { url: data.uploader_url, name: data.uploader, icon: data.channel_icon || fallbackAvatar };
+            updateSubButton(data.is_subbed);
+            
+            // Asynchronous fallback for missing channel icon
+            if (!data.channel_icon) {
+                fetch(`/api/channel_info?url=${encodeURIComponent(data.uploader_url)}`)
+                    .then(r => r.json())
+                    .then(cData => {
+                        if (cData.icon) {
+                            document.getElementById('ui-channel-icon').src = cData.icon;
+                            currentChannel.icon = cData.icon;
+                        }
+                    }).catch(e => console.error("Icon fetch failed:", e));
+            }
+            
             let stats = [];
             if(data.view_count) stats.push(`${data.view_count} views`);
             if(data.time_ago) stats.push(data.time_ago);
@@ -146,9 +161,6 @@
 
             document.getElementById('ui-desc').innerText = data.description || "No description provided.";
             initDescription(); // Trigger fade effect initialization
-            
-            currentChannel = { url: data.uploader_url, name: data.uploader, icon: data.channel_icon || fallbackAvatar };
-            updateSubButton(data.is_subbed);
 
             // Calls initializePlayer() which is now defined in partials/player.html
             initializePlayer(data);

@@ -12,14 +12,20 @@
     </a>
     <div class="video-info">
         <a href="/watch?url={{ vid_url | urlencode }}" class="video-title">{{ video.title | default('Untitled') }}</a>
+        
+        {% if show_channel != False or show_date %}
         <div class="video-meta-row">
+            {% if show_channel != False %}
             <a href="/channel?url={{ channel_link | urlencode }}">
                 <img class="channel-avatar" src="{{ video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff') }}" loading="lazy">
             </a>
+            {% endif %}
             <div class="video-text">
+                {% if show_channel != False %}
                 <a href="/channel?url={{ channel_link | urlencode }}" class="channel-name">
                     {{ uploader_name }}
                 </a>
+                {% endif %}
                 
                 {% if show_date %}
                 <span style="color: var(--text-muted); font-size: 0.85rem;">
@@ -30,6 +36,7 @@
                 {% endif %}
             </div>
         </div>
+        {% endif %}
     </div>
 </div>
 {% endfor %}

@@ -92,6 +92,7 @@ def get_cached_icon(url):
     return CHANNEL_ICON_CACHE.get(n_url, "")
 
 def fix_youtube_url(url):
+    if not url: return url
     if 'youtube.com' in url and ('/@' in url or '/c/' in url or '/channel/' in url):
         if '/videos' not in url and '/shorts' not in url and '/streams' not in url:
             return url.rstrip('/') + '/videos'
@@ -223,6 +224,31 @@ def time_ago_str(timestamp):
     except:
         return ""
 
+def fetch_missing_icons(videos):
+    channels_to_fetch = set()
+    for v in videos:
+        c_url = v.get('channel_url') or v.get('uploader_url')
+        if c_url:
+            if not get_cached_icon(c_url):
+                channels_to_fetch.add(c_url)
+    
+    if channels_to_fetch:
+        def fetch_icon(curl):
+            cinfo = fetch_channel_info(curl)
+            return curl, cinfo.get('icon', '')
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            results = executor.map(fetch_icon, channels_to_fetch)
+            for curl, icon in results:
+                if icon:
+                    CHANNEL_ICON_CACHE[curl.strip('/').split('?')[0].lower()] = icon
+    
+    for v in videos:
+        c_url = v.get('channel_url') or v.get('uploader_url')
+        if c_url:
+            icon = get_cached_icon(c_url)
+            if icon:
+                v['channel_icon'] = icon
+
 @app.template_filter('format_time')
 def format_time(s): return format_time_str(s)
 
@@ -294,13 +320,12 @@ def api_info():
     resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none'} for r in resolutions]
 
     uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
-    channel_icon = ""
+    channel_icon = get_cached_icon(uploader_url)
     is_subbed = False
     
     n_url = uploader_url.strip('/').split('?')[0].lower()
     for s in get_subs():
         if s['url'].strip('/').split('?')[0].lower() == n_url:
-            channel_icon = s.get('icon', '')
             is_subbed = True
             break
 
@@ -394,7 +419,7 @@ def api_videos():
     videos = []
     if req_type == 'feed':
         videos = get_flat_feed(page)
-        return render_template('partials/video_cards.html', videos=videos, show_date=True)
+        return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
         
     elif req_type == 'channel' and query:
         start = (page - 1) * per_page + 1
@@ -412,7 +437,7 @@ def api_videos():
                         e['channel_url'] = query
                         videos.append(e)
         sync_video_dates(videos)
-        return render_template('partials/video_cards.html', videos=videos, show_date=False)
+        return render_template('partials/video_cards.html', videos=videos, show_date=False, show_channel=False)
         
     elif req_type == 'search' and query:
         start = (page - 1) * per_page + 1
@@ -424,33 +449,9 @@ def api_videos():
                 videos = info.get('entries', [])
                 
         # Concurrently fetch channel icons for the search page results if missing from cache
-        channels_to_fetch = set()
-        for v in videos:
-            c_url = v.get('channel_url') or v.get('uploader_url')
-            if c_url:
-                if not get_cached_icon(c_url):
-                    channels_to_fetch.add(c_url)
-        
-        if channels_to_fetch:
-            def fetch_icon(curl):
-                cinfo = fetch_channel_info(curl)
-                return curl, cinfo.get('icon', '')
-            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                results = executor.map(fetch_icon, channels_to_fetch)
-                for curl, icon in results:
-                    if icon:
-                        CHANNEL_ICON_CACHE[curl.strip('/').split('?')[0].lower()] = icon
-        
-        for v in videos:
-            c_url = v.get('channel_url') or v.get('uploader_url')
-            if c_url:
-                icon = get_cached_icon(c_url)
-                if icon:
-                    v['channel_icon'] = icon
+        fetch_missing_icons(videos)
 
-        # We consciously omit sync_video_dates(videos) here so that we default
-        # to true upload date metadata provided by yt-dlp.
-        return render_template('partials/video_cards.html', videos=videos, show_date=True)
+        return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
         
     elif req_type == 'suggested' and query:
         start = (page - 1) * per_page + 1
@@ -459,10 +460,13 @@ def api_videos():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
+            
+        # Concurrently fetch channel icons for suggested
+        fetch_missing_icons(videos)
+        
         return render_template('partials/suggested_cards.html', videos=videos)
 
     return render_template('partials/video_cards.html', videos=[])
-
 
 @app.route('/api/comments')
 def api_comments():

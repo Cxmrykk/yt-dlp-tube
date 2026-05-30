@@ -325,61 +325,35 @@
 
         setupMediaSync();
 
-        // Autoplay Logic - wait for at least 1 second buffer
+        // Autoplay Logic - Instant load on metadata
         mainVideo.addEventListener('loadedmetadata', () => {
-            let initialPlayTriggered = false;
-
-            function attemptAutoplay() {
-                if (initialPlayTriggered) return;
-                
-                let bufferedTime = 0;
-                if (mainVideo.buffered.length > 0) {
-                    for (let i = 0; i < mainVideo.buffered.length; i++) {
-                        if (mainVideo.buffered.start(i) <= mainVideo.currentTime && mainVideo.buffered.end(i) >= mainVideo.currentTime) {
-                            bufferedTime = mainVideo.buffered.end(i) - mainVideo.currentTime;
-                            break;
+            const p = mainVideo.play();
+            if (p !== undefined) {
+                p.then(() => {
+                    if (isDualAudio) {
+                        const ap = audio.play();
+                        if (ap !== undefined) {
+                            ap.catch(e => {
+                                if (e.name === 'NotAllowedError') {
+                                    mainVideo.pause();
+                                    playIcon.style.display = 'block';
+                                    pauseIcon.style.display = 'none';
+                                    videoContainer.classList.add('paused');
+                                }
+                            });
                         }
                     }
-                }
-                
-                if (bufferedTime >= 1.0 || mainVideo.readyState >= 4 || mainVideo.duration < 1) {
-                    initialPlayTriggered = true;
-                    mainVideo.removeEventListener('progress', attemptAutoplay);
-                    mainVideo.removeEventListener('canplay', attemptAutoplay);
-                    
-                    const p = mainVideo.play();
-                    if (p !== undefined) {
-                        p.then(() => {
-                            if (isDualAudio) {
-                                const ap = audio.play();
-                                if (ap !== undefined) {
-                                    ap.catch(e => {
-                                        if (e.name === 'NotAllowedError') {
-                                            mainVideo.pause();
-                                            playIcon.style.display = 'block';
-                                            pauseIcon.style.display = 'none';
-                                            videoContainer.classList.add('paused');
-                                        }
-                                    });
-                                }
-                            }
-                            if (!mainVideo.paused) {
-                                playIcon.style.display = 'none';
-                                pauseIcon.style.display = 'block';
-                                videoContainer.classList.remove('paused');
-                            }
-                        }).catch(err => {
-                            playIcon.style.display = 'block';
-                            pauseIcon.style.display = 'none';
-                            videoContainer.classList.add('paused');
-                        });
+                    if (!mainVideo.paused) {
+                        playIcon.style.display = 'none';
+                        pauseIcon.style.display = 'block';
+                        videoContainer.classList.remove('paused');
                     }
-                }
+                }).catch(err => {
+                    playIcon.style.display = 'block';
+                    pauseIcon.style.display = 'none';
+                    videoContainer.classList.add('paused');
+                });
             }
-
-            mainVideo.addEventListener('progress', attemptAutoplay);
-            mainVideo.addEventListener('canplay', attemptAutoplay);
-            attemptAutoplay(); // Check immediately in case it's already buffered
         }, {once: true});
     }
 

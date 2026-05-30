@@ -7,7 +7,12 @@
     </div>
     <div class="s-info">
         <span class="s-title">{{ s.title }}</span>
-        <span class="s-channel">{{ s.uploader or s.channel or 'Unknown' }}</span>
+        <div style="display: flex; align-items: center; gap: 8px; margin-top: 4px; margin-bottom: 2px;">
+            {% if s.channel_icon %}
+            <img src="{{ s.channel_icon }}" style="width: 20px; height: 20px; border-radius: 50%; object-fit: cover; background: #333;">
+            {% endif %}
+            <span class="s-channel" style="margin: 0;">{{ s.uploader or s.channel or 'Unknown' }}</span>
+        </div>
         <span class="s-channel">
             {% set views = s.view_count | format_views %}
             {% if views %}{{ views }} views{% endif %}
