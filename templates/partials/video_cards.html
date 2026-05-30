@@ -6,7 +6,7 @@
 <div class="video-card">
     <a href="/watch?url={{ vid_url | urlencode }}">
         <div class="thumbnail">
-            <img src="{{ video.thumbnail or (video.thumbnails and video.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg') }}" alt="Thumbnail" loading="lazy">
+            <img src="{{ (video.thumbnail or (video.thumbnails and video.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg')) | proxy_image }}" alt="Thumbnail" loading="lazy">
             <span class="duration">{{ video.duration | format_time }}</span>
         </div>
     </a>
@@ -17,7 +17,7 @@
         <div class="video-meta-row">
             {% if show_channel != False %}
             <a href="/channel?url={{ channel_link | urlencode }}">
-                <img class="channel-avatar" src="{{ video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff') }}" loading="lazy">
+                <img class="channel-avatar" src="{{ (video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff')) | proxy_image }}" loading="lazy">
             </a>
             {% endif %}
             <div class="video-text">

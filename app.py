@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, redirect, url_for, jsonify, session
+from flask import Flask, render_template, request, redirect, url_for, jsonify, session, Response
 import yt_dlp
 import json
 import os
@@ -7,6 +7,8 @@ import threading
 from datetime import datetime, timedelta
 import time
 import secrets
+import requests
+from urllib.parse import quote, urlparse
 
 app = Flask(__name__)
 SUBS_FILE = 'subscriptions.json'
@@ -28,6 +30,24 @@ feed_cache = {'data': [], 'last_update': 0}
 COMMENTS_CACHE = {} 
 COMMENTS_LOCK = threading.Lock()
 CHANNEL_ICON_CACHE = {}
+
+# --- Proxy Session & Security ---
+SESSION = requests.Session()
+
+# INCREASE CONNECTION POOL SIZE (Fixes the 503 error)
+adapter = requests.adapters.HTTPAdapter(pool_connections=200, pool_maxsize=200, max_retries=1)
+SESSION.mount('http://', adapter)
+SESSION.mount('https://', adapter)
+
+ALLOWED_DOMAINS = ['ytimg.com', 'ggpht.com', 'googleusercontent.com', 'youtube.com', 'googlevideo.com', 'ui-avatars.com']
+
+def is_safe_url(url):
+    try:
+        domain = urlparse(url).netloc.lower()
+        # Must perfectly match the domain or be a valid subdomain (e.g., .googlevideo.com)
+        return any(domain == d or domain.endswith('.' + d) for d in ALLOWED_DOMAINS)
+    except:
+        return False
 
 # --- Authentication Initialization ---
 APP_SECRET_TOKEN = None
@@ -56,24 +76,17 @@ def init_auth():
             print(f"Error writing auth file: {e}")
 
 init_auth()
-
-# Flask uses this to cryptographically sign session cookies. 
-# Changing the key (by deleting the file) automatically logs everyone out.
 app.secret_key = APP_SECRET_TOKEN 
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
 
 @app.before_request
 def require_auth():
-    # Allow unrestricted access to the login route and static assets
     if request.endpoint == 'login' or (request.endpoint and request.endpoint.startswith('static')):
         return
 
-    # Check if the user is authenticated
     if not session.get('authenticated'):
-        # If it's an API request from the frontend, return 401 JSON
-        if request.path.startswith('/api/'):
+        if request.path.startswith('/api/') or request.path.startswith('/proxy/'):
             return jsonify({"error": "Unauthorized"}), 401
-        # Otherwise, redirect browser to login page
         return redirect(url_for('login'))
 
 @app.route('/login', methods=['GET', 'POST'])
@@ -97,6 +110,80 @@ def login():
 def logout():
     session.clear()
     return redirect(url_for('login'))
+
+# --- Proxy Endpoints ---
+@app.route('/proxy/image')
+def proxy_image():
+    url = request.args.get('url')
+    if not url or not is_safe_url(url):
+        return "Invalid or unsafe URL", 400
+        
+    try:
+        # Pass a user-agent to avoid generic bot-blocks
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        r = SESSION.get(url, headers=headers, timeout=10)
+        return Response(r.content, content_type=r.headers.get('Content-Type', 'image/jpeg'))
+    except Exception:
+        return "Image proxy failed", 500
+
+@app.route('/proxy/media')
+def proxy_media():
+    url = request.args.get('url')
+    if not url or not is_safe_url(url):
+        return "Invalid or unsafe URL", 400
+        
+    # Strictly forward ONLY the Range header. 
+    # Do NOT forward the browser's Accept-Encoding (like gzip), or requests will try to decode the video stream!
+    headers = {
+        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
+    }
+    if 'Range' in request.headers:
+        headers['Range'] = request.headers['Range']
+        
+    try:
+        # Timeout tuple: (Connect Timeout, Read Timeout)
+        r = SESSION.get(url, headers=headers, stream=True, timeout=(5, 15))
+        
+        def generate():
+            try:
+                # 128KB chunk size for smooth video streaming
+                for chunk in r.iter_content(chunk_size=131072):
+                    if chunk:
+                        yield chunk
+            except Exception:
+                # Catch GeneratorExit (Browser closed connection) or BrokenPipe errors
+                pass
+            finally:
+                # CRITICAL: This line prevents the 503 error. 
+                # It instantly frees the dead connection back to the pool.
+                r.close()
+                    
+        # Return the critical headers required for HTML5 video scrubbing
+        resp = Response(generate(), status=r.status_code)
+        for key in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
+            if key in r.headers:
+                resp.headers[key] = r.headers[key]
+        return resp
+        
+    except Exception as e:
+        print(f"Proxy streaming failed: {e}")
+        return str(e), 500
+
+# --- Template Filters ---
+@app.template_filter('proxy_image')
+def proxy_image_filter(url):
+    if not url: return ""
+    if url.startswith('/proxy/') or url.startswith('data:'): return url
+    return f"/proxy/image?url={quote(url)}"
+
+@app.template_filter('format_time')
+def format_time(s): return format_time_str(s)
+
+@app.template_filter('format_views')
+def format_views(num): return format_views_str(num)
+
+@app.template_filter('time_ago')
+def time_ago(timestamp): return time_ago_str(timestamp)
 
 # --- Helper Functions ---
 def get_settings():
@@ -138,18 +225,14 @@ def sync_video_dates(entries):
     dates_cache = get_video_dates()
     changed = False
     now = time.time()
-    
     for e in entries:
         if not e: continue
         vid = e.get('id')
         if not vid: continue
-        
         if vid not in dates_cache:
             dates_cache[vid] = now
             changed = True
-            
         e['timestamp'] = dates_cache[vid]
-        
     if changed:
         save_video_dates(dates_cache)
 
@@ -180,21 +263,12 @@ def fetch_channel_info(url):
             info = ydl.extract_info(fix_youtube_url(url), download=False)
             if not info:
                 return {"name": "Unknown", "url": url, "icon": "", "id": "", "subscriber_count": None}
-                
             icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
             title = info.get('title', 'Unknown Channel').replace(' - Videos', '')
-            
             channel_id = info.get('channel_id') or info.get('playlist_channel_id') or info.get('playlist_id') or info.get('id', '')
             if channel_id.startswith('UU'):  
                 channel_id = 'UC' + channel_id[2:]
-                
-            return {
-                "name": title, 
-                "url": url, 
-                "icon": icon, 
-                "id": channel_id, 
-                "subscriber_count": info.get('channel_follower_count')
-            }
+            return {"name": title, "url": url, "icon": icon, "id": channel_id, "subscriber_count": info.get('channel_follower_count')}
     except Exception:
         return {"name": "Unknown", "url": url, "icon": "", "id": "", "subscriber_count": None}
 
@@ -227,18 +301,14 @@ def update_feed_now():
         max_len = max([len(r) for r in results] + [0])
         for i in range(max_len):
             for r in results:
-                if i < len(r):
-                    interleaved.append(r[i])
+                if i < len(r): interleaved.append(r[i])
     
     sync_video_dates(interleaved)
-    
     interleaved.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
-    
     feed_cache['data'] = interleaved
     feed_cache['last_update'] = time.time()
 
 def bg_worker():
-    # Only run worker code with application context enabled
     with app.app_context():
         while True:
             update_feed_now()
@@ -252,10 +322,7 @@ if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
 def get_flat_feed(page=1):
     settings = get_settings()
     per_page = settings['per_page']
-    
-    if not feed_cache['data']:
-        update_feed_now()
-
+    if not feed_cache['data']: update_feed_now()
     all_videos = feed_cache['data']
     start = (page - 1) * per_page
     end = page * per_page
@@ -279,18 +346,14 @@ def format_views_str(num):
         if num >= 1_000_000: return f"{num/1_000_000:.1f}M".replace(".0M", "M")
         if num >= 1_000: return f"{num/1_000:.1f}K".replace(".0K", "K")
         return str(num)
-    except:
-        return str(num)
+    except: return str(num)
 
 def time_ago_str(timestamp):
     if not timestamp: return ""
     try:
         timestamp = str(timestamp)
-        if len(timestamp) == 8 and timestamp.isdigit():
-            dt = datetime.strptime(timestamp, "%Y%m%d")
-        else:
-            dt = datetime.fromtimestamp(float(timestamp))
-        
+        if len(timestamp) == 8 and timestamp.isdigit(): dt = datetime.strptime(timestamp, "%Y%m%d")
+        else: dt = datetime.fromtimestamp(float(timestamp))
         diff = (datetime.now() - dt).total_seconds()
         if diff < 60: return "just now"
         if diff < 3600: return f"{int(diff//60)} mins ago"
@@ -298,53 +361,33 @@ def time_ago_str(timestamp):
         if diff < 2592000: return f"{int(diff//86400)} days ago"
         if diff < 31536000: return f"{int(diff//2592000)} months ago"
         return f"{int(diff//31536000)} years ago"
-    except:
-        return ""
+    except: return ""
 
 def fetch_missing_icons(videos):
     channels_to_fetch = set()
     for v in videos:
         c_url = v.get('channel_url') or v.get('uploader_url')
         if c_url:
-            if not get_cached_icon(c_url):
-                channels_to_fetch.add(c_url)
-    
+            if not get_cached_icon(c_url): channels_to_fetch.add(c_url)
     if channels_to_fetch:
         def fetch_icon(curl):
-            cinfo = fetch_channel_info(curl)
-            return curl, cinfo.get('icon', '')
+            return curl, fetch_channel_info(curl).get('icon', '')
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-            results = executor.map(fetch_icon, channels_to_fetch)
-            for curl, icon in results:
-                if icon:
-                    CHANNEL_ICON_CACHE[curl.strip('/').split('?')[0].lower()] = icon
-    
+            for curl, icon in executor.map(fetch_icon, channels_to_fetch):
+                if icon: CHANNEL_ICON_CACHE[curl.strip('/').split('?')[0].lower()] = icon
     for v in videos:
         c_url = v.get('channel_url') or v.get('uploader_url')
         if c_url:
             icon = get_cached_icon(c_url)
-            if icon:
-                v['channel_icon'] = icon
-
-@app.template_filter('format_time')
-def format_time(s): return format_time_str(s)
-
-@app.template_filter('format_views')
-def format_views(num): return format_views_str(num)
-
-@app.template_filter('time_ago')
-def time_ago(timestamp): return time_ago_str(timestamp)
+            if icon: v['channel_icon'] = icon
 
 @app.context_processor
 def inject_globals():
-    return dict(
-        subs=get_subs(),
-        app_settings=get_settings()
-    )
+    return dict(subs=get_subs(), app_settings=get_settings())
 
+# --- Routes ---
 @app.route('/')
-def feed():
-    return render_template('feed.html', title="Your Feed", type="feed", query="")
+def feed(): return render_template('feed.html', title="Your Feed", type="feed", query="")
 
 @app.route('/search')
 def search():
@@ -354,57 +397,40 @@ def search():
 
 @app.route('/watch')
 def watch():
-    video_url = request.args.get('url')
-    if not video_url:
-        if request.args.get('v'):
-            video_url = f"https://www.youtube.com/watch?v={request.args.get('v')}"
-        else:
-            return "Video URL required", 400
+    video_url = request.args.get('url') or (f"https://www.youtube.com/watch?v={request.args.get('v')}" if request.args.get('v') else None)
+    if not video_url: return "Video URL required", 400
     return render_template('watch.html', video_url=video_url)
 
 @app.route('/api/info')
 def api_info():
     video_url = request.args.get('url')
-    if not video_url:
-        return jsonify({"error": "Video URL required"}), 400
-
+    if not video_url: return jsonify({"error": "Video URL required"}), 400
     ydl_opts = {'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'getcomments': False}
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-
-    if not info:
-        return jsonify({"error": "Video unavailable"}), 404
+    except Exception as e: return jsonify({"error": str(e)}), 500
+    if not info: return jsonify({"error": "Video unavailable"}), 404
 
     audio_formats = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
     video_formats = [f for f in info.get('formats', []) if f.get('vcodec') != 'none' and f.get('ext') in ['mp4', 'webm']]
-    
     m4a_audio = [f for f in audio_formats if f.get('ext') == 'm4a']
-    if m4a_audio:
-        best_audio = sorted(m4a_audio, key=lambda x: x.get('abr', 0), reverse=True)[0]
-    else:
-        best_audio = sorted(audio_formats, key=lambda x: x.get('abr', 0), reverse=True)[0] if audio_formats else None
+    
+    best_audio = sorted(m4a_audio, key=lambda x: x.get('abr', 0), reverse=True)[0] if m4a_audio else (sorted(audio_formats, key=lambda x: x.get('abr', 0), reverse=True)[0] if audio_formats else None)
 
     unique_resolutions = {}
     for f in sorted(video_formats, key=lambda x: (x.get('height', 0), x.get('tbr', 0)), reverse=True):
         h = f.get('height')
-        if h and h not in unique_resolutions:
-            unique_resolutions[h] = f
+        if h and h not in unique_resolutions: unique_resolutions[h] = f
 
     resolutions = sorted(unique_resolutions.values(), key=lambda x: x.get('height', 0), reverse=True)
     resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none'} for r in resolutions]
 
     uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
     channel_icon = get_cached_icon(uploader_url)
-    is_subbed = False
     
     n_url = uploader_url.strip('/').split('?')[0].lower()
-    for s in get_subs():
-        if s['url'].strip('/').split('?')[0].lower() == n_url:
-            is_subbed = True
-            break
+    is_subbed = any(s['url'].strip('/').split('?')[0].lower() == n_url for s in get_subs())
 
     title_words = info.get('title', 'video').replace('|', ' ').replace('-', ' ').split()
     broad_query = ' '.join(title_words[:4]).strip()
@@ -432,7 +458,6 @@ def api_toggle_sub():
     url = data.get('url')
     name = data.get('name')
     icon = data.get('icon', '')
-    
     if not url: return jsonify({"error": "URL required"}), 400
     
     subs = get_subs()
@@ -449,7 +474,6 @@ def api_toggle_sub():
             c_info = fetch_channel_info(url)
             name = name if (name and name != 'Unknown') else c_info['name']
             icon = icon or c_info['icon']
-            
         subs.append({"name": name, "url": url, "icon": icon, "id": ""})
         save_subs(subs)
         return jsonify({"status": "added", "is_subbed": True})
@@ -458,19 +482,10 @@ def api_toggle_sub():
 def channel():
     channel_url = request.args.get('url')
     if not channel_url: return "Channel URL required", 400
-
     subs = get_subs()
     n_url = channel_url.strip('/').split('?')[0].lower()
     sub = next((s for s in subs if s['url'].strip('/').split('?')[0].lower() == n_url), None)
-    
-    return render_template(
-        'channel.html', 
-        url=channel_url, 
-        channel_name=sub['name'] if sub else "Loading...", 
-        channel_icon=sub['icon'] if sub else "", 
-        is_subbed=bool(sub),
-        needs_fetch=not bool(sub)
-    )
+    return render_template('channel.html', url=channel_url, channel_name=sub['name'] if sub else "Loading...", channel_icon=sub['icon'] if sub else "", is_subbed=bool(sub), needs_fetch=not bool(sub))
 
 @app.route('/api/channel_info')
 def api_channel_info():
@@ -497,7 +512,6 @@ def api_videos():
     if req_type == 'feed':
         videos = get_flat_feed(page)
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
-        
     elif req_type == 'channel' and query:
         start = (page - 1) * per_page + 1
         end = page * per_page
@@ -515,19 +529,15 @@ def api_videos():
                         videos.append(e)
         sync_video_dates(videos)
         return render_template('partials/video_cards.html', videos=videos, show_date=False, show_channel=False)
-        
     elif req_type == 'search' and query:
         start = (page - 1) * per_page + 1
         end = page * per_page
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
-            if info:
-                videos = info.get('entries', [])
-                
+            if info: videos = info.get('entries', [])
         fetch_missing_icons(videos)
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
-        
     elif req_type == 'suggested' and query:
         start = (page - 1) * per_page + 1
         end = page * per_page
@@ -535,10 +545,8 @@ def api_videos():
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
-            
         fetch_missing_icons(videos)
         return render_template('partials/suggested_cards.html', videos=videos)
-
     return render_template('partials/video_cards.html', videos=[])
 
 @app.route('/api/comments')
@@ -547,7 +555,6 @@ def api_comments():
     page = int(request.args.get('page', 1))
     sort = request.args.get('sort', 'top')
     per_page = 30
-
     if not url: return "No URL provided", 400
     if sort not in ('top', 'new'): sort = 'top'
 
@@ -586,10 +593,8 @@ def api_comments():
                 return f"<p style='color:var(--accent);'>Error initializing comments: {e}</p>"
         cache_data = COMMENTS_CACHE[cache_key]
 
-    try:
-        chunk_plus_one = cache_data['lazy_list'][target_start : target_end + 1]
-    except Exception as e:
-        return f"<p style='color:var(--accent);'>Error loading comments: {e}</p>"
+    try: chunk_plus_one = cache_data['lazy_list'][target_start : target_end + 1]
+    except Exception as e: return f"<p style='color:var(--accent);'>Error loading comments: {e}</p>"
 
     chunk = chunk_plus_one[:per_page]
     with COMMENTS_LOCK:
@@ -599,14 +604,8 @@ def api_comments():
 
 @app.route('/settings/export')
 def export_subs():
-    subs = get_subs()
-    urls = [s['url'] for s in subs]
-    return app.response_class(
-        response=json.dumps(urls, indent=4),
-        status=200,
-        mimetype='application/json',
-        headers={"Content-disposition": "attachment; filename=subscriptions.json"}
-    )
+    urls = [s['url'] for s in get_subs()]
+    return app.response_class(response=json.dumps(urls, indent=4), status=200, mimetype='application/json', headers={"Content-disposition": "attachment; filename=subscriptions.json"})
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings_page():
@@ -637,32 +636,23 @@ def settings_page():
                     if isinstance(imported_urls, list):
                         existing_urls = {s['url'].strip('/').split('?')[0].lower() for s in subs}
                         urls_to_add = []
-                        
                         for u in imported_urls:
                             if isinstance(u, str):
                                 n_url = u.strip('/').split('?')[0].lower()
                                 if n_url not in existing_urls:
                                     urls_to_add.append(u)
                                     existing_urls.add(n_url)
-                        
                         if urls_to_add:
                             def fetch_and_format(u):
                                 c_info = fetch_channel_info(u)
                                 return {"name": c_info['name'], "url": u, "icon": c_info['icon'], "id": c_info.get('id', '')}
-                                
                             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                                results = executor.map(fetch_and_format, urls_to_add)
-                                for r in results:
-                                    subs.append(r)
+                                for r in executor.map(fetch_and_format, urls_to_add): subs.append(r)
                             save_subs(subs)
-                            
-                            # Trigger background feed rebuild
                             def background_feed_update():
-                                with app.app_context():
-                                    update_feed_now()
+                                with app.app_context(): update_feed_now()
                             threading.Thread(target=background_feed_update).start()
-                except Exception as e:
-                    print(f"Import error: {e}")
+                except Exception as e: print(f"Import error: {e}")
                     
         elif action == 'reset_subs':
             save_subs([])
@@ -674,8 +664,7 @@ def settings_page():
                 app_settings['per_page'] = int(request.form.get('per_page', 15))
                 app_settings['desc_preview_height'] = int(request.form.get('desc_preview_height', 100))
                 save_settings(app_settings)
-            except ValueError:
-                pass
+            except ValueError: pass
                 
         elif action == 'update_shortcuts':
             app_settings['shortcut_pause'] = request.form.get('shortcut_pause', 'Space')
@@ -685,8 +674,8 @@ def settings_page():
             save_settings(app_settings)
                 
         return redirect(request.referrer or url_for('settings_page'))
-
     return render_template('settings.html', subs=subs, app_settings=app_settings)
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Threaded=True is vital so the Flask dev server doesn't freeze while proxying a video stream
+    app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)

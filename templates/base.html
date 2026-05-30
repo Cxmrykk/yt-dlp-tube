@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="en">
+<!-- (Keep your existing <head> styles here...) -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -46,9 +47,7 @@
         .channel-avatar { width: 36px; height: 36px; border-radius: 50%; object-fit: cover; background: #333; flex-shrink: 0; }
         .video-text { display: flex; flex-direction: column; }
         
-        /* height forces EXACTLY two lines so channel icons underneath it stay perfectly aligned across the layout */
         .video-title { font-size: 1rem; font-weight: 600; line-height: 1.4; height: 2.8em; display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; text-decoration: none; color: white; margin-bottom: 0;}
-        
         .channel-name { color: var(--text-muted); text-decoration: none; font-size: 0.9rem; }
         .channel-name:hover { color: white; }
         
@@ -57,7 +56,6 @@
         .btn-danger { background: var(--text-color); color: var(--bg-color); }
         .btn-danger:hover { background: #ddd; }
         
-        /* Spinner */
         #loader { text-align: center; padding: 20px; font-weight: bold; color: var(--text-muted); }
     </style>
 </head>
@@ -86,7 +84,7 @@
             <h3>Subscriptions</h3>
             {% for sub in subs %}
                 <a href="/channel?url={{ sub.url }}">
-                    <img src="{{ sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff' }}"> 
+                    <img src="{{ (sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff') | proxy_image }}"> 
                     <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sub.name }}</span>
                 </a>
             {% endfor %}

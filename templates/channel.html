@@ -3,7 +3,7 @@
 {% block content %}
 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; background: var(--card-bg); padding: 30px; border-radius: 12px; flex-wrap: wrap; gap: 15px;">
     <div style="display: flex; align-items: center; gap: 20px;">
-        <img id="ch-icon" src="{{ channel_icon or 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #333;">
+        <img id="ch-icon" src="{{ (channel_icon | proxy_image) if channel_icon else 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #333;">
         <div>
             <h1 id="ch-name" style="margin: 0 0 5px 0;">{{ channel_name }}</h1>
             <div style="display: flex; gap: 15px; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px;">
@@ -12,7 +12,6 @@
             </div>
         </div>
     </div>
-    
     <button id="sub-btn" class="btn" style="display: none;" onclick="toggleSubscribe()">Subscribe</button>
 </div>
 
@@ -29,108 +28,71 @@
     
     let currentChannel = { url: chUrl, name: "{{ channel_name }}", icon: "{{ channel_icon }}" };
     let isSubbed = {{ 'true' if is_subbed else 'false' }};
+
+    function getImgProxyUrl(url) {
+        if(!url) return '';
+        if(url.startsWith('/proxy/') || url.startsWith('data:')) return url;
+        return `/proxy/image?url=${encodeURIComponent(url)}`;
+    }
     
     if (needsFetch) {
         fetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
             .then(r => r.json())
             .then(data => {
                 document.getElementById('ch-name').innerText = data.name;
-                if (data.subscriber_count) {
-                    document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers';
-                }
+                if (data.subscriber_count) document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers';
                 currentChannel.name = data.name;
                 
-                const fallbackAvatar = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=333&color=fff`;
-                document.getElementById('ch-icon').src = data.icon || fallbackAvatar;
-                currentChannel.icon = data.icon || fallbackAvatar;
+                const rawFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=333&color=fff`;
+                document.getElementById('ch-icon').src = getImgProxyUrl(data.icon || rawFallback);
+                currentChannel.icon = data.icon || rawFallback; // Store un-proxied URL to save to DB safely
                 
                 isSubbed = data.is_subbed;
                 updateSubButton();
             });
     } else {
         updateSubButton();
-        // Even if we don't 'need fetch' to subscribe, fetching the subcount silently in the background keeps UI populated
         fetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
             .then(r => r.json())
-            .then(data => {
-                if (data.subscriber_count) {
-                    document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers';
-                }
-            });
+            .then(data => { if (data.subscriber_count) document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers'; });
     }
 
     function updateSubButton() {
         const btn = document.getElementById('sub-btn');
         btn.style.display = 'inline-flex';
-        if (isSubbed) {
-            btn.className = 'btn';
-            btn.innerHTML = 'Subscribed ' + checkIcon;
-        } else {
-            btn.className = 'btn btn-danger';
-            btn.innerHTML = 'Subscribe';
-        }
+        if (isSubbed) { btn.className = 'btn'; btn.innerHTML = 'Subscribed ' + checkIcon; } 
+        else { btn.className = 'btn btn-danger'; btn.innerHTML = 'Subscribe'; }
     }
 
     function toggleSubscribe() {
-        const btn = document.getElementById('sub-btn');
-        btn.innerHTML = 'Saving...';
-        
+        const btn = document.getElementById('sub-btn'); btn.innerHTML = 'Saving...';
         fetch('/api/toggle_sub', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(currentChannel)
-        }).then(r => r.json()).then(res => {
-            isSubbed = res.is_subbed;
-            updateSubButton();
-        }).catch(err => {
-            alert("Error toggling subscription");
-            updateSubButton();
-        });
+            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentChannel)
+        }).then(r => r.json()).then(res => { isSubbed = res.is_subbed; updateSubButton();
+        }).catch(err => { alert("Error toggling subscription"); updateSubButton(); });
     }
 
-    // 2. Infinite scroll grid
-    let page = 1;
-    let loading = false;
-    const reqType = "channel";
-    
+    let page = 1; let loading = false; const reqType = "channel";
     function loadVideos() {
-        loading = true;
-        document.getElementById('loader').innerText = 'Loading videos...';
-        
+        loading = true; document.getElementById('loader').innerText = 'Loading videos...';
         fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(chUrl)}&page=${page}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
-                    document.getElementById('video-grid').insertAdjacentHTML('beforeend', html);
-                    loading = false;
+                    document.getElementById('video-grid').insertAdjacentHTML('beforeend', html); loading = false;
                     document.getElementById('loader').innerText = 'Scroll down for more';
-                    
-                    // Auto-trigger next page if window height is larger than loaded content
                     setTimeout(() => {
                         if (!loading) {
                             const rect = document.getElementById('loader').getBoundingClientRect();
-                            if (rect.top <= window.innerHeight + 200) {
-                                page++;
-                                loadVideos();
-                            }
+                            if (rect.top <= window.innerHeight + 200) { page++; loadVideos(); }
                         }
                     }, 100);
-                } else {
-                    document.getElementById('loader').innerText = "No more videos";
-                    loading = true; // Stop observer
-                }
-            })
-            .catch(err => {
-                loading = false;
-                document.getElementById('loader').innerText = "Error loading videos. Scroll to retry.";
-            });
+                } else { document.getElementById('loader').innerText = "No more videos"; loading = true; }
+            }).catch(err => { loading = false; document.getElementById('loader').innerText = "Error loading videos. Scroll to retry."; });
     }
 
     const observer = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && !loading) {
-            loadVideos();
-            page++;
-        }
+        if (entries[0].isIntersecting && !loading) { loadVideos(); page++; }
     }, { rootMargin: "200px" });
 
     observer.observe(document.getElementById('loader'));
