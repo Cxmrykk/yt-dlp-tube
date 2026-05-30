@@ -19,8 +19,6 @@ DEFAULT_SETTINGS = {
 }
 
 feed_cache = {'data': [], 'last_update': 0}
-
-# Simple cache so we don't refetch the exact same page if the user refreshes
 COMMENTS_CACHE = {} 
 COMMENTS_LOCK = threading.Lock()
 
@@ -271,11 +269,17 @@ def api_info():
     resolutions = sorted(unique_resolutions.values(), key=lambda x: x.get('height', 0), reverse=True)
     resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none'} for r in resolutions]
 
-    channel_icon = ""
+    # Verify if subscribed
     uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
+    channel_icon = ""
+    is_subbed = False
+    
+    n_url = uploader_url.strip('/').split('?')[0].lower()
     for s in get_subs():
-        if s['url'].strip('/') == uploader_url.strip('/'):
+        if s['url'].strip('/').split('?')[0].lower() == n_url:
             channel_icon = s.get('icon', '')
+            is_subbed = True
+            break
 
     title_words = info.get('title', 'video').replace('|', ' ').replace('-', ' ').split()
     broad_query = ' '.join(title_words[:4]).strip()
@@ -290,10 +294,38 @@ def api_info():
         "time_ago": time_ago_str(info.get('timestamp') or info.get('upload_date')),
         "description": info.get('description', ''),
         "channel_icon": channel_icon,
+        "is_subbed": is_subbed,
         "resolutions": resolutions_list,
         "best_audio": best_audio.get('url') if best_audio else None,
         "search_query": broad_query
     })
+
+@app.route('/api/toggle_sub', methods=['POST'])
+def api_toggle_sub():
+    data = request.get_json()
+    url = data.get('url')
+    name = data.get('name')
+    icon = data.get('icon', '')
+    
+    if not url: return jsonify({"error": "URL required"}), 400
+    
+    subs = get_subs()
+    n_url = url.strip('/').split('?')[0].lower()
+    existing = next((s for s in subs if s['url'].strip('/').split('?')[0].lower() == n_url), None)
+    
+    if existing:
+        subs = [s for s in subs if s['url'].strip('/').split('?')[0].lower() != n_url]
+        save_subs(subs)
+        return jsonify({"status": "removed", "is_subbed": False})
+    else:
+        if not icon or not name or name == 'Unknown':
+            c_info = fetch_channel_info(url)
+            name = name if (name and name != 'Unknown') else c_info['name']
+            icon = icon or c_info['icon']
+            
+        subs.append({"name": name, "url": url, "icon": icon, "id": ""})
+        save_subs(subs)
+        return jsonify({"status": "added", "is_subbed": True})
 
 @app.route('/channel')
 def channel():
@@ -301,7 +333,8 @@ def channel():
     if not channel_url: return "Channel URL required", 400
 
     subs = get_subs()
-    sub = next((s for s in subs if s['url'].strip('/') == channel_url.strip('/')), None)
+    n_url = channel_url.strip('/').split('?')[0].lower()
+    sub = next((s for s in subs if s['url'].strip('/').split('?')[0].lower() == n_url), None)
     
     return render_template(
         'channel.html', 
@@ -316,7 +349,8 @@ def channel():
 def api_channel_info():
     url = request.args.get('url')
     c_info = fetch_channel_info(url)
-    is_subbed = any(s['url'].strip('/') == url.strip('/') for s in get_subs())
+    n_url = url.strip('/').split('?')[0].lower()
+    is_subbed = any(s['url'].strip('/').split('?')[0].lower() == n_url for s in get_subs())
     return jsonify({
         "name": c_info.get('name', 'Unknown Channel'),
         "icon": c_info.get('icon', ''),
@@ -381,7 +415,7 @@ def api_videos():
 def api_comments():
     url = request.args.get('url')
     page = int(request.args.get('page', 1))
-    sort = request.args.get('sort', 'top')  # Default to top
+    sort = request.args.get('sort', 'top')
     per_page = 15
 
     if not url: return "No URL provided", 400
@@ -389,12 +423,9 @@ def api_comments():
 
     target_start = (page - 1) * per_page
     target_end = page * per_page
-    
-    # Create a unique cache key based on URL AND sort order
     cache_key = f"{url}|{sort}"
 
     with COMMENTS_LOCK:
-        # Safe memory cleanup: close old yt-dlp sessions
         if len(COMMENTS_CACHE) > 50:
             for c_item in COMMENTS_CACHE.values():
                 if c_item.get('ydl'):
@@ -402,66 +433,39 @@ def api_comments():
                     except Exception: pass
             COMMENTS_CACHE.clear()
 
-        # If we don't have a live session for this exact URL+Sort combination, set one up
         if cache_key not in COMMENTS_CACHE:
             ydl_opts = {
-                'quiet': True,
-                'no_warnings': True,
-                'ignoreerrors': True,
-                'ignore_no_formats_error': True,
-                'getcomments': True,
-                'skip_download': True,
-                'format': 'none', 
-                'extractor_args': {
-                    'youtube': {
-                        'comment_sort': [sort],
-                        'max-comments': ['all,all'] # Fetches top-level AND nested replies lazily
-                    }
-                }
+                'quiet': True, 'no_warnings': True, 'ignoreerrors': True,
+                'ignore_no_formats_error': True, 'getcomments': True,
+                'skip_download': True, 'format': 'none', 
+                'extractor_args': { 'youtube': { 'comment_sort': [sort], 'max-comments': ['all,all'] } }
             }
-            
             ydl = yt_dlp.YoutubeDL(ydl_opts)
-            
             try:
                 info = ydl.extract_info(url, download=False, process=True)
-
                 if not info or info.get('_type') in ('playlist', 'multi_video'):
                     ydl.close()
                     return "<p style='color:var(--text-muted);'>Comments not supported.</p>"
-
                 lazy_list = info.get('comments')
                 if lazy_list is None:
                     ydl.close()
                     return "<p style='color:var(--text-muted);'>Comments disabled or not supported.</p>"
-
-                COMMENTS_CACHE[cache_key] = {
-                    'lazy_list': lazy_list,
-                    'ydl': ydl,
-                    'exhausted': False
-                }
+                COMMENTS_CACHE[cache_key] = { 'lazy_list': lazy_list, 'ydl': ydl, 'exhausted': False }
             except Exception as e:
                 ydl.close()
                 return f"<p style='color:var(--accent);'>Error initializing comments: {e}</p>"
-
         cache_data = COMMENTS_CACHE[cache_key]
 
-    # Outside the lock, slice the LazyList. 
     try:
         chunk_plus_one = cache_data['lazy_list'][target_start : target_end + 1]
     except Exception as e:
         return f"<p style='color:var(--accent);'>Error loading comments: {e}</p>"
 
     chunk = chunk_plus_one[:per_page]
-
     with COMMENTS_LOCK:
-        if len(chunk_plus_one) <= per_page:
-            cache_data['exhausted'] = True
-
-    if not chunk:
-        return "" if page > 1 else "<p style='color:var(--text-muted);'>No comments found.</p>"
-
+        if len(chunk_plus_one) <= per_page: cache_data['exhausted'] = True
+    if not chunk: return "" if page > 1 else "<p style='color:var(--text-muted);'>No comments found.</p>"
     return render_template('partials/comments.html', comments=chunk)
-
 
 @app.route('/settings', methods=['GET', 'POST'])
 def settings_page():
