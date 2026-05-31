@@ -49,32 +49,131 @@
 </div>
 
 <div class="add-form">
-    <h3 style="margin-top: 0;">Keyboard Shortcuts</h3>
+    <h3 style="margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
+        Keyboard Shortcuts
+        <button type="button" class="btn" onclick="resetShortcuts()" style="font-size: 0.8rem; padding: 4px 10px;">Reset to Defaults</button>
+    </h3>
     <form action="/settings" method="POST">
         <input type="hidden" name="action" value="update_shortcuts">
         
+        <style>
+            .shortcut-row { display: flex; align-items: center; gap: 10px; margin-bottom: 12px; }
+            .shortcut-row label { flex: 1; color: var(--text-muted); margin: 0; font-size: 0.95rem; }
+            .btn-shortcut { flex: 2; padding: 10px; background: #222; border: 1px solid #444; color: white; border-radius: 6px; cursor: pointer; text-align: center; font-family: monospace; font-size: 1rem; transition: background 0.2s; }
+            .btn-shortcut.listening { background: #444; box-shadow: 0 0 0 2px var(--text-color); outline: none; }
+            .btn-clear { background: transparent; color: #ff4a4a; border: 1px solid #ff4a4a; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
+            .btn-clear:hover { background: #ff4a4a; color: white; }
+        </style>
+
         <script>
-            function captureKey(e) {
-                e.preventDefault();
-                let key = e.key;
-                if (key === ' ') key = 'Space';
-                e.target.value = key;
+            let currentListeningBtn = null;
+            let boundHandler = null;
+
+            function showUnsavedWarning() {
+                document.getElementById('unsaved-warning').style.display = 'inline-block';
+            }
+
+            function startListening(btn, inputId) {
+                if (currentListeningBtn) stopListening();
+                currentListeningBtn = btn;
+                btn.classList.add('listening');
+                btn.innerText = "Press any key...";
+                
+                boundHandler = function(e) {
+                    e.preventDefault();
+                    let key = e.key;
+                    if (key === ' ') key = 'Space';
+                    
+                    const inputEl = document.getElementById(inputId);
+                    if (inputEl.value !== key) {
+                        inputEl.value = key;
+                        showUnsavedWarning();
+                    }
+                    
+                    btn.innerText = key;
+                    stopListening();
+                };
+                
+                // Slight delay so the click that opened this doesn't immediately fire a keydown (if using space/enter to click)
+                setTimeout(() => {
+                    document.addEventListener('keydown', boundHandler);
+                }, 10);
+            }
+
+            function stopListening() {
+                if (currentListeningBtn) {
+                    currentListeningBtn.classList.remove('listening');
+                    if (currentListeningBtn.innerText === "Press any key...") {
+                        const inputId = currentListeningBtn.getAttribute('onclick').match(/'([^']+)'/)[1];
+                        currentListeningBtn.innerText = document.getElementById(inputId).value || 'Unbound';
+                    }
+                    if (boundHandler) {
+                        document.removeEventListener('keydown', boundHandler);
+                        boundHandler = null;
+                    }
+                    currentListeningBtn = null;
+                }
+            }
+            
+            document.addEventListener('click', (e) => {
+                if (currentListeningBtn && e.target !== currentListeningBtn) {
+                    stopListening();
+                }
+            });
+
+            function clearShortcut(inputId, btnId) {
+                stopListening();
+                const inputEl = document.getElementById(inputId);
+                if (inputEl.value !== '') {
+                    inputEl.value = '';
+                    document.getElementById(btnId).innerText = 'Unbound';
+                    showUnsavedWarning();
+                }
+            }
+
+            const defaults = {
+                'inp_pause': 'Space', 'inp_seek_fwd': 'ArrowRight',
+                'inp_seek_bwd': 'ArrowLeft', 'inp_mute': 'm',
+                'inp_chap_next': 'PageUp', 'inp_chap_prev': 'PageDown'
+            };
+
+            function resetShortcuts() {
+                stopListening();
+                let changed = false;
+                for (const [id, val] of Object.entries(defaults)) {
+                    const el = document.getElementById(id);
+                    if (el.value !== val) {
+                        el.value = val;
+                        document.getElementById('btn_' + id.replace('inp_', '')).innerText = val;
+                        changed = true;
+                    }
+                }
+                if (changed) showUnsavedWarning();
             }
         </script>
 
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Pause / Play:</label>
-        <input type="text" name="shortcut_pause" value="{{ app_settings.shortcut_pause | default('Space') }}" onkeydown="captureKey(event)" required>
-        
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Seek Forward:</label>
-        <input type="text" name="shortcut_seek_fwd" value="{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}" onkeydown="captureKey(event)" required>
-        
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Seek Backward:</label>
-        <input type="text" name="shortcut_seek_bwd" value="{{ app_settings.shortcut_seek_bwd | default('ArrowLeft') }}" onkeydown="captureKey(event)" required>
+        {% set shortcuts = [
+            ('Pause / Play', 'shortcut_pause', 'pause', app_settings.shortcut_pause | default('Space')),
+            ('Seek Forward', 'shortcut_seek_fwd', 'seek_fwd', app_settings.shortcut_seek_fwd | default('ArrowRight')),
+            ('Seek Backward', 'shortcut_seek_bwd', 'seek_bwd', app_settings.shortcut_seek_bwd | default('ArrowLeft')),
+            ('Mute / Unmute', 'shortcut_mute', 'mute', app_settings.shortcut_mute | default('m')),
+            ('Next Chapter', 'shortcut_chap_next', 'chap_next', app_settings.shortcut_chap_next | default('PageUp')),
+            ('Prev Chapter', 'shortcut_chap_prev', 'chap_prev', app_settings.shortcut_chap_prev | default('PageDown'))
+        ] %}
 
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Mute / Unmute:</label>
-        <input type="text" name="shortcut_mute" value="{{ app_settings.shortcut_mute | default('m') }}" onkeydown="captureKey(event)" required>
+        {% for label, name, short, val in shortcuts %}
+        <div class="shortcut-row">
+            <label>{{ label }}:</label>
+            <input type="hidden" name="{{ name }}" id="inp_{{ short }}" value="{{ val }}">
+            <button type="button" class="btn-shortcut" id="btn_{{ short }}" onclick="startListening(this, 'inp_{{ short }}')">{{ val if val else 'Unbound' }}</button>
+            <button type="button" class="btn-clear" onclick="clearShortcut('inp_{{ short }}', 'btn_{{ short }}')">Clear</button>
+        </div>
+        {% endfor %}
 
-        <button type="submit" class="btn btn-danger">Save Shortcuts</button>
+        <div style="display: flex; align-items: center; margin-top: 15px;">
+            <button type="submit" class="btn btn-danger">Save Shortcuts</button>
+            <span id="unsaved-warning" style="display:none; color: #f39c12; font-weight: bold; font-size: 0.9rem; margin-left: 15px;">⚠️ Unsaved changes</span>
+        </div>
     </form>
 </div>
 

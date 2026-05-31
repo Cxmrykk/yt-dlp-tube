@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 import time
 import secrets
 import requests
+import re
 from urllib.parse import quote, urlparse
 
 app = Flask(__name__)
@@ -23,7 +24,9 @@ DEFAULT_SETTINGS = {
     'shortcut_pause': 'Space',
     'shortcut_seek_fwd': 'ArrowRight',
     'shortcut_seek_bwd': 'ArrowLeft',
-    'shortcut_mute': 'm'
+    'shortcut_mute': 'm',
+    'shortcut_chap_next': 'PageUp',
+    'shortcut_chap_prev': 'PageDown'
 }
 
 feed_cache = {'data': [], 'last_update': 0}
@@ -44,7 +47,6 @@ ALLOWED_DOMAINS = ['ytimg.com', 'ggpht.com', 'googleusercontent.com', 'youtube.c
 def is_safe_url(url):
     try:
         domain = urlparse(url).netloc.lower()
-        # Must perfectly match the domain or be a valid subdomain (e.g., .googlevideo.com)
         return any(domain == d or domain.endswith('.' + d) for d in ALLOWED_DOMAINS)
     except:
         return False
@@ -117,9 +119,7 @@ def proxy_image():
     url = request.args.get('url')
     if not url or not is_safe_url(url):
         return "Invalid or unsafe URL", 400
-        
     try:
-        # Pass a user-agent to avoid generic bot-blocks
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         r = SESSION.get(url, headers=headers, timeout=10)
         return Response(r.content, content_type=r.headers.get('Content-Type', 'image/jpeg'))
@@ -131,9 +131,6 @@ def proxy_media():
     url = request.args.get('url')
     if not url or not is_safe_url(url):
         return "Invalid or unsafe URL", 400
-        
-    # Strictly forward ONLY the Range header. 
-    # Do NOT forward the browser's Accept-Encoding (like gzip), or requests will try to decode the video stream!
     headers = {
         'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
     }
@@ -141,30 +138,19 @@ def proxy_media():
         headers['Range'] = request.headers['Range']
         
     try:
-        # Timeout tuple: (Connect Timeout, Read Timeout)
         r = SESSION.get(url, headers=headers, stream=True, timeout=(5, 15))
-        
         def generate():
             try:
-                # 128KB chunk size for smooth video streaming
                 for chunk in r.iter_content(chunk_size=131072):
-                    if chunk:
-                        yield chunk
-            except Exception:
-                # Catch GeneratorExit (Browser closed connection) or BrokenPipe errors
-                pass
-            finally:
-                # CRITICAL: This line prevents the 503 error. 
-                # It instantly frees the dead connection back to the pool.
-                r.close()
+                    if chunk: yield chunk
+            except Exception: pass
+            finally: r.close()
                     
-        # Return the critical headers required for HTML5 video scrubbing
         resp = Response(generate(), status=r.status_code)
         for key in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
             if key in r.headers:
                 resp.headers[key] = r.headers[key]
         return resp
-        
     except Exception as e:
         print(f"Proxy streaming failed: {e}")
         return str(e), 500
@@ -196,30 +182,25 @@ def get_settings():
     return DEFAULT_SETTINGS.copy()
 
 def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f:
-        json.dump(settings, f)
+    with open(SETTINGS_FILE, 'w') as f: json.dump(settings, f)
 
 def get_subs():
     if os.path.exists(SUBS_FILE):
-        with open(SUBS_FILE, 'r') as f:
-            return json.load(f)
+        with open(SUBS_FILE, 'r') as f: return json.load(f)
     return []
 
 def save_subs(subs):
-    with open(SUBS_FILE, 'w') as f:
-        json.dump(subs, f)
+    with open(SUBS_FILE, 'w') as f: json.dump(subs, f)
 
 def get_video_dates():
     if os.path.exists(VIDEO_DATES_FILE):
         try:
-            with open(VIDEO_DATES_FILE, 'r') as f:
-                return json.load(f)
+            with open(VIDEO_DATES_FILE, 'r') as f: return json.load(f)
         except: pass
     return {}
 
 def save_video_dates(dates):
-    with open(VIDEO_DATES_FILE, 'w') as f:
-        json.dump(dates, f)
+    with open(VIDEO_DATES_FILE, 'w') as f: json.dump(dates, f)
 
 def sync_video_dates(entries):
     dates_cache = get_video_dates()
@@ -289,8 +270,7 @@ def update_feed_now():
                             e['channel_icon'] = sub.get('icon', '')
                             e['channel_url'] = sub['url']
                     return [e for e in info['entries'] if e]
-        except Exception:
-            pass
+        except Exception: pass
         return []
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
@@ -335,8 +315,7 @@ def format_time_str(s):
         h, m = divmod(m, 60)
         if h > 0: return f"{h}:{m:02d}:{s:02d}"
         return f"{m}:{s:02d}"
-    except (ValueError, TypeError):
-        return "0:00"
+    except (ValueError, TypeError): return "0:00"
 
 def format_views_str(num):
     if num is None or num == '': return None
@@ -363,6 +342,22 @@ def time_ago_str(timestamp):
         return f"{int(diff//31536000)} years ago"
     except: return ""
 
+def parse_chapters_from_desc(desc):
+    if not desc: return None
+    chapters = []
+    for line in desc.splitlines():
+        m = re.search(r'(?:^|\s)((?:\d{1,2}:)?\d{1,2}:\d{2})\s+[\-\.]*\s*(.+)', line)
+        if m:
+            t_str = m.group(1)
+            title = m.group(2).strip()
+            parts = [int(x) for x in t_str.split(':')]
+            sec = 0
+            for p in parts: sec = sec * 60 + p
+            chapters.append({'start_time': sec, 'title': title})
+    if chapters and any(c['start_time'] == 0 for c in chapters):
+        return sorted(chapters, key=lambda x: x['start_time'])
+    return None
+
 def fetch_missing_icons(videos):
     channels_to_fetch = set()
     for v in videos:
@@ -370,8 +365,7 @@ def fetch_missing_icons(videos):
         if c_url:
             if not get_cached_icon(c_url): channels_to_fetch.add(c_url)
     if channels_to_fetch:
-        def fetch_icon(curl):
-            return curl, fetch_channel_info(curl).get('icon', '')
+        def fetch_icon(curl): return curl, fetch_channel_info(curl).get('icon', '')
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             for curl, icon in executor.map(fetch_icon, channels_to_fetch):
                 if icon: CHANNEL_ICON_CACHE[curl.strip('/').split('?')[0].lower()] = icon
@@ -382,8 +376,7 @@ def fetch_missing_icons(videos):
             if icon: v['channel_icon'] = icon
 
 @app.context_processor
-def inject_globals():
-    return dict(subs=get_subs(), app_settings=get_settings())
+def inject_globals(): return dict(subs=get_subs(), app_settings=get_settings())
 
 # --- Routes ---
 @app.route('/')
@@ -436,6 +429,10 @@ def api_info():
     broad_query = ' '.join(title_words[:4]).strip()
     if len(broad_query) < 3: broad_query = info.get('uploader', 'youtube')
 
+    chapters = info.get('chapters')
+    if not chapters:
+        chapters = parse_chapters_from_desc(info.get('description', ''))
+
     return jsonify({
         "id": info.get('id'),
         "title": info.get('title', 'Untitled'),
@@ -449,6 +446,7 @@ def api_info():
         "is_subbed": is_subbed,
         "resolutions": resolutions_list,
         "best_audio": best_audio.get('url') if best_audio else None,
+        "chapters": chapters,
         "search_query": broad_query
     })
 
@@ -671,11 +669,12 @@ def settings_page():
             app_settings['shortcut_seek_fwd'] = request.form.get('shortcut_seek_fwd', 'ArrowRight')
             app_settings['shortcut_seek_bwd'] = request.form.get('shortcut_seek_bwd', 'ArrowLeft')
             app_settings['shortcut_mute'] = request.form.get('shortcut_mute', 'm')
+            app_settings['shortcut_chap_next'] = request.form.get('shortcut_chap_next', 'PageUp')
+            app_settings['shortcut_chap_prev'] = request.form.get('shortcut_chap_prev', 'PageDown')
             save_settings(app_settings)
                 
         return redirect(request.referrer or url_for('settings_page'))
     return render_template('settings.html', subs=subs, app_settings=app_settings)
 
 if __name__ == '__main__':
-    # Threaded=True is vital so the Flask dev server doesn't freeze while proxying a video stream
     app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)

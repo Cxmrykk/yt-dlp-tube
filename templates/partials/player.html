@@ -40,7 +40,6 @@
         transition: opacity 0.3s ease; opacity: 0; z-index: 20; cursor: default;
     }
 
-    /* Interactive hiding logic */
     .video-container.hide-cursor { cursor: none; }
     
     .video-container.user-active .controls-container,
@@ -64,8 +63,12 @@
         width: 200px; height: 112.5px; object-fit: cover; border: 2px solid #fff; 
         border-radius: 6px; background-color: #000; box-shadow: 0 4px 12px rgba(0,0,0,0.6);
     }
-    .hover-tooltip span {
+    .hover-tooltip span.hover-time {
         color: #fff; font-size: 13px; font-weight: 500; margin-top: 6px; text-shadow: 0 1px 3px rgba(0,0,0,0.9); 
+    }
+    .hover-tooltip span.hover-chapter {
+        color: #ccc; font-size: 12px; margin-top: 2px; text-align: center; text-shadow: 0 1px 3px rgba(0,0,0,0.9);
+        max-width: 180px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
     }
 
     .progress-track {
@@ -86,9 +89,14 @@
     .progress-thumb {
         position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) scale(0);
         width: 14px; height: 14px; background: #f03; border-radius: 50%;
-        pointer-events: none; transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1);
+        pointer-events: none; transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1); z-index: 6;
     }
     .progress-area:hover .progress-thumb, .video-container.scrubbing .progress-thumb { transform: translate(-50%, -50%) scale(1); }
+
+    .chapter-marker {
+        position: absolute; top: 0; bottom: 0; width: 2px;
+        background: rgba(0,0,0,0.6); z-index: 5; pointer-events: none;
+    }
 
     .controls-row { display: flex; justify-content: space-between; align-items: center; }
     .controls-left, .controls-right { display: flex; align-items: center; gap: 15px; }
@@ -169,7 +177,7 @@
             <div class="settings-pane" id="mainPane">
                 <div class="settings-item" data-menu="speed">
                     <div class="settings-label">
-                        <svg viewBox="0 0 24 24"><path d="M10 8v8l6-4-6-4zm2-6C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8 8-3.59 8-8 8z"/></svg>
+                        <svg viewBox="0 0 24 24"><path d="M10 8v8l6-4-6-4zm2-6C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm0 18c-4.41 0-8-3.59-8-8s3.59-8 8-8 8 3.59 8-8 8z"/></svg>
                         <span>Playback speed</span>
                     </div>
                     <div class="settings-value"><span id="lbl-speed">Normal</span> <svg class="settings-chevron" viewBox="0 0 24 24"><path d="M9.4 18.4l-1.4-1.4 5.6-5.6-5.6-5.6 1.4-1.4 7 7-7 7z"/></svg></div>
@@ -196,7 +204,8 @@
         <div class="progress-area" id="progressArea">
             <div class="hover-tooltip" id="hoverTooltip">
                 <video id="previewVideo" muted preload="metadata"></video>
-                <span id="hoverTime">0:00</span>
+                <span id="hoverTime" class="hover-time">0:00</span>
+                <span id="hoverChapter" class="hover-chapter"></span>
             </div>
             <div class="progress-track" id="progressTrack">
                 <div class="progress-loaded" id="progressLoaded"></div>
@@ -249,6 +258,7 @@
     const progressThumb = document.getElementById('progressThumb');
     const hoverTooltip = document.getElementById('hoverTooltip');
     const hoverTimeDisplay = document.getElementById('hoverTime');
+    const hoverChapterDisplay = document.getElementById('hoverChapter');
     
     const muteBtn = document.getElementById('muteBtn');
     const volumeSlider = document.getElementById('volumeSlider');
@@ -275,12 +285,15 @@
     let wasPausedBeforeScrub = false;
     let isDualAudio = false;
     let resolutionsList = [];
+    let videoChapters = [];
 
     const userShortcuts = {
         pause: "{{ app_settings.shortcut_pause | default('Space') }}",
         seekFwd: "{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}",
         seekBwd: "{{ app_settings.shortcut_seek_bwd | default('ArrowLeft') }}",
-        mute: "{{ app_settings.shortcut_mute | default('m') }}"
+        mute: "{{ app_settings.shortcut_mute | default('m') }}",
+        chapNext: "{{ app_settings.shortcut_chap_next | default('PageUp') }}",
+        chapPrev: "{{ app_settings.shortcut_chap_prev | default('PageDown') }}"
     };
 
     const iconSvgPlay = `<svg viewBox="0 0 36 36"><path d="M 12 8 L 12 28 L 28 18 Z" /></svg>`;
@@ -353,18 +366,50 @@
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
         let key = e.key === ' ' ? 'Space' : e.key;
 
-        if (key === userShortcuts.pause) {
+        if (key && key === userShortcuts.pause) {
             e.preventDefault(); togglePlay(); showOverlay(mainVideo.paused ? iconSvgPause : iconSvgPlay);
-        } else if (key === userShortcuts.seekFwd) {
+        } else if (key && key === userShortcuts.seekFwd) {
             e.preventDefault(); const dur = getValidDuration(mainVideo);
             if (dur > 0) { mainVideo.currentTime = Math.min(dur, mainVideo.currentTime + 10); if(isDualAudio) audio.currentTime = mainVideo.currentTime; showOverlay(iconSvgFwd); }
-        } else if (key === userShortcuts.seekBwd) {
+        } else if (key && key === userShortcuts.seekBwd) {
             e.preventDefault(); const dur = getValidDuration(mainVideo);
             if (dur > 0) { mainVideo.currentTime = Math.max(0, mainVideo.currentTime - 10); if(isDualAudio) audio.currentTime = mainVideo.currentTime; showOverlay(iconSvgBwd); }
-        } else if (key === userShortcuts.mute) {
+        } else if (key && key === userShortcuts.mute) {
             e.preventDefault(); toggleMute();
             if (mainVideo.muted || mainVideo.volume === 0) showOverlay(iconSvgMute);
             else if (mainVideo.volume > 0.5) showOverlay(iconSvgVolHigh); else showOverlay(iconSvgVolLow);
+        } else if (key && key === userShortcuts.chapNext) {
+            e.preventDefault();
+            if (videoChapters.length > 0) {
+                const dur = getValidDuration(mainVideo);
+                const curr = mainVideo.currentTime;
+                const nextCh = videoChapters.find(ch => ch.start_time > curr + 1);
+                if (nextCh) {
+                    mainVideo.currentTime = nextCh.start_time;
+                    if(isDualAudio) audio.currentTime = nextCh.start_time;
+                    showOverlay(iconSvgFwd);
+                } else if (dur > 0) {
+                    mainVideo.currentTime = dur;
+                    if(isDualAudio) audio.currentTime = dur;
+                }
+            }
+        } else if (key && key === userShortcuts.chapPrev) {
+            e.preventDefault();
+            if (videoChapters.length > 0) {
+                const curr = mainVideo.currentTime;
+                let currentChIdx = 0;
+                for (let i = 0; i < videoChapters.length; i++) {
+                    if (curr >= videoChapters[i].start_time) currentChIdx = i;
+                }
+                if (curr > videoChapters[currentChIdx].start_time + 3) {
+                    mainVideo.currentTime = videoChapters[currentChIdx].start_time;
+                } else {
+                    const prevChIdx = Math.max(0, currentChIdx - 1);
+                    mainVideo.currentTime = videoChapters[prevChIdx].start_time;
+                }
+                if(isDualAudio) audio.currentTime = mainVideo.currentTime;
+                showOverlay(iconSvgBwd);
+            }
         }
     });
 
@@ -372,7 +417,6 @@
     mainVideo.addEventListener('playing', () => videoContainer.classList.remove('buffering'));
     mainVideo.addEventListener('canplay', () => videoContainer.classList.remove('buffering'));
 
-    // --- PROXY PIPING LOGIC ---
     function getMediaProxyUrl(url) {
         if(!url) return '';
         if(url.startsWith('/proxy/')) return url;
@@ -381,6 +425,7 @@
 
     function initializePlayer(data) {
         resolutionsList = data.resolutions;
+        videoChapters = data.chapters || [];
         
         let targetRes = localStorage.getItem('prefRes') || 'auto';
         if (targetRes === 'auto') targetRes = window.screen.height * window.devicePixelRatio;
@@ -431,11 +476,28 @@
             playIcon.style.display = 'block';
             pauseIcon.style.display = 'none';
             videoContainer.classList.add('paused');
+            drawChapterMarkers();
         }, {once: true});
     }
 
+    function drawChapterMarkers() {
+        const dur = getValidDuration(mainVideo);
+        if (dur <= 0 || videoChapters.length === 0) return;
+        
+        document.querySelectorAll('.chapter-marker').forEach(e => e.remove());
+        
+        videoChapters.forEach(ch => {
+            const percent = (ch.start_time / dur) * 100;
+            if (percent > 0 && percent < 100) {
+                const marker = document.createElement('div');
+                marker.className = 'chapter-marker';
+                marker.style.left = `${percent}%`;
+                document.getElementById('progressTrack').appendChild(marker);
+            }
+        });
+    }
+
     function changeResolution(url, label) {
-        // Find by matching the PROXIED url back to our source
         const resObj = resolutionsList.find(r => getMediaProxyUrl(r.url) === url);
         isDualAudio = resObj ? !resObj.has_audio : false;
         
@@ -566,9 +628,22 @@
         const dur = getValidDuration(mainVideo); const rect = progressArea.getBoundingClientRect();
         let percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
         const hoverTime = percent * dur; hoverTimeDisplay.textContent = formatTime(hoverTime);
+        
+        if (videoChapters.length > 0) {
+            let currentCh = videoChapters[0];
+            for (let i = 0; i < videoChapters.length; i++) {
+                if (hoverTime >= videoChapters[i].start_time) currentCh = videoChapters[i];
+                else break;
+            }
+            hoverChapterDisplay.textContent = currentCh.title;
+        } else {
+            hoverChapterDisplay.textContent = '';
+        }
+
         const tooltipWidth = 200; let pixelPos = percent * rect.width;
         let clampedPos = Math.max(tooltipWidth / 2, Math.min(rect.width - (tooltipWidth / 2), pixelPos));
         hoverTooltip.style.left = `${clampedPos}px`;
+        
         if (isFinite(hoverTime) && !previewVideo.seeking && Date.now() - lastPreviewUpdate > 100 && previewVideo.readyState >= 1) {
             previewVideo.currentTime = hoverTime; lastPreviewUpdate = Date.now();
         }

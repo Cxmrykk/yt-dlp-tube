@@ -120,7 +120,6 @@
 
     function initDescription() {
         const fade = document.getElementById('descFade');
-        // Prevent JS from making un-clippable text clickable with an overlay
         if (fade.scrollHeight <= fade.clientHeight + 2) {
             fade.style.webkitMaskImage = 'none';
             fade.style.maskImage = 'none';
@@ -153,21 +152,18 @@
             }
             
             const rawFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.uploader)}&background=333&color=fff`;
-            
-            // Render using proxy, but save raw url in state
             document.getElementById('ui-channel-icon').src = getImgProxyUrl(data.channel_icon || rawFallback);
             currentChannel = { url: data.uploader_url, name: data.uploader, icon: data.channel_icon || rawFallback };
             
             updateSubButton(data.is_subbed);
             
-            // Asynchronous fallback for missing channel icon
             if (!data.channel_icon) {
                 fetch(`/api/channel_info?url=${encodeURIComponent(data.uploader_url)}`)
                     .then(r => r.json())
                     .then(cData => {
                         if (cData.icon) {
                             document.getElementById('ui-channel-icon').src = getImgProxyUrl(cData.icon);
-                            currentChannel.icon = cData.icon; // Store raw un-proxied URL to save safely
+                            currentChannel.icon = cData.icon; 
                         }
                     }).catch(e => console.error("Icon fetch failed:", e));
             }
@@ -178,9 +174,8 @@
             document.getElementById('ui-video-stats').innerText = stats.join(' • ');
 
             document.getElementById('ui-desc').innerText = data.description || "No description provided.";
-            initDescription(); // Trigger fade effect initialization
+            initDescription();
 
-            // Calls initializePlayer() which is now defined in partials/player.html
             initializePlayer(data);
 
             suggestedQuery = data.search_query || data.id;
@@ -248,8 +243,11 @@
     }, { root: document.getElementById('suggested-scroll'), rootMargin: "200px" });
 
     let commentsPage = 1; let commentsLoading = false; let commentsFinished = false;
+    window.commentThreadMap = window.commentThreadMap || {};
+
     function changeCommentSort() {
         commentsPage = 1; commentsFinished = false; commentsLoading = false;
+        window.commentThreadMap = {};
         document.getElementById('comments-container').innerHTML = ''; loadComments();
     }
 
@@ -266,17 +264,61 @@
                     const temp = document.createElement('div');
                     temp.innerHTML = html;
                     
-                    // Identify replies and move them to their respective parent elements
                     const comments = Array.from(temp.querySelectorAll('.comment'));
+                    
+                    // Pass 1: Register Explicit Roots
+                    comments.forEach(c => {
+                        const pId = c.getAttribute('data-parent');
+                        if (!pId || pId === 'root' || pId === 'None') {
+                            const cId = c.id.replace('comment-', '');
+                            window.commentThreadMap[cId] = cId;
+                        }
+                    });
+
+                    // Pass 2: Process and Relocate Replies
                     comments.forEach(comment => {
-                        const parentId = comment.getAttribute('data-parent');
+                        const cId = comment.id.replace('comment-', '');
+                        let parentId = comment.getAttribute('data-parent');
+                        
                         if (parentId && parentId !== 'root' && parentId !== 'None') {
-                            const parentBox = document.getElementById('replies-box-' + parentId) || temp.querySelector('#replies-box-' + parentId);
-                            const parentContainer = document.getElementById('replies-container-' + parentId) || temp.querySelector('#replies-container-' + parentId);
-                            const countEl = document.getElementById('reply-count-' + parentId) || temp.querySelector('#reply-count-' + parentId);
+                            
+                            // Tracing the hierarchy to find the ultimate root
+                            let rootId = parentId;
+                            let maxDepth = 10;
+                            
+                            while (maxDepth > 0) {
+                                // Have we found a confirmed root?
+                                if (window.commentThreadMap[rootId] === rootId) break;
+                                
+                                // Have we cached the path to a root?
+                                if (window.commentThreadMap[rootId]) {
+                                    rootId = window.commentThreadMap[rootId];
+                                    continue;
+                                }
+                                
+                                // Inspect DOM for parent
+                                let el = document.getElementById('comment-' + rootId) || temp.querySelector('#comment-' + rootId);
+                                if (el) {
+                                    let nextP = el.getAttribute('data-parent');
+                                    if (nextP && nextP !== 'root' && nextP !== 'None') {
+                                        rootId = nextP;
+                                    } else {
+                                        window.commentThreadMap[rootId] = rootId; // It's a root
+                                        break;
+                                    }
+                                } else {
+                                    break; // Dead end, assume current rootId is the container target
+                                }
+                                maxDepth--;
+                            }
+                            
+                            window.commentThreadMap[cId] = rootId; // Cache path for future replies
+
+                            const parentBox = document.getElementById('replies-box-' + rootId) || temp.querySelector('#replies-box-' + rootId);
+                            const parentContainer = document.getElementById('replies-container-' + rootId) || temp.querySelector('#replies-container-' + rootId);
+                            const countEl = document.getElementById('reply-count-' + rootId) || temp.querySelector('#reply-count-' + rootId);
                             
                             if (parentContainer) {
-                                // Sub-styling for replies
                                 comment.style.marginBottom = '12px';
                                 comment.style.marginTop = '10px';
                                 const img = comment.querySelector('img');
@@ -286,13 +328,13 @@
                                 if (parentBox) parentBox.style.display = 'block';
                                 if (countEl) countEl.innerText = (parseInt(countEl.innerText) || 0) + 1;
                             } else {
-                                // Fallback append if parent couldn't be resolved
+                                // Failsafe append to root body if parent wrapper doesn't exist
                                 document.getElementById('comments-container').appendChild(comment);
                             }
                         }
                     });
                     
-                    // Anything left in temp is either a root comment or unresolved reply, attach to root
+                    // Attach any remaining top level or unresolved items
                     Array.from(temp.children).forEach(child => {
                         document.getElementById('comments-container').appendChild(child);
                     });
@@ -323,12 +365,11 @@
                 const text = this.querySelector('.marquee-text');
                 if (!wrapper || !text) return;
                 
-                // Temporarily lift restrictions to get actual scrollWidth
                 wrapper.classList.add('scrolling');
                 const dist = text.scrollWidth - wrapper.clientWidth;
                 
                 if (dist > 0) {
-                    const duration = Math.max(1.5, dist / 30); // Base speed ~30px per sec
+                    const duration = Math.max(1.5, dist / 30);
                     text.style.transition = `transform ${duration}s linear`;
                     text.style.transform = `translateX(-${dist}px)`;
                 } else {
@@ -346,7 +387,6 @@
                 wrapper.classList.remove('scrolling');
             });
             
-            // Trigger immediately for the first hover stroke
             card.dispatchEvent(new Event('mouseenter'));
         }
     });

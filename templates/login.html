@@ -49,10 +49,42 @@
         <div class="error">{{ error }}</div>
         {% endif %}
         
-        <form method="POST" action="/login">
+        <form method="POST" action="/login" id="loginForm">
             <input type="password" name="secret_key" placeholder="Enter Secret Key..." required autofocus>
             <button type="submit" class="btn">Authenticate</button>
         </form>
     </div>
+
+    <script>
+        document.addEventListener("DOMContentLoaded", function() {
+            const secretInput = document.querySelector('input[name="secret_key"]');
+            const form = document.getElementById('loginForm');
+            const errorDiv = document.querySelector('.error');
+            
+            if (errorDiv) {
+                // Wrong key provided. Wipe the cache.
+                localStorage.removeItem('secret_key');
+            } else {
+                const storedKey = localStorage.getItem('secret_key');
+                if (storedKey) {
+                    secretInput.value = storedKey;
+                    form.style.display = 'none'; // Hide form to prevent jumping
+                    
+                    const loadingP = document.createElement('p');
+                    loadingP.style.color = "var(--text-muted)";
+                    loadingP.innerText = "Authenticating automatically...";
+                    form.parentNode.appendChild(loadingP);
+                    
+                    form.submit();
+                }
+            }
+
+            form.addEventListener('submit', function() {
+                if (secretInput.value.trim() !== '') {
+                    localStorage.setItem('secret_key', secretInput.value.trim());
+                }
+            });
+        });
+    </script>
 </body>
 </html>
