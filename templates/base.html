@@ -1,6 +1,5 @@
 <!DOCTYPE html>
 <html lang="en">
-<!-- (Keep your existing <head> styles here...) -->
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -82,12 +81,27 @@
             </a>
             <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
             <h3>Subscriptions</h3>
-            {% for sub in subs %}
-                <a href="/channel?url={{ sub.url }}">
+            
+            {% if subs_new %}
+                {% for sub in subs_new %}
+                    <a href="{{ sub.url | yt_path }}">
+                        <div style="position: relative; display: inline-flex;">
+                            <img src="{{ (sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff') | proxy_image }}" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover;">
+                            <span style="position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; background-color: var(--accent); border-radius: 50%; border: 2px solid var(--nav-bg);"></span>
+                        </div>
+                        <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold; color: white;">{{ sub.name }}</span>
+                    </a>
+                {% endfor %}
+                <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
+            {% endif %}
+
+            {% for sub in subs_normal %}
+                <a href="{{ sub.url | yt_path }}">
                     <img src="{{ (sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff') | proxy_image }}"> 
                     <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sub.name }}</span>
                 </a>
             {% endfor %}
+            
         </aside>
         <main class="main-content">
             {% block content %}{% endblock %}

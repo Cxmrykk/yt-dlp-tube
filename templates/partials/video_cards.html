@@ -4,25 +4,25 @@
 {% set vid_url = video.url or ('https://www.youtube.com/watch?v=' ~ video.id) %}
 
 <div class="video-card">
-    <a href="/watch?url={{ vid_url | urlencode }}">
+    <a href="{{ vid_url | yt_path }}">
         <div class="thumbnail">
             <img src="{{ (video.thumbnail or (video.thumbnails and video.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg')) | proxy_image }}" alt="Thumbnail" loading="lazy">
             <span class="duration">{{ video.duration | format_time }}</span>
         </div>
     </a>
     <div class="video-info">
-        <a href="/watch?url={{ vid_url | urlencode }}" class="video-title">{{ video.title | default('Untitled') }}</a>
+        <a href="{{ vid_url | yt_path }}" class="video-title">{{ video.title | default('Untitled') }}</a>
         
         {% if show_channel != False or show_date %}
         <div class="video-meta-row">
             {% if show_channel != False %}
-            <a href="/channel?url={{ channel_link | urlencode }}">
+            <a href="{{ channel_link | yt_path }}">
                 <img class="channel-avatar" src="{{ (video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff')) | proxy_image }}" loading="lazy">
             </a>
             {% endif %}
             <div class="video-text">
                 {% if show_channel != False %}
-                <a href="/channel?url={{ channel_link | urlencode }}" class="channel-name">
+                <a href="{{ channel_link | yt_path }}" class="channel-name">
                     {{ uploader_name }}
                 </a>
                 {% endif %}

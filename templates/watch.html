@@ -133,6 +133,16 @@
         }
     }
 
+    function getRelativeYtUrl(fullUrl) {
+        if(!fullUrl) return fullUrl;
+        try {
+            let u = new URL(fullUrl);
+            if (u.hostname.includes('youtu.be')) return '/watch?v=' + u.pathname.substring(1);
+            if (u.hostname.includes('youtube.com')) return u.pathname + u.search;
+        } catch(e) {}
+        return fullUrl;
+    }
+
     // --- 1. Main Background Fetch ---
     fetch(`/api/info?url=${encodeURIComponent(videoUrl)}`)
         .then(r => r.json())
@@ -144,8 +154,8 @@
 
             document.getElementById('ui-title').innerText = data.title;
             document.getElementById('ui-channel-name').innerText = data.uploader;
-            document.getElementById('ui-channel-name').href = `/channel?url=${encodeURIComponent(data.uploader_url)}`;
-            document.getElementById('ui-channel-link').href = `/channel?url=${encodeURIComponent(data.uploader_url)}`;
+            document.getElementById('ui-channel-name').href = getRelativeYtUrl(data.uploader_url);
+            document.getElementById('ui-channel-link').href = getRelativeYtUrl(data.uploader_url);
             
             if (data.subscriber_count) {
                 document.getElementById('ui-channel-subs').innerText = data.subscriber_count + ' subscribers';

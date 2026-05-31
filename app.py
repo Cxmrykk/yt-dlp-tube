@@ -100,6 +100,8 @@ def login():
         if provided_key == APP_SECRET_TOKEN:
             session.permanent = True
             session['authenticated'] = True
+            if 'last_feed_view' not in session:
+                session['last_feed_view'] = time.time()
             return redirect(url_for('feed'))
         else:
             error = "Invalid secret key. Please check your console."
@@ -142,7 +144,6 @@ def proxy_media():
         
         def generate():
             try:
-                # 81920 (80KB) chunks is standard for steady media buffering without stalling
                 for chunk in r.iter_content(chunk_size=81920):
                     if chunk:
                         yield chunk
@@ -170,6 +171,21 @@ def proxy_image_filter(url):
     if not url: return ""
     if url.startswith('/proxy/') or url.startswith('data:'): return url
     return f"/proxy/image?url={quote(url)}"
+
+@app.template_filter('yt_path')
+def yt_path_filter(url):
+    if not url: return "/"
+    try:
+        parsed = urlparse(url)
+        if 'youtu.be' in parsed.netloc:
+            video_id = parsed.path.strip('/')
+            return f"/watch?v={video_id}"
+        if 'youtube.com' in parsed.netloc:
+            res = parsed.path
+            if parsed.query: res += '?' + parsed.query
+            return res
+    except: pass
+    return url
 
 @app.template_filter('format_time')
 def format_time(s): return format_time_str(s)
@@ -385,11 +401,34 @@ def fetch_missing_icons(videos):
             if icon: v['channel_icon'] = icon
 
 @app.context_processor
-def inject_globals(): return dict(subs=get_subs(), app_settings=get_settings())
+def inject_globals():
+    last_view = session.get('last_feed_view', time.time())
+    new_urls = set()
+    
+    for v in feed_cache.get('data', []):
+        if v.get('timestamp', 0) > last_view:
+            c_url = v.get('channel_url') or v.get('uploader_url')
+            if c_url: new_urls.add(c_url.strip('/').split('?')[0].lower())
+            
+    subs = get_subs()
+    subs_new = []
+    subs_normal = []
+    for s in subs:
+        n_url = s['url'].strip('/').split('?')[0].lower()
+        s['has_new'] = n_url in new_urls
+        if s['has_new']:
+            subs_new.append(s)
+        else:
+            subs_normal.append(s)
+            
+    return dict(subs=subs, subs_new=subs_new, subs_normal=subs_normal, app_settings=get_settings())
 
 # --- Routes ---
 @app.route('/')
-def feed(): return render_template('feed.html', title="Your Feed", type="feed", query="")
+def feed():
+    resp = render_template('feed.html', title="Your Feed", type="feed", query="")
+    session['last_feed_view'] = time.time()
+    return resp
 
 @app.route('/search')
 def search():
@@ -399,9 +438,41 @@ def search():
 
 @app.route('/watch')
 def watch():
-    video_url = request.args.get('url') or (f"https://www.youtube.com/watch?v={request.args.get('v')}" if request.args.get('v') else None)
+    v = request.args.get('v')
+    if v:
+        video_url = f"https://www.youtube.com/watch?v={v}"
+    else:
+        video_url = request.args.get('url')
     if not video_url: return "Video URL required", 400
     return render_template('watch.html', video_url=video_url)
+
+@app.route('/shorts/<video_id>')
+def shorts_redirect(video_id):
+    return redirect(f'/watch?v={video_id}')
+
+@app.route('/@<handle>')
+@app.route('/channel/<channel_id>')
+@app.route('/c/<channel_name>')
+@app.route('/user/<username>')
+def channel_page_routed(handle=None, channel_id=None, channel_name=None, username=None):
+    if handle: yt_url = f"https://www.youtube.com/@{handle}"
+    elif channel_id: yt_url = f"https://www.youtube.com/channel/{channel_id}"
+    elif channel_name: yt_url = f"https://www.youtube.com/c/{channel_name}"
+    elif username: yt_url = f"https://www.youtube.com/user/{username}"
+    else: return "Invalid channel", 400
+    return render_channel(yt_url)
+
+@app.route('/channel')
+def channel():
+    channel_url = request.args.get('url')
+    if not channel_url: return "Channel URL required", 400
+    return render_channel(channel_url)
+
+def render_channel(channel_url):
+    subs = get_subs()
+    n_url = channel_url.strip('/').split('?')[0].lower()
+    sub = next((s for s in subs if s['url'].strip('/').split('?')[0].lower() == n_url), None)
+    return render_template('channel.html', url=channel_url, channel_name=sub['name'] if sub else "Loading...", channel_icon=sub['icon'] if sub else "", is_subbed=bool(sub), needs_fetch=not bool(sub))
 
 @app.route('/api/info')
 def api_info():
@@ -484,15 +555,6 @@ def api_toggle_sub():
         subs.append({"name": name, "url": url, "icon": icon, "id": ""})
         save_subs(subs)
         return jsonify({"status": "added", "is_subbed": True})
-
-@app.route('/channel')
-def channel():
-    channel_url = request.args.get('url')
-    if not channel_url: return "Channel URL required", 400
-    subs = get_subs()
-    n_url = channel_url.strip('/').split('?')[0].lower()
-    sub = next((s for s in subs if s['url'].strip('/').split('?')[0].lower() == n_url), None)
-    return render_template('channel.html', url=channel_url, channel_name=sub['name'] if sub else "Loading...", channel_icon=sub['icon'] if sub else "", is_subbed=bool(sub), needs_fetch=not bool(sub))
 
 @app.route('/api/channel_info')
 def api_channel_info():

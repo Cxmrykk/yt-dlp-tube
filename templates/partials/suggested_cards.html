@@ -1,6 +1,6 @@
 {% for s in videos %}
 {% set s_url = s.url or ('https://www.youtube.com/watch?v=' ~ s.id) %}
-<a href="/watch?url={{ s_url | urlencode }}" class="s-card">
+<a href="{{ s_url | yt_path }}" class="s-card">
     <div class="s-thumb">
         <img src="{{ (s.thumbnail or (s.thumbnails and s.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ s.id ~ '/hqdefault.jpg')) | proxy_image }}" loading="lazy">
         <span class="duration">{{ s.duration | format_time }}</span>

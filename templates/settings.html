@@ -221,7 +221,7 @@
             <img src="{{ (sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff') | proxy_image }}" style="width: 45px; height: 45px; border-radius: 50%; object-fit: cover;">
             <div>
                 <strong style="font-size: 1.1rem;">{{ sub.name }}</strong><br>
-                <a href="/channel?url={{ sub.url }}" style="color: var(--text-muted); font-size: 0.9rem; text-decoration: none;">{{ sub.url }}</a>
+                <a href="{{ sub.url | yt_path }}" style="color: var(--text-muted); font-size: 0.9rem; text-decoration: none;">{{ sub.url }}</a>
             </div>
         </div>
         <form action="/settings" method="POST" style="margin: 0;">
