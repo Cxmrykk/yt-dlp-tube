@@ -390,5 +390,56 @@
             card.dispatchEvent(new Event('mouseenter'));
         }
     });
+
+    // OVERRIDE AUDIO SYNC LOGIC (To fix the "clicking/stuttering" on dual-streams)
+    // We override the setupMediaSync logic initially injected by `player.html`.
+    // Instead of doing a hard-seek (`currentTime = ...`) which causes clicking, 
+    // we smoothly speed up or slow down the audio track to catch it up.
+    window.setupMediaSync = function() {
+        mainVideo.addEventListener('play', () => { 
+            if (isDualAudio && audio.paused) {
+                const p = audio.play();
+                if (p !== undefined) { p.catch(e => { if (e.name === 'NotAllowedError') mainVideo.pause(); }); }
+            } 
+        });
+        mainVideo.addEventListener('pause', () => { if (isDualAudio) audio.pause(); });
+        
+        // Only force hard sync when the user manually skips around the video
+        const forceSync = () => { if (isDualAudio) audio.currentTime = mainVideo.currentTime; };
+        mainVideo.addEventListener('seeking', forceSync);
+        mainVideo.addEventListener('seeked', forceSync);
+        
+        mainVideo.addEventListener('waiting', () => { if (isDualAudio) audio.pause(); });
+        mainVideo.addEventListener('playing', () => { if (isDualAudio) audio.play().catch(()=>{}); });
+        
+        // Soft-sync loop checking twice a second
+        setInterval(() => {
+            if (isDualAudio && !mainVideo.paused && !isScrubbing && mainVideo.readyState >= 3) {
+                
+                if (isFinite(mainVideo.currentTime) && isFinite(audio.currentTime)) {
+                    const diff = mainVideo.currentTime - audio.currentTime;
+                    
+                    // If drift is extreme (e.g. stalled buffer), we must hard seek
+                    if (Math.abs(diff) > 1.0) {
+                        audio.currentTime = mainVideo.currentTime;
+                    } 
+                    // If drift is small but noticeable, cleanly adjust the playback rate to catch up
+                    else if (diff > 0.15) {
+                        audio.playbackRate = mainVideo.playbackRate + 0.1;
+                    } 
+                    else if (diff < -0.15) {
+                        audio.playbackRate = Math.max(0.1, mainVideo.playbackRate - 0.1);
+                    } 
+                    // Tightly in sync, reset speed back to exactly match video
+                    else {
+                        if (audio.playbackRate !== mainVideo.playbackRate) {
+                            audio.playbackRate = mainVideo.playbackRate;
+                        }
+                    }
+                }
+                if (audio.paused) audio.play().catch(()=>{});
+            }
+        }, 500);
+    }
 </script>
 {% endblock %}

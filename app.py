@@ -36,8 +36,6 @@ CHANNEL_ICON_CACHE = {}
 
 # --- Proxy Session & Security ---
 SESSION = requests.Session()
-
-# INCREASE CONNECTION POOL SIZE (Fixes the 503 error)
 adapter = requests.adapters.HTTPAdapter(pool_connections=200, pool_maxsize=200, max_retries=1)
 SESSION.mount('http://', adapter)
 SESSION.mount('https://', adapter)
@@ -122,7 +120,10 @@ def proxy_image():
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         r = SESSION.get(url, headers=headers, timeout=10)
-        return Response(r.content, content_type=r.headers.get('Content-Type', 'image/jpeg'))
+        
+        resp = Response(r.content, content_type=r.headers.get('Content-Type', 'image/jpeg'))
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return resp
     except Exception:
         return "Image proxy failed", 500
 
@@ -131,26 +132,34 @@ def proxy_media():
     url = request.args.get('url')
     if not url or not is_safe_url(url):
         return "Invalid or unsafe URL", 400
-    headers = {
-        'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36'
-    }
+        
+    headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
     if 'Range' in request.headers:
         headers['Range'] = request.headers['Range']
         
     try:
         r = SESSION.get(url, headers=headers, stream=True, timeout=(5, 15))
+        
         def generate():
             try:
-                for chunk in r.iter_content(chunk_size=131072):
-                    if chunk: yield chunk
-            except Exception: pass
-            finally: r.close()
-                    
-        resp = Response(generate(), status=r.status_code)
+                # 81920 (80KB) chunks is standard for steady media buffering without stalling
+                for chunk in r.iter_content(chunk_size=81920):
+                    if chunk:
+                        yield chunk
+            except Exception:
+                pass
+            finally:
+                r.close()
+                
+        forward_headers = {}
         for key in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
             if key in r.headers:
-                resp.headers[key] = r.headers[key]
-        return resp
+                forward_headers[key] = r.headers[key]
+                
+        forward_headers['Cache-Control'] = 'public, max-age=31536000'
+        
+        return Response(generate(), status=r.status_code, headers=forward_headers)
+        
     except Exception as e:
         print(f"Proxy streaming failed: {e}")
         return str(e), 500
