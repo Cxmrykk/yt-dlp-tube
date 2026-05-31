@@ -165,6 +165,30 @@ def proxy_media():
         print(f"Proxy streaming failed: {e}")
         return str(e), 500
 
+@app.route('/proxy/subtitles')
+def proxy_subtitles():
+    url = request.args.get('url')
+    if not url or not is_safe_url(url):
+        return "Invalid or unsafe URL", 400
+        
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
+        r = SESSION.get(url, headers=headers, timeout=10)
+        text = r.text
+        
+        # 1. Strip positional metadata from WebVTT cues (e.g. "align:start position:0%")
+        # This forces the browser to natively center the text at the bottom.
+        text = re.sub(r'(-->\s*\d{2}:\d{2}:\d{2}\.\d{3}).*', r'\1', text)
+        
+        # 2. Strip YouTube's custom color/formatting inline tags (e.g. <c.colorE5E5E5>)
+        text = re.sub(r'</?c[^>]*>', '', text)
+        
+        resp = Response(text, content_type='text/vtt')
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        return resp
+    except Exception as e:
+        return str(e), 500
+
 # --- Template Filters ---
 @app.template_filter('proxy_image')
 def proxy_image_filter(url):
@@ -478,7 +502,17 @@ def render_channel(channel_url):
 def api_info():
     video_url = request.args.get('url')
     if not video_url: return jsonify({"error": "Video URL required"}), 400
-    ydl_opts = {'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'getcomments': False}
+    
+    # We must explicitly tell yt-dlp to extract all subtitle data
+    ydl_opts = {
+        'quiet': True, 
+        'no_warnings': True, 
+        'ignoreerrors': True, 
+        'getcomments': False,
+        'writesubtitles': True,
+        'allsubtitles': True
+    }
+    
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(video_url, download=False)
@@ -513,6 +547,59 @@ def api_info():
     if not chapters:
         chapters = parse_chapters_from_desc(info.get('description', ''))
 
+    # Subtitles Extraction Logic
+    subtitles_list = []
+    
+    # Helper to safely extract VTT URL from available formats
+    def extract_vtt_url(sub_formats):
+        if not isinstance(sub_formats, list) or not sub_formats: return None
+        vtt_sub = next((f for f in sub_formats if f.get('ext') == 'vtt'), None)
+        if not vtt_sub: vtt_sub = sub_formats[-1]  # Fallback to whatever format is available
+        
+        url = vtt_sub.get('url')
+        if not url: return None
+        
+        # Force YouTube's API to return standard VTT if it wasn't requested explicitly
+        if 'youtube.com/api/timedtext' in url and 'fmt=vtt' not in url:
+            url += '&fmt=vtt'
+            
+        return {'url': url, 'name': vtt_sub.get('name')}
+
+    # 1. Manual Subtitles
+    subs = info.get('subtitles')
+    if isinstance(subs, dict):
+        for lang, sub_formats in subs.items():
+            if 'live_chat' in lang: continue
+            
+            vtt_data = extract_vtt_url(sub_formats)
+            if vtt_data:
+                label = vtt_data['name'] or lang
+                subtitles_list.append({
+                    'label': label,
+                    'lang': lang,
+                    'url': vtt_data['url'],
+                    'is_auto': False
+                })
+
+    # 2. Auto-generated Subtitles
+    auto_subs = info.get('automatic_captions')
+    if isinstance(auto_subs, dict):
+        for lang, sub_formats in auto_subs.items():
+            # Skip if we already extracted the manually created version of this exact language
+            if not any(s['lang'] == lang and not s['is_auto'] for s in subtitles_list):
+                vtt_data = extract_vtt_url(sub_formats)
+                if vtt_data:
+                    label = vtt_data['name'] or lang
+                    subtitles_list.append({
+                        'label': label, 
+                        'lang': lang,
+                        'url': vtt_data['url'],
+                        'is_auto': True
+                    })
+                    
+    # Priority sorting: Manual first, then Auto. Alphabetical within priority.
+    subtitles_list.sort(key=lambda x: (x['is_auto'], x['label']))
+
     return jsonify({
         "id": info.get('id'),
         "title": info.get('title', 'Untitled'),
@@ -527,6 +614,7 @@ def api_info():
         "resolutions": resolutions_list,
         "best_audio": best_audio.get('url') if best_audio else None,
         "chapters": chapters,
+        "subtitles": subtitles_list,
         "search_query": broad_query
     })
 

@@ -7,6 +7,19 @@
 
     .main-video { width: 100%; height: 100%; display: block; cursor: pointer; outline: none; }
 
+    /* Native Subtitle Styling Overrides */
+    ::cue {
+        background-color: rgba(0, 0, 0, 0.75) !important;
+        color: white !important;
+        font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif !important;
+        font-size: 1.15rem !important;
+        text-shadow: 0 1px 3px rgba(0,0,0,1) !important;
+        text-align: center !important;
+    }
+
+    /* Force webkit text track centering */
+    video::-webkit-media-text-track-display { text-align: center !important; }
+
     /* Buffering Spinner */
     .buffering-spinner {
         position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
@@ -104,11 +117,13 @@
     .controls-container button {
         background: none; border: none; color: white; cursor: pointer; outline: none;
         display: flex; align-items: center; justify-content: center;
-        opacity: 0.85; transition: opacity 0.2s, transform 0.1s; padding: 0;
+        opacity: 0.85; transition: opacity 0.2s, transform 0.1s; padding: 0; position: relative;
     }
     .controls-container button:hover { opacity: 1; }
     .controls-container button:active { transform: scale(0.9); }
     .controls-container button.active-menu-btn { opacity: 1; transform: rotate(30deg); }
+    
+    .controls-container button#ccBtn.active-menu-btn { transform: none; }
 
     .controls-container svg {
         fill: white; width: 28px; height: 28px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.3s ease;
@@ -125,7 +140,12 @@
     .volume-slider::-webkit-slider-thumb { -webkit-appearance: none; width: 12px; height: 12px; background: #fff; border-radius: 50%; }
     .volume-container:hover .volume-slider, .volume-slider:focus { width: 60px; opacity: 1; }
 
-    /* Settings Menu */
+    /* CC Specific styling */
+    #ccBtn.cc-on { opacity: 1; }
+    #ccBtn.cc-on #ccIconOutline { display: none; }
+    #ccBtn.cc-on #ccIconFilled { display: block; }
+
+    /* Settings Menus */
     .settings-menu {
         position: absolute; bottom: 60px; right: 20px; width: 260px;
         background: rgba(28, 28, 28, 0.9); backdrop-filter: blur(8px); -webkit-backdrop-filter: blur(8px);
@@ -134,6 +154,8 @@
         transition: opacity 0.2s ease, transform 0.2s cubic-bezier(0.4, 0, 0.2, 1), visibility 0.2s, height 0.3s cubic-bezier(0.4, 0, 0.2, 1);
         box-shadow: 0 10px 30px rgba(0,0,0,0.5); overflow: hidden;
     }
+    .cc-menu-popup { right: 65px; width: 250px; } /* Offset so it opens over the CC button */
+    
     .settings-menu.open { opacity: 1; visibility: visible; transform: translateY(0) scale(1); }
     .settings-panes-wrapper {
         display: flex; align-items: flex-start; width: 200%; transition: transform 0.3s cubic-bezier(0.4, 0, 0.2, 1); transform: translateX(0); 
@@ -169,9 +191,24 @@
     <div class="buffering-spinner"></div>
     <div class="shortcut-overlay" id="shortcutOverlay"></div>
     
-    <video id="vid-player" class="main-video" playsinline preload="auto" style="display:none;"></video>
+    <video id="vid-player" class="main-video" playsinline preload="auto" crossorigin="anonymous" style="display:none;"></video>
     <audio id="aud-player" preload="auto" style="display:none;"></audio>
     
+    <!-- Subtitles/CC Pop-up Menu -->
+    <div class="settings-menu cc-menu-popup" id="ccMenu">
+        <div class="settings-panes-wrapper" id="ccWrapper">
+            <div class="settings-pane" id="ccMainPane"></div>
+            <div class="settings-pane" id="ccSubPane">
+                <div class="submenu-header" id="ccSubmenuBackBtn">
+                    <svg viewBox="0 0 24 24"><path d="M15.41 7.41L14 6l-6 6 6 6 1.41-1.41L10.83 12z"/></svg>
+                    <span>Auto-generated</span>
+                </div>
+                <div id="ccSubmenuContent"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Main Settings Pop-up Menu -->
     <div class="settings-menu" id="settingsMenu">
         <div class="settings-panes-wrapper" id="settingsWrapper">
             <div class="settings-pane" id="mainPane">
@@ -230,6 +267,12 @@
                 <div class="time-display"><span id="currentTime">0:00</span> / <span id="duration">0:00</span></div>
             </div>
             <div class="controls-right">
+                <button id="ccBtn" title="Subtitles/CC" style="display:none;">
+                    <svg viewBox="0 0 24 24">
+                        <path id="ccIconOutline" d="M21.20 3.01L21 3H3L2.79 3.01C2.30 3.06 1.84 3.29 1.51 3.65C1.18 4.02 .99 4.50 1 5V19L1.01 19.20C1.05 19.66 1.26 20.08 1.58 20.41C1.91 20.73 2.33 20.94 2.79 20.99L3 21H21L21.20 20.98C21.66 20.94 22.08 20.73 22.41 20.41C22.73 20.08 22.94 19.66 22.99 19.20L23 19V5C23.00 4.50 22.81 4.02 22.48 3.65C22.15 3.29 21.69 3.06 21.20 3.01ZM3 19V5H21V19H3ZM6.97 8.34C6.42 8.64 5.96 9.09 5.64 9.63L5.50 9.87C5.16 10.53 4.99 11.26 5 12L5.00 12.27C5.04 12.92 5.21 13.55 5.50 14.12L5.64 14.36C5.96 14.90 6.42 15.35 6.97 15.65L7.21 15.77C7.79 16.01 8.43 16.06 9.03 15.91L9.29 15.83C9.88 15.61 10.39 15.23 10.77 14.73C10.93 14.53 11.00 14.27 10.97 14.02C10.94 13.77 10.82 13.53 10.63 13.37C10.44 13.20 10.19 13.11 9.93 13.12C9.68 13.13 9.44 13.24 9.26 13.43L9.19 13.50C9.05 13.70 8.85 13.85 8.62 13.94L8.54 13.97C8.35 14.02 8.16 14.00 7.99 13.92L7.91 13.88C7.67 13.75 7.48 13.56 7.35 13.32L7.28 13.20C7.11 12.88 7.02 12.52 7.00 12.16L7 12C6.99 11.58 7.09 11.16 7.28 10.79L7.35 10.67C7.48 10.43 7.67 10.24 7.91 10.11C8.10 10.00 8.32 9.97 8.54 10.02L8.62 10.05C8.81 10.12 8.98 10.24 9.11 10.39L9.19 10.49L9.26 10.57C9.43 10.74 9.66 10.85 9.91 10.87C10.15 10.89 10.40 10.81 10.59 10.66C10.79 10.51 10.92 10.29 10.96 10.05C11.01 9.80 10.96 9.55 10.83 9.34L10.77 9.26L10.60 9.05C10.24 8.65 9.79 8.35 9.29 8.16L9.03 8.08C8.34 7.91 7.60 8.00 6.97 8.34ZM14.97 8.34C14.42 8.64 13.96 9.09 13.64 9.63L13.50 9.87C13.16 10.53 12.99 11.26 13 12L13.00 12.27C13.04 12.92 13.21 13.55 13.50 14.12L13.64 14.36C13.96 14.90 14.42 15.35 14.97 15.65L15.21 15.77C15.79 16.01 16.43 16.06 17.03 15.91L17.29 15.83C17.88 15.61 18.39 15.23 18.77 14.73C18.93 14.53 19.00 14.27 18.97 14.02C18.94 13.77 18.82 13.53 18.63 13.37C18.44 13.20 18.19 13.11 17.93 13.12C17.68 13.13 17.44 13.24 17.26 13.43L17.19 13.50C17.05 13.70 16.85 13.85 16.62 13.94L16.54 13.97C16.35 14.02 16.16 14.00 15.99 13.92L15.91 13.88C15.67 13.75 15.48 13.56 15.35 13.32L15.28 13.20C15.11 12.88 15.02 12.52 15.00 12.16L15 12C14.99 11.58 15.09 11.16 15.28 10.79L15.35 10.67C15.48 10.43 15.67 10.24 15.91 10.11C16.10 10.00 16.32 9.97 16.54 10.02L16.62 10.05C16.81 10.12 16.98 10.24 17.11 10.39L17.19 10.49L17.26 10.57C17.43 10.74 17.66 10.85 17.91 10.87C18.15 10.89 18.40 10.81 18.59 10.66C18.79 10.51 18.92 10.29 18.96 10.05C19.01 9.80 18.96 9.55 18.83 9.34L18.77 9.26L18.60 9.05C18.24 8.65 17.79 8.35 17.29 8.16L17.03 8.08C16.34 7.91 15.60 8.00 14.97 8.34Z" />
+                        <path id="ccIconFilled" fill-rule="evenodd" style="display: none;" d="M21.20 3.01L21 3H3L2.79 3.01C2.30 3.06 1.84 3.29 1.51 3.65C1.18 4.02 .99 4.50 1 5V19L1.01 19.20C1.05 19.66 1.26 20.08 1.58 20.41C1.91 20.73 2.33 20.94 2.79 20.99L3 21H21L21.20 20.98C21.66 20.94 22.08 20.73 22.41 20.41C22.73 20.08 22.94 19.66 22.99 19.20L23 19V5C23.00 4.50 22.81 4.02 22.48 3.65C22.15 3.29 21.69 3.06 21.20 3.01ZM6.97 8.34C6.42 8.64 5.96 9.09 5.64 9.63L5.50 9.87C5.16 10.53 4.99 11.26 5 12L5.00 12.27C5.04 12.92 5.21 13.55 5.50 14.12L5.64 14.36C5.96 14.90 6.42 15.35 6.97 15.65L7.21 15.77C7.79 16.01 8.43 16.06 9.03 15.91L9.29 15.83C9.88 15.61 10.39 15.23 10.77 14.73C10.93 14.53 11.00 14.27 10.97 14.02C10.94 13.77 10.82 13.53 10.63 13.37C10.44 13.20 10.19 13.11 9.93 13.12C9.68 13.13 9.44 13.24 9.26 13.43L9.19 13.50C9.05 13.70 8.85 13.85 8.62 13.94L8.54 13.97C8.35 14.02 8.16 14.00 7.99 13.92L7.91 13.88C7.67 13.75 7.48 13.56 7.35 13.32L7.28 13.20C7.11 12.88 7.02 12.52 7.00 12.16L7 12C6.99 11.58 7.09 11.16 7.28 10.79L7.35 10.67C7.48 10.43 7.67 10.24 7.91 10.11C8.10 10.00 8.32 9.97 8.54 10.02L8.62 10.05C8.81 10.12 8.98 10.24 9.11 10.39L9.19 10.49L9.26 10.57C9.43 10.74 9.66 10.85 9.91 10.87C10.15 10.89 10.40 10.81 10.59 10.66C10.79 10.51 10.92 10.29 10.96 10.05C11.01 9.80 10.96 9.55 10.83 9.34L10.77 9.26L10.60 9.05C10.24 8.65 9.79 8.35 9.29 8.16L9.03 8.08C8.34 7.91 7.60 8.00 6.97 8.34ZM14.97 8.34C14.42 8.64 13.96 9.09 13.64 9.63L13.50 9.87C13.16 10.53 12.99 11.26 13 12L13.00 12.27C13.04 12.92 13.21 13.55 13.50 14.12L13.64 14.36C13.96 14.90 14.42 15.35 14.97 15.65L15.21 15.77C15.79 16.01 16.43 16.06 17.03 15.91L17.29 15.83C17.88 15.61 18.39 15.23 18.77 14.73C18.93 14.53 19.00 14.27 18.97 14.02C18.94 13.77 18.82 13.53 18.63 13.37C18.44 13.20 18.19 13.11 17.93 13.12C17.68 13.13 17.44 13.24 17.26 13.43L17.19 13.50C17.05 13.70 16.85 13.85 16.62 13.94L16.54 13.97C16.35 14.02 16.16 14.00 15.99 13.92L15.91 13.88C15.67 13.75 15.48 13.56 15.35 13.32L15.28 13.20C15.11 12.88 15.02 12.52 15.00 12.16L15 12C14.99 11.58 15.09 11.16 15.28 10.79L15.35 10.67C15.48 10.43 15.67 10.24 15.91 10.11C16.10 10.00 16.32 9.97 16.54 10.02L16.62 10.05C16.81 10.12 16.98 10.24 17.11 10.39L17.19 10.49L17.26 10.57C17.43 10.74 17.66 10.85 17.91 10.87C18.15 10.89 18.40 10.81 18.59 10.66C18.79 10.51 18.92 10.29 18.96 10.05C19.01 9.80 18.96 9.55 18.83 9.34L18.77 9.26L18.60 9.05C18.24 8.65 17.79 8.35 17.29 8.16L17.03 8.08C16.34 7.91 15.60 8.00 14.97 8.34Z" />
+                    </svg>
+                </button>
                 <button id="settingsBtn" title="Settings">
                     <svg viewBox="0 0 24 24"><path d="M12.84 1H11.15C10.72 .99 10.30 1.14 9.95 1.40C9.60 1.66 9.35 2.02 9.23 2.44L9.19 2.61C9.11 3.00 8.96 3.38 8.73 3.71C8.51 4.04 8.22 4.33 7.89 4.55L7.75 4.64C7.37 4.85 6.96 4.98 6.53 5.02C6.11 5.06 5.68 5.01 5.27 4.87C4.86 4.73 4.42 4.73 4.00 4.86C3.59 5.00 3.23 5.26 2.99 5.62L2.89 5.77L2.05 7.23C1.82 7.63 1.73 8.10 1.81 8.55C1.88 9.01 2.12 9.43 2.47 9.73L2.58 9.84C3.15 10.39 3.50 11.15 3.50 12L3.49 12.16C3.47 12.56 3.37 12.95 3.19 13.31C3.01 13.67 2.77 13.99 2.47 14.26C2.12 14.56 1.88 14.98 1.81 15.43C1.73 15.89 1.82 16.36 2.05 16.76L2.89 18.22L2.99 18.37C3.24 18.73 3.59 18.99 4.01 19.13C4.42 19.26 4.86 19.26 5.27 19.12L5.42 19.07C5.81 18.96 6.21 18.93 6.61 18.98C7.01 19.03 7.40 19.15 7.75 19.36L7.89 19.44C8.22 19.66 8.51 19.95 8.73 20.28C8.96 20.61 9.11 20.99 9.19 21.38C9.28 21.84 9.52 22.24 9.88 22.54C10.24 22.83 10.69 23.00 11.15 23H12.84C13.30 23.00 13.75 22.83 14.11 22.54C14.47 22.24 14.71 21.84 14.80 21.38C14.89 20.96 15.06 20.56 15.31 20.21C15.55 19.86 15.88 19.57 16.25 19.36L16.39 19.28C16.75 19.10 17.14 18.99 17.54 18.96C17.94 18.94 18.34 18.99 18.72 19.12L18.89 19.17C19.31 19.27 19.75 19.24 20.15 19.07C20.55 18.90 20.88 18.60 21.10 18.23L21.95 16.76C22.18 16.36 22.26 15.89 22.19 15.43C22.11 14.98 21.88 14.56 21.53 14.26C21.23 13.99 20.98 13.67 20.80 13.31C20.63 12.95 20.52 12.56 20.50 12.16L20.50 12C20.50 11.57 20.59 11.14 20.77 10.75C20.94 10.36 21.20 10.01 21.53 9.73C21.88 9.43 22.11 9.01 22.19 8.55C22.26 8.10 22.18 7.63 21.95 7.23L21.10 5.76C20.88 5.39 20.55 5.09 20.15 4.92C19.76 4.75 19.31 4.72 18.89 4.82L18.72 4.87C18.34 5.00 17.94 5.05 17.54 5.03C17.14 5.00 16.75 4.89 16.4 4.71L16.25 4.63C15.88 4.42 15.56 4.13 15.31 3.78C15.06 3.43 14.89 3.03 14.80 2.61C14.71 2.15 14.47 1.74 14.11 1.45C13.75 1.16 13.30 .99 12.84 1ZM11.15 3H12.84C12.98 3.70 13.26 4.36 13.68 4.94C14.09 5.52 14.63 6.01 15.25 6.37C15.87 6.72 16.55 6.94 17.26 7.01C17.97 7.08 18.69 6.99 19.37 6.76L20.21 8.23C19.67 8.69 19.24 9.27 18.94 9.92C18.65 10.57 18.50 11.28 18.5 12C18.50 12.71 18.65 13.42 18.95 14.07C19.24 14.72 19.67 15.29 20.21 15.76L19.37 17.23C18.69 16.99 17.97 16.91 17.26 16.98C16.55 17.05 15.86 17.27 15.25 17.63C14.63 17.98 14.09 18.47 13.68 19.05C13.26 19.63 12.98 20.29 12.84 21H11.15C11.01 20.29 10.73 19.63 10.31 19.05C9.90 18.47 9.36 17.98 8.75 17.62C8.13 17.27 7.44 17.05 6.73 16.98C6.02 16.91 5.30 16.99 4.62 17.23L3.78 15.76C4.32 15.29 4.75 14.71 5.05 14.06C5.34 13.41 5.49 12.71 5.5 12C5.50 11.28 5.34 10.57 5.05 9.92C4.75 9.27 4.32 8.69 3.78 8.23L4.62 6.76C5.30 7.00 6.02 7.08 6.73 7.01C7.44 6.94 8.13 6.72 8.75 6.37C9.36 6.01 9.90 5.52 10.31 4.94C10.73 4.36 11.01 3.70 11.15 3ZM12.00 8C10.94 8 9.92 8.42 9.17 9.17C8.42 9.92 8.00 10.93 8.00 12C8.00 13.06 8.42 14.07 9.17 14.82C9.92 15.57 10.94 16 12.00 16C13.06 16 14.08 15.57 14.83 14.82C15.58 14.07 16.00 13.06 16.00 12C16.00 10.93 15.58 9.92 14.83 9.17C14.08 8.42 13.06 8 12.00 8ZM12.00 10H12L12.20 10.01C12.69 10.06 13.15 10.29 13.48 10.65C13.81 11.02 14.00 11.50 14 12L13.99 12.20C13.95 12.58 13.80 12.95 13.55 13.25C13.31 13.55 12.98 13.78 12.62 13.90C12.25 14.02 11.85 14.03 11.48 13.93C11.11 13.83 10.77 13.62 10.51 13.34C10.25 13.05 10.08 12.69 10.02 12.31C9.96 11.93 10.01 11.54 10.17 11.18C10.32 10.83 10.58 10.53 10.91 10.32C11.23 10.11 11.61 10.00 12 10"/></svg>
                 </button>
@@ -271,6 +314,13 @@
     const fullscreenBtn = document.getElementById('fullscreenBtn');
     const fsIconEnter = document.getElementById('fsIconEnter');
     const fsIconExit = document.getElementById('fsIconExit');
+
+    const ccBtn = document.getElementById('ccBtn');
+    const ccMenu = document.getElementById('ccMenu');
+    const ccMainPane = document.getElementById('ccMainPane');
+    const ccSubPane = document.getElementById('ccSubPane');
+    const ccSubmenuContent = document.getElementById('ccSubmenuContent');
+    const ccSubmenuBackBtn = document.getElementById('ccSubmenuBackBtn');
 
     const settingsBtn = document.getElementById('settingsBtn');
     const settingsMenu = document.getElementById('settingsMenu');
@@ -330,7 +380,7 @@
         videoContainer.classList.remove('hide-cursor');
         clearTimeout(inactivityTimeout);
         inactivityTimeout = setTimeout(() => {
-            if (!mainVideo.paused && !settingsMenu.classList.contains('open')) {
+            if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) {
                 videoContainer.classList.remove('user-active'); videoContainer.classList.add('hide-cursor');
             }
         }, 2500);
@@ -340,7 +390,7 @@
     videoContainer.addEventListener('mousedown', resetInactivity);
     videoContainer.addEventListener('touchstart', resetInactivity);
     videoContainer.addEventListener('mouseleave', () => {
-        if (!mainVideo.paused && !settingsMenu.classList.contains('open')) videoContainer.classList.remove('user-active');
+        if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) videoContainer.classList.remove('user-active');
     });
 
     document.querySelector('.controls-container').addEventListener('mouseenter', () => {
@@ -423,6 +473,33 @@
         return `/proxy/media?url=${encodeURIComponent(url)}`;
     }
 
+    function getSubProxyUrl(url) {
+        if(!url) return '';
+        if(url.startsWith('/proxy/')) return url;
+        // Subtitles require parsing to strip alignment tags and center them
+        return `/proxy/subtitles?url=${encodeURIComponent(url)}`;
+    }
+
+    function changeSubtitle(val) {
+        window.currentSubVal = val;
+        let ccOn = false;
+        
+        for (let i = 0; i < mainVideo.textTracks.length; i++) {
+            const t = mainVideo.textTracks[i];
+            const tVal = `${t.language}|${t.label}`;
+            if (val !== "off" && tVal === val) {
+                t.mode = 'showing';
+                ccOn = true;
+            } else {
+                t.mode = 'disabled';
+            }
+        }
+        
+        // Toggle the active styling for the CC button (swaps SVG paths)
+        if (ccOn) ccBtn.classList.add('cc-on');
+        else ccBtn.classList.remove('cc-on');
+    }
+
     function initializePlayer(data) {
         resolutionsList = data.resolutions;
         videoChapters = data.chapters || [];
@@ -466,6 +543,83 @@
             isDualAudio = false; 
         }
 
+        // --- SUBTITLES MENU SETUP ---
+        const subsList = data.subtitles || [];
+        ccMainPane.innerHTML = '';
+        ccSubmenuContent.innerHTML = '';
+        
+        // Purge old tracks when reinitializing
+        Array.from(mainVideo.querySelectorAll('track')).forEach(t => t.remove());
+
+        let manualSubs = [];
+        let autoSubs = [];
+
+        if (subsList.length > 0) {
+            ccBtn.style.display = 'flex';
+            
+            subsList.forEach((sub) => {
+                const track = document.createElement('track');
+                track.kind = 'subtitles';
+                track.label = sub.label;
+                track.srclang = sub.lang;
+                track.src = getSubProxyUrl(sub.url); // Use Subtitle proxy to strip formatting
+                mainVideo.appendChild(track);
+
+                if (sub.is_auto) autoSubs.push(sub);
+                else manualSubs.push(sub);
+            });
+
+            // Helper to build DOM options
+            const createOption = (label, val, isSelected) => {
+                const div = document.createElement('div');
+                div.className = `submenu-option ${isSelected ? 'selected' : ''}`;
+                div.innerHTML = `<svg class="check-icon" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>${label}</span>`;
+                div.dataset.val = val;
+                return div;
+            };
+
+            // Setup Main Pane: Off & Manual Tracks
+            ccMainPane.appendChild(createOption('Off', 'off', true));
+            manualSubs.forEach(sub => ccMainPane.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false)));
+
+            // Setup Auto-generated Submenu 
+            if (autoSubs.length > 0) {
+                const autoBtn = document.createElement('div');
+                autoBtn.className = 'settings-item';
+                autoBtn.innerHTML = `
+                    <div class="settings-label"><span>Auto-generated</span></div>
+                    <div class="settings-value"><svg class="settings-chevron" viewBox="0 0 24 24"><path d="M9.4 18.4l-1.4-1.4 5.6-5.6-5.6-5.6 1.4-1.4 7 7-7 7z"/></svg></div>
+                `;
+                autoBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    ccMenu.classList.add('show-submenu');
+                    setMenuHeight(ccSubPane, ccMenu);
+                });
+                ccMainPane.appendChild(autoBtn);
+
+                autoSubs.forEach(sub => ccSubmenuContent.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false)));
+            }
+
+            // Click listener for all sub options
+            document.querySelectorAll('#ccMenu .submenu-option').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    document.querySelectorAll('#ccMenu .submenu-option').forEach(o => o.classList.remove('selected'));
+                    opt.classList.add('selected');
+                    
+                    changeSubtitle(opt.dataset.val);
+                    closeCcMenu();
+                });
+            });
+
+            window.currentSubVal = "off";
+            changeSubtitle("off");
+
+        } else {
+            ccBtn.style.display = 'none';
+            window.currentSubVal = "off";
+        }
+
         document.getElementById('video-skeleton').style.display = 'none';
         mainVideo.style.display = 'block';
 
@@ -504,6 +658,7 @@
         const currentTime = mainVideo.currentTime;
         const isPaused = mainVideo.paused;
         const currentRate = mainVideo.playbackRate;
+        const currentSub = window.currentSubVal;
         
         videoContainer.classList.add('buffering');
         mainVideo.src = url;
@@ -515,6 +670,20 @@
                     audio.currentTime = currentTime; audio.muted = mainVideo.muted;
                     audio.volume = mainVideo.volume; audio.playbackRate = currentRate;
                 } else { audio.pause(); }
+            }
+            
+            // Re-apply subtitle since changing video src resets track modes
+            if (currentSub && currentSub !== "off") {
+                for (let i = 0; i < mainVideo.textTracks.length; i++) {
+                    const t = mainVideo.textTracks[i];
+                    const tVal = `${t.language}|${t.label}`;
+                    if (tVal === currentSub) t.mode = 'showing';
+                    else t.mode = 'disabled';
+                }
+            } else {
+                for (let i = 0; i < mainVideo.textTracks.length; i++) {
+                    mainVideo.textTracks[i].mode = 'disabled';
+                }
             }
             
             document.getElementById('lbl-quality').innerText = label;
@@ -561,7 +730,7 @@
     }
 
     playPauseBtn.addEventListener('click', togglePlay);
-    mainVideo.addEventListener('click', () => { if (!settingsMenu.classList.contains('open')) togglePlay(); });
+    mainVideo.addEventListener('click', () => { if (!settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) togglePlay(); });
 
     function formatTime(seconds) {
         if (isNaN(seconds)) return "0:00";
@@ -682,15 +851,44 @@
         });
     });
 
-    function setMenuHeight(paneElement) { settingsMenu.style.height = `${paneElement.offsetHeight}px`; }
-    function openSettingsMenu() { settingsMenu.classList.add('open'); settingsBtn.classList.add('active-menu-btn'); videoContainer.classList.add('menu-open'); setMenuHeight(mainPane); }
+    // --- Menu Handling Logic ---
+    function setMenuHeight(paneElement, menuElement) { menuElement.style.height = `${paneElement.offsetHeight}px`; }
+    
+    function openSettingsMenu() { 
+        closeCcMenu(); // Mutual Exclusion
+        settingsMenu.classList.add('open'); 
+        settingsBtn.classList.add('active-menu-btn'); 
+        videoContainer.classList.add('menu-open'); 
+        setMenuHeight(mainPane, settingsMenu); 
+    }
+    
     function closeSettingsMenu() {
-        settingsMenu.classList.remove('open'); settingsBtn.classList.remove('active-menu-btn'); videoContainer.classList.remove('menu-open');
-        setTimeout(() => { settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane); }, 300); 
+        settingsMenu.classList.remove('open'); 
+        settingsBtn.classList.remove('active-menu-btn'); 
+        if(!ccMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
+        setTimeout(() => { settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); }, 300); 
+    }
+
+    function openCcMenu() {
+        closeSettingsMenu(); // Mutual Exclusion
+        ccMenu.classList.add('open');
+        videoContainer.classList.add('menu-open');
+        setMenuHeight(ccMainPane, ccMenu);
+    }
+
+    function closeCcMenu() {
+        ccMenu.classList.remove('open');
+        if(!settingsMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
+        setTimeout(() => { ccMenu.classList.remove('show-submenu'); setMenuHeight(ccMainPane, ccMenu); }, 300);
     }
 
     settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); if (settingsMenu.classList.contains('open')) closeSettingsMenu(); else openSettingsMenu(); });
-    document.addEventListener('click', (e) => { if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) { closeSettingsMenu(); } });
+    ccBtn.addEventListener('click', (e) => { e.stopPropagation(); if (ccMenu.classList.contains('open')) closeCcMenu(); else openCcMenu(); });
+    
+    document.addEventListener('click', (e) => { 
+        if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) closeSettingsMenu(); 
+        if (!ccMenu.contains(e.target) && e.target !== ccBtn) closeCcMenu();
+    });
 
     mainPaneItems.forEach(item => {
         item.addEventListener('click', (e) => {
@@ -704,13 +902,14 @@
                 optionDiv.innerHTML = `<svg class="check-icon" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>${opt.label}</span>`;
                 optionDiv.addEventListener('click', (eClick) => {
                     eClick.stopPropagation(); data.current = opt.value; data.onSelect(opt.value, opt.label);
-                    settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane); setTimeout(closeSettingsMenu, 250); 
+                    settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); setTimeout(closeSettingsMenu, 250); 
                 });
                 submenuContent.appendChild(optionDiv);
             });
-            settingsMenu.classList.add('show-submenu'); setMenuHeight(subPane);
+            settingsMenu.classList.add('show-submenu'); setMenuHeight(subPane, settingsMenu);
         });
     });
 
-    submenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane); });
+    submenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); });
+    ccSubmenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); ccMenu.classList.remove('show-submenu'); setMenuHeight(ccMainPane, ccMenu); });
 </script>
