@@ -176,11 +176,7 @@ def proxy_subtitles():
         r = SESSION.get(url, headers=headers, timeout=10)
         text = r.text
         
-        # 1. Strip positional metadata from WebVTT cues (e.g. "align:start position:0%")
-        # This forces the browser to natively center the text at the bottom.
         text = re.sub(r'(-->\s*\d{2}:\d{2}:\d{2}\.\d{3}).*', r'\1', text)
-        
-        # 2. Strip YouTube's custom color/formatting inline tags (e.g. <c.colorE5E5E5>)
         text = re.sub(r'</?c[^>]*>', '', text)
         
         resp = Response(text, content_type='text/vtt')
@@ -251,18 +247,32 @@ def get_video_dates():
 def save_video_dates(dates):
     with open(VIDEO_DATES_FILE, 'w') as f: json.dump(dates, f)
 
-def sync_video_dates(entries):
+def sync_video_dates(entries, is_initial_or_backlog=False):
     dates_cache = get_video_dates()
     changed = False
     now = time.time()
+    
     for e in entries:
         if not e: continue
         vid = e.get('id')
         if not vid: continue
+        
         if vid not in dates_cache:
-            dates_cache[vid] = now
+            # New to the DB! If this is a backlog fetch, flag it false. Else, flag it as a genuine new upload.
+            dates_cache[vid] = {"timestamp": now, "is_new": not is_initial_or_backlog}
             changed = True
-        e['timestamp'] = dates_cache[vid]
+        elif isinstance(dates_cache[vid], (int, float)):
+            # Database Migration: Cleans out old float formats so they don't corrupt the new feed.
+            dates_cache[vid] = {"timestamp": dates_cache[vid], "is_new": False}
+            changed = True
+        elif not isinstance(dates_cache[vid], dict):
+            # Fallback for corrupted cache entries
+            dates_cache[vid] = {"timestamp": now, "is_new": False}
+            changed = True
+            
+        e['timestamp'] = dates_cache[vid].get('timestamp', now)
+        e['is_new'] = dates_cache[vid].get('is_new', False)
+        
     if changed:
         save_video_dates(dates_cache)
 
@@ -308,6 +318,7 @@ def update_feed_now():
     fetch_limit = max(50, settings['per_page'] * 3) 
     
     def fetch_flat(sub):
+        is_initial = not sub.get('initial_fetch_done', False)
         ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': fetch_limit, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
         try:
             with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -318,6 +329,7 @@ def update_feed_now():
                             e['channel_name'] = sub['name']
                             e['channel_icon'] = sub.get('icon', '')
                             e['channel_url'] = sub['url']
+                            e['is_initial_fetch'] = is_initial
                     return [e for e in info['entries'] if e]
         except Exception: pass
         return []
@@ -325,16 +337,27 @@ def update_feed_now():
     with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
         results = list(executor.map(fetch_flat, subs))
         
-    interleaved = []
-    if results:
-        max_len = max([len(r) for r in results] + [0])
-        for i in range(max_len):
-            for r in results:
-                if i < len(r): interleaved.append(r[i])
+    all_entries = []
+    for r in results:
+        if r:
+            is_initial = r[0].get('is_initial_fetch', False)
+            sync_video_dates(r, is_initial_or_backlog=is_initial)
+            all_entries.extend(r)
+            
+    # Mark subs as initially fetched to allow future videos to trigger the "new" flag
+    changed_subs = False
+    for s in subs:
+        if not s.get('initial_fetch_done'):
+            s['initial_fetch_done'] = True
+            changed_subs = True
+    if changed_subs:
+        save_subs(subs)
     
-    sync_video_dates(interleaved)
-    interleaved.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
-    feed_cache['data'] = interleaved
+    # The Feed is now exclusively populated by genuinely new uploads.
+    new_vids = [e for e in all_entries if e.get('is_new')]
+    new_vids.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
+    
+    feed_cache['data'] = new_vids
     feed_cache['last_update'] = time.time()
 
 def bg_worker():
@@ -450,7 +473,7 @@ def inject_globals():
 # --- Routes ---
 @app.route('/')
 def feed():
-    resp = render_template('feed.html', title="Your Feed", type="feed", query="")
+    resp = render_template('feed.html', title="New Uploads", type="feed", query="")
     session['last_feed_view'] = time.time()
     return resp
 
@@ -503,7 +526,6 @@ def api_info():
     video_url = request.args.get('url')
     if not video_url: return jsonify({"error": "Video URL required"}), 400
     
-    # We must explicitly tell yt-dlp to extract all subtitle data
     ydl_opts = {
         'quiet': True, 
         'no_warnings': True, 
@@ -550,22 +572,19 @@ def api_info():
     # Subtitles Extraction Logic
     subtitles_list = []
     
-    # Helper to safely extract VTT URL from available formats
     def extract_vtt_url(sub_formats):
         if not isinstance(sub_formats, list) or not sub_formats: return None
         vtt_sub = next((f for f in sub_formats if f.get('ext') == 'vtt'), None)
-        if not vtt_sub: vtt_sub = sub_formats[-1]  # Fallback to whatever format is available
+        if not vtt_sub: vtt_sub = sub_formats[-1]  
         
         url = vtt_sub.get('url')
         if not url: return None
         
-        # Force YouTube's API to return standard VTT if it wasn't requested explicitly
         if 'youtube.com/api/timedtext' in url and 'fmt=vtt' not in url:
             url += '&fmt=vtt'
             
         return {'url': url, 'name': vtt_sub.get('name')}
 
-    # 1. Manual Subtitles
     subs = info.get('subtitles')
     if isinstance(subs, dict):
         for lang, sub_formats in subs.items():
@@ -581,11 +600,9 @@ def api_info():
                     'is_auto': False
                 })
 
-    # 2. Auto-generated Subtitles
     auto_subs = info.get('automatic_captions')
     if isinstance(auto_subs, dict):
         for lang, sub_formats in auto_subs.items():
-            # Skip if we already extracted the manually created version of this exact language
             if not any(s['lang'] == lang and not s['is_auto'] for s in subtitles_list):
                 vtt_data = extract_vtt_url(sub_formats)
                 if vtt_data:
@@ -597,7 +614,6 @@ def api_info():
                         'is_auto': True
                     })
                     
-    # Priority sorting: Manual first, then Auto. Alphabetical within priority.
     subtitles_list.sort(key=lambda x: (x['is_auto'], x['label']))
 
     return jsonify({
@@ -640,6 +656,7 @@ def api_toggle_sub():
             c_info = fetch_channel_info(url)
             name = name if (name and name != 'Unknown') else c_info['name']
             icon = icon or c_info['icon']
+        # Omitting 'initial_fetch_done' means it defaults to False, making the first background fetch process it as backlog
         subs.append({"name": name, "url": url, "icon": icon, "id": ""})
         save_subs(subs)
         return jsonify({"status": "added", "is_subbed": True})
@@ -684,7 +701,8 @@ def api_videos():
                         e['channel_icon'] = c_icon
                         e['channel_url'] = query
                         videos.append(e)
-        sync_video_dates(videos)
+        # Prevent manual channel scrolling from populating the new upload feed
+        sync_video_dates(videos, is_initial_or_backlog=True)
         return render_template('partials/video_cards.html', videos=videos, show_date=False, show_channel=False)
     elif req_type == 'search' and query:
         start = (page - 1) * per_page + 1
@@ -837,3 +855,4 @@ def settings_page():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
+    
