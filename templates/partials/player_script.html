@@ -1,0 +1,776 @@
+<script>
+    // Custom Player Elements Setup
+    const videoContainer = document.getElementById('videoContainer');
+    const mainVideo = document.getElementById('vid-player');
+    const audio = document.getElementById('aud-player');
+    const previewVideo = document.getElementById('previewVideo');
+    
+    const playPauseBtn = document.getElementById('playPauseBtn');
+    const playIcon = document.getElementById('playIcon');
+    const pauseIcon = document.getElementById('pauseIcon');
+    const progressArea = document.getElementById('progressArea');
+    const progressBar = document.getElementById('progressBar');
+    const progressLoaded = document.getElementById('progressLoaded');
+    const progressThumb = document.getElementById('progressThumb');
+    const hoverTooltip = document.getElementById('hoverTooltip');
+    const hoverTimeDisplay = document.getElementById('hoverTime');
+    const hoverChapterDisplay = document.getElementById('hoverChapter');
+    
+    const muteBtn = document.getElementById('muteBtn');
+    const volumeSlider = document.getElementById('volumeSlider');
+    const volHighIcon = document.getElementById('volHighIcon');
+    const volLowIcon = document.getElementById('volLowIcon');
+    const volMutedIcon = document.getElementById('volMutedIcon');
+    
+    const currentTimeDisplay = document.getElementById('currentTime');
+    const durationDisplay = document.getElementById('duration');
+    const fullscreenBtn = document.getElementById('fullscreenBtn');
+    const fsIconEnter = document.getElementById('fsIconEnter');
+    const fsIconExit = document.getElementById('fsIconExit');
+
+    const ccBtn = document.getElementById('ccBtn');
+    const ccMenu = document.getElementById('ccMenu');
+    const ccMainPane = document.getElementById('ccMainPane');
+    const ccSubPane = document.getElementById('ccSubPane');
+    const ccOptionsPane = document.getElementById('ccOptionsPane');
+    const ccSubmenuContent = document.getElementById('ccSubmenuContent');
+    const ccSubmenuBackBtn = document.getElementById('ccSubmenuBackBtn');
+    const ccOptionsBackBtn = document.getElementById('ccOptionsBackBtn');
+
+    const settingsBtn = document.getElementById('settingsBtn');
+    const settingsMenu = document.getElementById('settingsMenu');
+    const mainPane = document.getElementById('mainPane');
+    const subPane = document.getElementById('subPane');
+    const mainPaneItems = document.querySelectorAll('.settings-item');
+    const submenuTitle = document.getElementById('submenuTitle');
+    const submenuContent = document.getElementById('submenuContent');
+    const submenuBackBtn = document.getElementById('submenuBackBtn');
+
+    let isScrubbing = false;
+    let wasPausedBeforeScrub = false;
+    let isDualAudio = false;
+    let resolutionsList = [];
+    let videoChapters = [];
+    let currentSubOffset = parseFloat(localStorage.getItem('cc_offset') || 0);
+
+    const userShortcuts = {
+        pause: "{{ app_settings.shortcut_pause | default('Space') }}",
+        seekFwd: "{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}",
+        seekBwd: "{{ app_settings.shortcut_seek_bwd | default('ArrowLeft') }}",
+        mute: "{{ app_settings.shortcut_mute | default('m') }}",
+        chapNext: "{{ app_settings.shortcut_chap_next | default('PageUp') }}",
+        chapPrev: "{{ app_settings.shortcut_chap_prev | default('PageDown') }}"
+    };
+
+    const iconSvgPlay = `<svg viewBox="0 0 36 36"><path d="M 12 8 L 12 28 L 28 18 Z" /></svg>`;
+    const iconSvgPause = `<svg viewBox="0 0 36 36"><path d="M 12 8 L 12 28 L 16 28 L 16 8 Z M 20 8 L 20 28 L 24 28 L 24 8 Z" /></svg>`;
+    const iconSvgFwd = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
+    const iconSvgBwd = `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>`;
+    const iconSvgMute = `<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>`;
+    const iconSvgVolHigh = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
+    const iconSvgVolLow = `<svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 5V4L9 9H5zm11.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`;
+
+    const menuData = {
+        speed: {
+            title: "Playback speed",
+            options: [
+                { label: "0.25", value: 0.25 }, { label: "0.5", value: 0.5 }, { label: "0.75", value: 0.75 },
+                { label: "Normal", value: 1 }, { label: "1.25", value: 1.25 }, { label: "1.5", value: 1.5 },
+                { label: "1.75", value: 1.75 }, { label: "2", value: 2 }
+            ],
+            current: 1, 
+            onSelect: (val, label) => {
+                mainVideo.playbackRate = val;
+                audio.playbackRate = val;
+                document.getElementById('lbl-speed').innerText = label;
+            }
+        },
+        quality: { title: "Quality", options: [], current: "", onSelect: (val, label) => changeResolution(val, label) }
+    };
+
+    function getValidDuration(vid) { return (vid && typeof vid.duration === 'number' && !isNaN(vid.duration) && isFinite(vid.duration)) ? vid.duration : 0; }
+
+    let inactivityTimeout;
+    function resetInactivity() {
+        videoContainer.classList.add('user-active');
+        videoContainer.classList.remove('hide-cursor');
+        clearTimeout(inactivityTimeout);
+        inactivityTimeout = setTimeout(() => {
+            if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) {
+                videoContainer.classList.remove('user-active'); videoContainer.classList.add('hide-cursor');
+            }
+        }, 2500);
+    }
+    
+    videoContainer.addEventListener('mousemove', resetInactivity);
+    videoContainer.addEventListener('mousedown', resetInactivity);
+    videoContainer.addEventListener('touchstart', resetInactivity);
+    videoContainer.addEventListener('mouseleave', () => {
+        if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) videoContainer.classList.remove('user-active');
+    });
+
+    document.querySelector('.controls-container').addEventListener('mouseenter', () => {
+        clearTimeout(inactivityTimeout); videoContainer.classList.add('user-active'); videoContainer.classList.remove('hide-cursor');
+    });
+    document.querySelector('.controls-container').addEventListener('mouseleave', resetInactivity);
+
+    function showOverlay(svgContent) {
+        const overlay = document.getElementById('shortcutOverlay');
+        overlay.innerHTML = svgContent; overlay.classList.remove('show');
+        void overlay.offsetWidth; overlay.classList.add('show');
+        clearTimeout(overlay.timeout); overlay.timeout = setTimeout(() => overlay.classList.remove('show'), 400);
+    }
+
+    function updateVolumeIcons() {
+        const vol = mainVideo.muted ? 0 : mainVideo.volume;
+        volHighIcon.style.display = vol > 0.5 ? 'block' : 'none';
+        volLowIcon.style.display = (vol > 0 && vol <= 0.5) ? 'block' : 'none';
+        volMutedIcon.style.display = vol === 0 ? 'block' : 'none';
+    }
+
+    document.addEventListener('keydown', (e) => {
+        if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
+        let key = e.key === ' ' ? 'Space' : e.key;
+
+        if (key && key === userShortcuts.pause) {
+            e.preventDefault(); togglePlay(); showOverlay(mainVideo.paused ? iconSvgPause : iconSvgPlay);
+        } else if (key && key === userShortcuts.seekFwd) {
+            e.preventDefault(); const dur = getValidDuration(mainVideo);
+            if (dur > 0) { mainVideo.currentTime = Math.min(dur, mainVideo.currentTime + 10); if(isDualAudio) audio.currentTime = mainVideo.currentTime; showOverlay(iconSvgFwd); }
+        } else if (key && key === userShortcuts.seekBwd) {
+            e.preventDefault(); const dur = getValidDuration(mainVideo);
+            if (dur > 0) { mainVideo.currentTime = Math.max(0, mainVideo.currentTime - 10); if(isDualAudio) audio.currentTime = mainVideo.currentTime; showOverlay(iconSvgBwd); }
+        } else if (key && key === userShortcuts.mute) {
+            e.preventDefault(); toggleMute();
+            if (mainVideo.muted || mainVideo.volume === 0) showOverlay(iconSvgMute);
+            else if (mainVideo.volume > 0.5) showOverlay(iconSvgVolHigh); else showOverlay(iconSvgVolLow);
+        } else if (key && key === userShortcuts.chapNext) {
+            e.preventDefault();
+            if (videoChapters.length > 0) {
+                const dur = getValidDuration(mainVideo);
+                const curr = mainVideo.currentTime;
+                const nextCh = videoChapters.find(ch => ch.start_time > curr + 1);
+                if (nextCh) {
+                    mainVideo.currentTime = nextCh.start_time;
+                    if(isDualAudio) audio.currentTime = nextCh.start_time;
+                    showOverlay(iconSvgFwd);
+                } else if (dur > 0) {
+                    mainVideo.currentTime = dur;
+                    if(isDualAudio) audio.currentTime = dur;
+                }
+            }
+        } else if (key && key === userShortcuts.chapPrev) {
+            e.preventDefault();
+            if (videoChapters.length > 0) {
+                const curr = mainVideo.currentTime;
+                let currentChIdx = 0;
+                for (let i = 0; i < videoChapters.length; i++) {
+                    if (curr >= videoChapters[i].start_time) currentChIdx = i;
+                }
+                if (curr > videoChapters[currentChIdx].start_time + 3) {
+                    mainVideo.currentTime = videoChapters[currentChIdx].start_time;
+                } else {
+                    const prevChIdx = Math.max(0, currentChIdx - 1);
+                    mainVideo.currentTime = videoChapters[prevChIdx].start_time;
+                }
+                if(isDualAudio) audio.currentTime = mainVideo.currentTime;
+                showOverlay(iconSvgBwd);
+            }
+        }
+    });
+
+    mainVideo.addEventListener('waiting', () => videoContainer.classList.add('buffering'));
+    mainVideo.addEventListener('playing', () => videoContainer.classList.remove('buffering'));
+    mainVideo.addEventListener('canplay', () => videoContainer.classList.remove('buffering'));
+
+    function getMediaProxyUrl(url) {
+        if(!url) return '';
+        if(url.startsWith('/proxy/')) return url;
+        return `/proxy/media?url=${encodeURIComponent(url)}`;
+    }
+
+    function getSubProxyUrl(url) {
+        if(!url) return '';
+        if(url.startsWith('/proxy/')) return url;
+        return `/proxy/subtitles?url=${encodeURIComponent(url)}`;
+    }
+
+    function changeSubtitle(val) {
+        window.currentSubVal = val;
+        let ccOn = false;
+        
+        for (let i = 0; i < mainVideo.textTracks.length; i++) {
+            const t = mainVideo.textTracks[i];
+            const tVal = `${t.language}|${t.label}`;
+            if (val !== "off" && tVal === val) {
+                t.mode = 'showing';
+                ccOn = true;
+            } else {
+                t.mode = 'disabled';
+            }
+        }
+        
+        if (ccOn) ccBtn.classList.add('cc-on');
+        else ccBtn.classList.remove('cc-on');
+    }
+
+    function applyOffsetToTrack(track, delta) {
+        if (!track || !track.cues) return;
+        for (let i = 0; i < track.cues.length; i++) {
+            track.cues[i].startTime += delta;
+            track.cues[i].endTime += delta;
+        }
+    }
+
+    function initializePlayer(data) {
+        resolutionsList = data.resolutions;
+        videoChapters = data.chapters || [];
+        
+        let targetRes = localStorage.getItem('prefRes') || 'auto';
+        if (targetRes === 'auto') targetRes = window.screen.height * window.devicePixelRatio;
+        else targetRes = parseInt(targetRes, 10);
+        
+        menuData.quality.options = [];
+        let bestMatch = null;
+
+        for (let r of resolutionsList) {
+            const lbl = `${r.height}p${r.fps > 30 ? ' ' + r.fps + 'fps' : ''} ${r.has_audio ? '(Combined)' : ''}`;
+            const proxyUrl = getMediaProxyUrl(r.url);
+            
+            menuData.quality.options.push({ label: lbl, value: proxyUrl });
+            if (!bestMatch && r.height <= targetRes) {
+                bestMatch = { url: proxyUrl, label: lbl, has_audio: r.has_audio };
+            }
+        }
+        
+        if (!bestMatch && resolutionsList.length > 0) {
+            let r = resolutionsList[resolutionsList.length - 1];
+            bestMatch = { url: getMediaProxyUrl(r.url), label: `${r.height}p`, has_audio: r.has_audio };
+        }
+
+        if (resolutionsList.length > 0) {
+            previewVideo.src = getMediaProxyUrl(resolutionsList[resolutionsList.length - 1].url);
+        }
+
+        if (bestMatch) {
+            isDualAudio = !bestMatch.has_audio;
+            menuData.quality.current = bestMatch.url;
+            document.getElementById('lbl-quality').innerText = bestMatch.label;
+            mainVideo.src = bestMatch.url;
+        }
+
+        if (data.best_audio) {
+            audio.src = getMediaProxyUrl(data.best_audio);
+        } else {
+            isDualAudio = false; 
+        }
+
+        // --- SUBTITLES MENU SETUP ---
+        const subsList = data.subtitles || [];
+        ccMainPane.innerHTML = '';
+        ccSubmenuContent.innerHTML = '';
+        
+        // Purge old tracks when reinitializing
+        Array.from(mainVideo.querySelectorAll('track')).forEach(t => t.remove());
+
+        let manualSubs = [];
+        let autoSubs = [];
+
+        if (subsList.length > 0) {
+            ccBtn.style.display = 'flex';
+            
+            subsList.forEach((sub) => {
+                const track = document.createElement('track');
+                track.kind = 'subtitles';
+                track.label = sub.label;
+                track.srclang = sub.lang;
+                track.src = getSubProxyUrl(sub.url); 
+                
+                track.addEventListener('load', function() {
+                    if (currentSubOffset !== 0) {
+                        applyOffsetToTrack(this.track, currentSubOffset);
+                    }
+                });
+
+                mainVideo.appendChild(track);
+
+                if (sub.is_auto) autoSubs.push(sub);
+                else manualSubs.push(sub);
+            });
+
+            const createOption = (label, val, isSelected) => {
+                const div = document.createElement('div');
+                div.className = `submenu-option ${isSelected ? 'selected' : ''}`;
+                div.innerHTML = `<svg class="check-icon" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>${label}</span>`;
+                div.dataset.val = val;
+                return div;
+            };
+
+            ccMainPane.appendChild(createOption('Off', 'off', true));
+            manualSubs.forEach(sub => ccMainPane.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false)));
+
+            if (autoSubs.length > 0) {
+                const autoBtn = document.createElement('div');
+                autoBtn.className = 'settings-item';
+                autoBtn.innerHTML = `
+                    <div class="settings-label"><span>Auto-generated</span></div>
+                    <div class="settings-value"><svg class="settings-chevron" viewBox="0 0 24 24"><path d="M9.4 18.4l-1.4-1.4 5.6-5.6-5.6-5.6 1.4-1.4 7 7-7 7z"/></svg></div>
+                `;
+                autoBtn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    ccMenu.classList.add('show-submenu');
+                    setMenuHeight(ccSubPane, ccMenu);
+                });
+                ccMainPane.appendChild(autoBtn);
+
+                autoSubs.forEach(sub => ccSubmenuContent.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false)));
+            }
+
+            // CC Appearance Settings Button
+            const divi = document.createElement('div');
+            divi.style.cssText = "height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0;";
+            ccMainPane.appendChild(divi);
+            
+            const optionsBtn = document.createElement('div');
+            optionsBtn.className = 'settings-item';
+            optionsBtn.innerHTML = `
+                <div class="settings-label">
+                    <svg viewBox="0 0 24 24" style="width:20px; height:20px; fill:#fff;"><path d="M19.43,12.98c0.04-0.32,0.07-0.64,0.07-0.98s-0.03-0.66-0.07-0.98l2.11-1.65c0.19-0.15,0.24-0.42,0.12-0.64l-2-3.46 c-0.12-0.22-0.39-0.3-0.61-0.22l-2.49,1c-0.52-0.4-1.08-0.73-1.69-0.98l-0.38-2.65C14.46,2.18,14.25,2,14,2h-4 c-0.25,0-0.46,0.18-0.49,0.42l-0.38,2.65c-0.61,0.25-1.17,0.59-1.69,0.98l-2.49-1c-0.23-0.09-0.49,0-0.61,0.22l-2,3.46 c-0.13,0.22-0.07,0.49,0.12,0.64l2.11,1.65c-0.04,0.32-0.07,0.65-0.07,0.98s0.03,0.66,0.07,0.98l-2.11,1.65 c-0.19,0.15-0.24,0.42-0.12,0.64l2,3.46c0.12,0.22,0.39,0.3,0.61,0.22l2.49-1c0.52,0.4,1.08,0.73,1.69,0.98l0.38,2.65 C9.54,21.82,9.75,22,10,22h4c0.25,0,0.46-0.18,0.49-0.42l0.38-2.65c0.61-0.25,1.17-0.59,1.69-0.98l2.49,1 c0.23,0.09,0.49,0,0.61-0.22l2-3.46c0.12-0.22,0.07-0.49-0.12-0.64L19.43,12.98z M12,15.5c-1.93,0-3.5-1.57-3.5-3.5 s1.57-3.5,3.5-3.5s3.5,1.57,3.5,3.5S13.93,15.5,12,15.5z"/></svg>
+                    <span>Appearance</span>
+                </div>
+                <div class="settings-value"><svg class="settings-chevron" viewBox="0 0 24 24"><path d="M9.4 18.4l-1.4-1.4 5.6-5.6-5.6-5.6 1.4-1.4 7 7-7 7z"/></svg></div>
+            `;
+            optionsBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                ccMenu.classList.add('show-options');
+                setMenuHeight(ccOptionsPane, ccMenu);
+            });
+            ccMainPane.appendChild(optionsBtn);
+
+            document.querySelectorAll('#ccMenu .submenu-option').forEach(opt => {
+                opt.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    document.querySelectorAll('#ccMenu .submenu-option').forEach(o => o.classList.remove('selected'));
+                    opt.classList.add('selected');
+                    
+                    changeSubtitle(opt.dataset.val);
+                    closeCcMenu();
+                });
+            });
+
+            window.currentSubVal = "off";
+            changeSubtitle("off");
+
+        } else {
+            ccBtn.style.display = 'none';
+            window.currentSubVal = "off";
+        }
+
+        document.getElementById('video-skeleton').style.display = 'none';
+        mainVideo.style.display = 'block';
+
+        setupMediaSync();
+        updateVolumeIcons();
+
+        mainVideo.addEventListener('loadedmetadata', () => {
+            playIcon.style.display = 'block';
+            pauseIcon.style.display = 'none';
+            videoContainer.classList.add('paused');
+            drawChapterMarkers();
+        }, {once: true});
+    }
+
+    function drawChapterMarkers() {
+        const dur = getValidDuration(mainVideo);
+        if (dur <= 0 || videoChapters.length === 0) return;
+        
+        document.querySelectorAll('.chapter-marker').forEach(e => e.remove());
+        
+        videoChapters.forEach(ch => {
+            const percent = (ch.start_time / dur) * 100;
+            if (percent > 0 && percent < 100) {
+                const marker = document.createElement('div');
+                marker.className = 'chapter-marker';
+                marker.style.left = `${percent}%`;
+                document.getElementById('progressTrack').appendChild(marker);
+            }
+        });
+    }
+
+    function changeResolution(url, label) {
+        const resObj = resolutionsList.find(r => getMediaProxyUrl(r.url) === url);
+        isDualAudio = resObj ? !resObj.has_audio : false;
+        
+        const currentTime = mainVideo.currentTime;
+        const isPaused = mainVideo.paused;
+        const currentRate = mainVideo.playbackRate;
+        const currentSub = window.currentSubVal;
+        
+        videoContainer.classList.add('buffering');
+        mainVideo.src = url;
+        
+        mainVideo.addEventListener('loadedmetadata', () => {
+            if (isFinite(currentTime)) {
+                mainVideo.currentTime = currentTime; mainVideo.playbackRate = currentRate;
+                if (isDualAudio) {
+                    audio.currentTime = currentTime; audio.muted = mainVideo.muted;
+                    audio.volume = mainVideo.volume; audio.playbackRate = currentRate;
+                } else { audio.pause(); }
+            }
+            
+            if (currentSub && currentSub !== "off") {
+                for (let i = 0; i < mainVideo.textTracks.length; i++) {
+                    const t = mainVideo.textTracks[i];
+                    const tVal = `${t.language}|${t.label}`;
+                    if (tVal === currentSub) t.mode = 'showing';
+                    else t.mode = 'disabled';
+                }
+            } else {
+                for (let i = 0; i < mainVideo.textTracks.length; i++) {
+                    mainVideo.textTracks[i].mode = 'disabled';
+                }
+            }
+            
+            document.getElementById('lbl-quality').innerText = label;
+            if (!isPaused) { let p = mainVideo.play(); if(p) p.catch(()=>{}); }
+            videoContainer.classList.remove('buffering');
+        }, { once: true });
+    }
+
+    function syncAudio() {
+        if (!isDualAudio) return;
+        if (isFinite(mainVideo.currentTime) && Math.abs(mainVideo.currentTime - audio.currentTime) > 0.3) audio.currentTime = mainVideo.currentTime;
+    }
+
+    function setupMediaSync() {
+        mainVideo.addEventListener('play', () => { 
+            if (isDualAudio && audio.paused) {
+                const p = audio.play();
+                if (p !== undefined) { p.catch(e => { if (e.name === 'NotAllowedError') mainVideo.pause(); }); }
+            } 
+        });
+        mainVideo.addEventListener('pause', () => { if (isDualAudio) audio.pause(); });
+        mainVideo.addEventListener('seeking', syncAudio);
+        mainVideo.addEventListener('seeked', syncAudio);
+        mainVideo.addEventListener('waiting', () => { if (isDualAudio) audio.pause(); });
+        mainVideo.addEventListener('playing', () => { if (isDualAudio) audio.play().catch(()=>{}); });
+        
+        setInterval(() => {
+            if (isDualAudio && !mainVideo.paused && !isScrubbing && mainVideo.readyState >= 3) {
+                syncAudio(); if (audio.paused) audio.play().catch(()=>{});
+            }
+        }, 1000);
+    }
+
+    function togglePlay() {
+        if (mainVideo.paused) {
+            let p = mainVideo.play();
+            if(p) { p.then(() => { if (isDualAudio && audio.paused) audio.play().catch(()=>{}); }).catch(()=>{}); }
+            playIcon.style.display = 'none'; pauseIcon.style.display = 'block';
+            videoContainer.classList.remove('paused'); resetInactivity();
+        } else {
+            mainVideo.pause(); playIcon.style.display = 'block'; pauseIcon.style.display = 'none';
+            videoContainer.classList.add('paused'); resetInactivity();
+        }
+    }
+
+    playPauseBtn.addEventListener('click', togglePlay);
+    mainVideo.addEventListener('click', () => { if (!settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) togglePlay(); });
+
+    function formatTime(seconds) {
+        if (isNaN(seconds)) return "0:00";
+        const minutes = Math.floor(seconds / 60); const secs = Math.floor(seconds % 60);
+        return `${minutes}:${secs < 10 ? '0' : ''}${secs}`;
+    }
+
+    mainVideo.addEventListener('loadedmetadata', () => { durationDisplay.textContent = formatTime(getValidDuration(mainVideo)); });
+
+    function updateBuffer() {
+        const dur = getValidDuration(mainVideo);
+        if (dur > 0 && mainVideo.buffered.length > 0) {
+            for (let i = 0; i < mainVideo.buffered.length; i++) {
+                if (mainVideo.buffered.start(mainVideo.buffered.length - 1 - i) <= mainVideo.currentTime) {
+                    const bufferedEnd = mainVideo.buffered.end(mainVideo.buffered.length - 1 - i);
+                    progressLoaded.style.width = `${(bufferedEnd / dur) * 100}%`; break;
+                }
+            }
+        }
+    }
+    
+    mainVideo.addEventListener('progress', updateBuffer);
+    mainVideo.addEventListener('timeupdate', () => {
+        updateBuffer(); 
+        const dur = getValidDuration(mainVideo);
+        if (!isScrubbing && dur > 0) {
+            const percent = (mainVideo.currentTime / dur) * 100;
+            progressBar.style.width = `${percent}%`; progressThumb.style.left = `${percent}%`;
+            currentTimeDisplay.textContent = formatTime(mainVideo.currentTime);
+        }
+    });
+
+    function handleScrub(e) {
+        const dur = getValidDuration(mainVideo);
+        if (dur <= 0) return;
+        const rect = progressArea.getBoundingClientRect();
+        let percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width)); 
+        progressBar.style.width = `${percent * 100}%`; progressThumb.style.left = `${percent * 100}%`;
+        const scrubTime = percent * dur;
+        if (isFinite(scrubTime)) {
+            mainVideo.currentTime = scrubTime; if(isDualAudio) audio.currentTime = scrubTime;
+            currentTimeDisplay.textContent = formatTime(scrubTime);
+        }
+    }
+
+    progressArea.addEventListener('mousedown', (e) => {
+        isScrubbing = true; wasPausedBeforeScrub = mainVideo.paused;
+        videoContainer.classList.add('scrubbing'); mainVideo.pause(); handleScrub(e);
+    });
+
+    document.addEventListener('mousemove', (e) => { if (isScrubbing) handleScrub(e); });
+    document.addEventListener('mouseup', () => {
+        if (isScrubbing) {
+            isScrubbing = false; videoContainer.classList.remove('scrubbing');
+            if (!wasPausedBeforeScrub) {
+                let p = mainVideo.play(); if(p) p.catch(()=>{});
+                playIcon.style.display = 'none'; pauseIcon.style.display = 'block'; videoContainer.classList.remove('paused');
+            }
+        }
+    });
+
+    let lastPreviewUpdate = 0;
+    progressArea.addEventListener('mousemove', (e) => {
+        const dur = getValidDuration(mainVideo); const rect = progressArea.getBoundingClientRect();
+        let percent = Math.max(0, Math.min(1, (e.clientX - rect.left) / rect.width));
+        const hoverTime = percent * dur; hoverTimeDisplay.textContent = formatTime(hoverTime);
+        
+        if (videoChapters.length > 0) {
+            let currentCh = videoChapters[0];
+            for (let i = 0; i < videoChapters.length; i++) {
+                if (hoverTime >= videoChapters[i].start_time) currentCh = videoChapters[i];
+                else break;
+            }
+            hoverChapterDisplay.textContent = currentCh.title;
+        } else {
+            hoverChapterDisplay.textContent = '';
+        }
+
+        const tooltipWidth = 200; let pixelPos = percent * rect.width;
+        let clampedPos = Math.max(tooltipWidth / 2, Math.min(rect.width - (tooltipWidth / 2), pixelPos));
+        hoverTooltip.style.left = `${clampedPos}px`;
+        
+        if (isFinite(hoverTime) && !previewVideo.seeking && Date.now() - lastPreviewUpdate > 100 && previewVideo.readyState >= 1) {
+            previewVideo.currentTime = hoverTime; lastPreviewUpdate = Date.now();
+        }
+    });
+
+    function toggleMute() {
+        mainVideo.muted = !mainVideo.muted; audio.muted = mainVideo.muted;
+        volumeSlider.value = mainVideo.muted ? 0 : (mainVideo.volume || 1); updateVolumeIcons();
+    }
+
+    muteBtn.addEventListener('click', toggleMute);
+    volumeSlider.addEventListener('input', (e) => {
+        mainVideo.volume = e.target.value; audio.volume = e.target.value;
+        mainVideo.muted = e.target.value === '0'; audio.muted = mainVideo.muted; updateVolumeIcons();
+    });
+
+    fullscreenBtn.addEventListener('click', () => {
+        if (!document.fullscreenElement && !document.webkitFullscreenElement) {
+            if (videoContainer.requestFullscreen) videoContainer.requestFullscreen();
+            else if (videoContainer.webkitRequestFullscreen) videoContainer.webkitRequestFullscreen();
+        } else {
+            if (document.exitFullscreen) document.exitFullscreen();
+            else if (document.webkitExitFullscreen) document.webkitExitFullscreen();
+        }
+    });
+
+    ['fullscreenchange', 'webkitfullscreenchange'].forEach(evt => {
+        document.addEventListener(evt, () => {
+            const isFS = document.fullscreenElement || document.webkitFullscreenElement;
+            if (isFS) {
+                videoContainer.classList.remove('user-active'); videoContainer.classList.add('hide-cursor');
+                if (fsIconEnter) fsIconEnter.style.display = 'none'; if (fsIconExit) fsIconExit.style.display = 'block';
+            } else {
+                if (fsIconEnter) fsIconEnter.style.display = 'block'; if (fsIconExit) fsIconExit.style.display = 'none';
+            }
+        });
+    });
+
+    // --- Subtitle Dynamic Settings Engine ---
+    function updateCcStyles() {
+        const size = localStorage.getItem('cc_size') || 1.15;
+        const color = localStorage.getItem('cc_color') || '#ffffff';
+        const bg = localStorage.getItem('cc_bg') || '#000000';
+        const opacity = localStorage.getItem('cc_bg_op') || '0.75';
+        const font = localStorage.getItem('cc_font') || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+
+        const hex2rgb = (hex) => {
+            const match = hex.replace('#','').match(/.{1,2}/g);
+            return {
+                r: parseInt(match[0], 16), g: parseInt(match[1], 16), b: parseInt(match[2], 16)
+            };
+        };
+        const rgb = hex2rgb(bg);
+
+        const css = `
+            ::cue {
+                background-color: rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity}) !important;
+                color: ${color} !important;
+                font-family: ${font} !important;
+                font-size: ${size}rem !important;
+                text-shadow: 0 1px 3px rgba(0,0,0,1) !important;
+                text-align: center !important;
+            }
+        `;
+        document.getElementById('custom-cc-style').innerHTML = css;
+    }
+
+    function bindCcOptions() {
+        const fontSel = document.getElementById('ccFontSelect');
+        const colorInp = document.getElementById('ccColorInput');
+        const bgInp = document.getElementById('ccBgInput');
+        const opInp = document.getElementById('ccOpacityInput');
+        const opVal = document.getElementById('ccOpacityVal');
+        const sizeInp = document.getElementById('ccSizeInput');
+        const sizeVal = document.getElementById('ccSizeVal');
+        const offsetInp = document.getElementById('ccOffsetInput');
+        const offsetVal = document.getElementById('ccOffsetVal');
+        const offsetMinus = document.getElementById('ccOffsetMinus');
+        const offsetPlus = document.getElementById('ccOffsetPlus');
+        const resetBtn = document.getElementById('ccResetBtn');
+
+        fontSel.value = localStorage.getItem('cc_font') || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+        colorInp.value = localStorage.getItem('cc_color') || '#ffffff';
+        bgInp.value = localStorage.getItem('cc_bg') || '#000000';
+        opInp.value = localStorage.getItem('cc_bg_op') || '0.75';
+        sizeInp.value = localStorage.getItem('cc_size') || '1.15';
+        offsetInp.value = localStorage.getItem('cc_offset') || '0';
+
+        const updateLabels = () => {
+            opVal.innerText = Math.round(opInp.value * 100) + '%';
+            sizeVal.innerText = parseFloat(sizeInp.value).toFixed(2) + 'x';
+            offsetVal.innerText = parseFloat(offsetInp.value).toFixed(2) + 's';
+        };
+
+        const triggerUpdate = () => {
+            localStorage.setItem('cc_font', fontSel.value);
+            localStorage.setItem('cc_color', colorInp.value);
+            localStorage.setItem('cc_bg', bgInp.value);
+            localStorage.setItem('cc_bg_op', opInp.value);
+            localStorage.setItem('cc_size', sizeInp.value);
+            updateLabels();
+            updateCcStyles();
+        };
+
+        const changeOffset = (newVal) => {
+            newVal = Math.max(-5, Math.min(5, parseFloat(newVal)));
+            offsetInp.value = newVal;
+            const delta = newVal - currentSubOffset;
+            currentSubOffset = newVal;
+            localStorage.setItem('cc_offset', currentSubOffset);
+            updateLabels();
+            
+            const tracks = mainVideo.textTracks;
+            for (let i = 0; i < tracks.length; i++) {
+                applyOffsetToTrack(tracks[i], delta);
+            }
+        };
+
+        fontSel.addEventListener('change', triggerUpdate);
+        colorInp.addEventListener('input', triggerUpdate);
+        bgInp.addEventListener('input', triggerUpdate);
+        opInp.addEventListener('input', triggerUpdate);
+        sizeInp.addEventListener('input', triggerUpdate);
+        
+        offsetInp.addEventListener('input', (e) => changeOffset(e.target.value));
+        offsetMinus.addEventListener('click', (e) => { e.stopPropagation(); changeOffset(currentSubOffset - 0.25); });
+        offsetPlus.addEventListener('click', (e) => { e.stopPropagation(); changeOffset(currentSubOffset + 0.25); });
+
+        resetBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            localStorage.removeItem('cc_font');
+            localStorage.removeItem('cc_color');
+            localStorage.removeItem('cc_bg');
+            localStorage.removeItem('cc_bg_op');
+            localStorage.removeItem('cc_size');
+            localStorage.removeItem('cc_offset');
+            
+            fontSel.value = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
+            colorInp.value = '#ffffff';
+            bgInp.value = '#000000';
+            opInp.value = '0.75';
+            sizeInp.value = '1.15';
+            
+            changeOffset(0);
+            triggerUpdate();
+        });
+
+        updateLabels();
+        updateCcStyles();
+    }
+
+    bindCcOptions();
+
+    // --- Menu Handling Logic ---
+    function setMenuHeight(paneElement, menuElement) { menuElement.style.height = `${paneElement.offsetHeight}px`; }
+    
+    function openSettingsMenu() { 
+        closeCcMenu(); 
+        settingsMenu.classList.add('open'); 
+        settingsBtn.classList.add('active-menu-btn'); 
+        videoContainer.classList.add('menu-open'); 
+        setMenuHeight(mainPane, settingsMenu); 
+    }
+    
+    function closeSettingsMenu() {
+        settingsMenu.classList.remove('open'); 
+        settingsBtn.classList.remove('active-menu-btn'); 
+        if(!ccMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
+        setTimeout(() => { settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); }, 300); 
+    }
+
+    function openCcMenu() {
+        closeSettingsMenu(); 
+        ccMenu.classList.add('open');
+        videoContainer.classList.add('menu-open');
+        setMenuHeight(ccMainPane, ccMenu);
+    }
+
+    function closeCcMenu() {
+        ccMenu.classList.remove('open');
+        if(!settingsMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
+        setTimeout(() => { ccMenu.classList.remove('show-submenu', 'show-options'); setMenuHeight(ccMainPane, ccMenu); }, 300);
+    }
+
+    settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); if (settingsMenu.classList.contains('open')) closeSettingsMenu(); else openSettingsMenu(); });
+    ccBtn.addEventListener('click', (e) => { e.stopPropagation(); if (ccMenu.classList.contains('open')) closeCcMenu(); else openCcMenu(); });
+    
+    document.addEventListener('click', (e) => { 
+        if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) closeSettingsMenu(); 
+        if (!ccMenu.contains(e.target) && e.target !== ccBtn) closeCcMenu();
+    });
+
+    mainPaneItems.forEach(item => {
+        item.addEventListener('click', (e) => {
+            e.stopPropagation(); const menuType = item.getAttribute('data-menu'); const data = menuData[menuType];
+            submenuTitle.textContent = data.title; submenuContent.innerHTML = ''; 
+
+            data.options.forEach(opt => {
+                const isSelected = data.current === opt.value;
+                const optionDiv = document.createElement('div');
+                optionDiv.className = `submenu-option ${isSelected ? 'selected' : ''}`;
+                optionDiv.innerHTML = `<svg class="check-icon" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>${opt.label}</span>`;
+                optionDiv.addEventListener('click', (eClick) => {
+                    eClick.stopPropagation(); data.current = opt.value; data.onSelect(opt.value, opt.label);
+                    settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); setTimeout(closeSettingsMenu, 250); 
+                });
+                submenuContent.appendChild(optionDiv);
+            });
+            settingsMenu.classList.add('show-submenu'); setMenuHeight(subPane, settingsMenu);
+        });
+    });
+
+    submenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); });
+    ccSubmenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); ccMenu.classList.remove('show-submenu'); setMenuHeight(ccMainPane, ccMenu); });
+    ccOptionsBackBtn.addEventListener('click', (e) => { e.stopPropagation(); ccMenu.classList.remove('show-options'); setMenuHeight(ccMainPane, ccMenu); });
+</script>
