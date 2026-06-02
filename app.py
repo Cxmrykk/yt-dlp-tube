@@ -34,6 +34,9 @@ COMMENTS_CACHE = {}
 COMMENTS_LOCK = threading.Lock()
 CHANNEL_ICON_CACHE = {}
 
+FILE_LOCK = threading.Lock()
+FEED_UPDATE_LOCK = threading.Lock()
+
 # --- Proxy Session & Security ---
 SESSION = requests.Session()
 adapter = requests.adapters.HTTPAdapter(pool_connections=200, pool_maxsize=200, max_retries=1)
@@ -218,34 +221,42 @@ def time_ago(timestamp): return time_ago_str(timestamp)
 
 # --- Helper Functions ---
 def get_settings():
-    if os.path.exists(SETTINGS_FILE):
-        try:
-            with open(SETTINGS_FILE, 'r') as f:
-                data = json.load(f)
-                return {**DEFAULT_SETTINGS, **data}
-        except: pass
-    return DEFAULT_SETTINGS.copy()
+    with FILE_LOCK:
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    return {**DEFAULT_SETTINGS, **data}
+            except: pass
+        return DEFAULT_SETTINGS.copy()
 
 def save_settings(settings):
-    with open(SETTINGS_FILE, 'w') as f: json.dump(settings, f)
+    with FILE_LOCK:
+        with open(SETTINGS_FILE, 'w') as f: json.dump(settings, f)
 
 def get_subs():
-    if os.path.exists(SUBS_FILE):
-        with open(SUBS_FILE, 'r') as f: return json.load(f)
-    return []
+    with FILE_LOCK:
+        if os.path.exists(SUBS_FILE):
+            try:
+                with open(SUBS_FILE, 'r') as f: return json.load(f)
+            except: pass
+        return []
 
 def save_subs(subs):
-    with open(SUBS_FILE, 'w') as f: json.dump(subs, f)
+    with FILE_LOCK:
+        with open(SUBS_FILE, 'w') as f: json.dump(subs, f)
 
 def get_video_dates():
-    if os.path.exists(VIDEO_DATES_FILE):
-        try:
-            with open(VIDEO_DATES_FILE, 'r') as f: return json.load(f)
-        except: pass
-    return {}
+    with FILE_LOCK:
+        if os.path.exists(VIDEO_DATES_FILE):
+            try:
+                with open(VIDEO_DATES_FILE, 'r') as f: return json.load(f)
+            except: pass
+        return {}
 
 def save_video_dates(dates):
-    with open(VIDEO_DATES_FILE, 'w') as f: json.dump(dates, f)
+    with FILE_LOCK:
+        with open(VIDEO_DATES_FILE, 'w') as f: json.dump(dates, f)
 
 def sync_video_dates(entries, is_initial_or_backlog=False):
     dates_cache = get_video_dates()
@@ -313,52 +324,73 @@ def fetch_channel_info(url):
         return {"name": "Unknown", "url": url, "icon": "", "id": "", "subscriber_count": None}
 
 def update_feed_now():
-    subs = get_subs()
-    settings = get_settings()
-    fetch_limit = max(50, settings['per_page'] * 3) 
-    
-    def fetch_flat(sub):
-        is_initial = not sub.get('initial_fetch_done', False)
-        ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': fetch_limit, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
-        try:
-            with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
-                if info and info.get('entries'):
-                    for e in info['entries']:
-                        if e:
-                            e['channel_name'] = sub['name']
-                            e['channel_icon'] = sub.get('icon', '')
-                            e['channel_url'] = sub['url']
-                            e['is_initial_fetch'] = is_initial
-                    return [e for e in info['entries'] if e]
-        except Exception: pass
-        return []
-
-    with concurrent.futures.ThreadPoolExecutor(max_workers=10) as executor:
-        results = list(executor.map(fetch_flat, subs))
+    if not FEED_UPDATE_LOCK.acquire(blocking=False):
+        return # Skip if a background update is already actively running
         
-    all_entries = []
-    for r in results:
-        if r:
-            is_initial = r[0].get('is_initial_fetch', False)
-            sync_video_dates(r, is_initial_or_backlog=is_initial)
-            all_entries.extend(r)
+    try:
+        subs = get_subs()
+        settings = get_settings()
+        fetch_limit = max(50, settings['per_page'] * 3) 
+        
+        def fetch_flat(sub):
+            is_initial = not sub.get('initial_fetch_done', False)
+            ydl_opts = {
+                'extract_flat': 'in_playlist', 
+                'playlistend': fetch_limit, 
+                'quiet': True, 
+                'no_warnings': True, 
+                'ignoreerrors': True
+            }
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
+                    if info is not None:
+                        valid_entries = []
+                        for e in info.get('entries', []):
+                            if e:
+                                e['channel_name'] = sub['name']
+                                e['channel_icon'] = sub.get('icon', '')
+                                e['channel_url'] = sub['url']
+                                e['is_initial_fetch'] = is_initial
+                                valid_entries.append(e)
+                        return sub['url'], valid_entries, True # Extraction strictly succeeded
+            except Exception as e: 
+                print(f"Background fetch failed for {sub['url']}: {e}")
+            return sub['url'], [], False # Fail, prevents poisoning the DB next run
+
+        # Lowered to 5 to protect from YT Rate Limits blocking the mass initial loads
+        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+            results = list(executor.map(fetch_flat, subs))
             
-    # Mark subs as initially fetched to allow future videos to trigger the "new" flag
-    changed_subs = False
-    for s in subs:
-        if not s.get('initial_fetch_done'):
-            s['initial_fetch_done'] = True
-            changed_subs = True
-    if changed_subs:
-        save_subs(subs)
-    
-    # The Feed is now exclusively populated by genuinely new uploads.
-    new_vids = [e for e in all_entries if e.get('is_new')]
-    new_vids.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
-    
-    feed_cache['data'] = new_vids
-    feed_cache['last_update'] = time.time()
+        all_entries = []
+        successful_urls = set()
+        
+        for url, entries, success in results:
+            if success:
+                successful_urls.add(url)
+                if entries:
+                    is_initial = entries[0].get('is_initial_fetch', False)
+                    sync_video_dates(entries, is_initial_or_backlog=is_initial)
+                    all_entries.extend(entries)
+                
+        # Mark subs as initially fetched ONLY if the fetch successfully processed
+        changed_subs = False
+        for s in subs:
+            if not s.get('initial_fetch_done') and s['url'] in successful_urls:
+                s['initial_fetch_done'] = True
+                changed_subs = True
+        if changed_subs:
+            save_subs(subs)
+        
+        # The Feed is now exclusively populated by genuinely new uploads.
+        new_vids = [e for e in all_entries if e.get('is_new')]
+        new_vids.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
+        
+        feed_cache['data'] = new_vids
+        feed_cache['last_update'] = time.time()
+        
+    finally:
+        FEED_UPDATE_LOCK.release()
 
 def bg_worker():
     with app.app_context():
@@ -374,8 +406,10 @@ if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
 def get_flat_feed(page=1):
     settings = get_settings()
     per_page = settings['per_page']
-    if not feed_cache['data']: update_feed_now()
-    all_videos = feed_cache['data']
+    
+    # We no longer strictly block the frontend router to trigger background jobs.
+    # The bg worker loops naturally.
+    all_videos = feed_cache.get('data', [])
     start = (page - 1) * per_page
     end = page * per_page
     return all_videos[start:end]
@@ -832,6 +866,7 @@ def settings_page():
         elif action == 'reset_subs':
             save_subs([])
             feed_cache['data'] = []
+            save_video_dates({}) # Wipe the corrupted DB cache as well
             
         elif action == 'update_settings':
             try:
@@ -855,4 +890,3 @@ def settings_page():
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)
-    
