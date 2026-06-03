@@ -746,8 +746,8 @@
     ccBtn.addEventListener('click', (e) => { e.stopPropagation(); if (ccMenu.classList.contains('open')) closeCcMenu(); else openCcMenu(); });
     
     document.addEventListener('click', (e) => { 
-        if (!settingsMenu.contains(e.target) && e.target !== settingsBtn) closeSettingsMenu(); 
-        if (!ccMenu.contains(e.target) && e.target !== ccBtn) closeCcMenu();
+        if (!settingsMenu.contains(e.target) && !settingsBtn.contains(e.target)) closeSettingsMenu(); 
+        if (!ccMenu.contains(e.target) && !ccBtn.contains(e.target)) closeCcMenu();
     });
 
     mainPaneItems.forEach(item => {

@@ -3,10 +3,10 @@
 {% set channel_link = video.channel_url | default(video.uploader_url | default('https://www.youtube.com/@' ~ uploader_name)) %}
 {% set vid_url = video.url or ('https://www.youtube.com/watch?v=' ~ video.id) %}
 
-<div class="video-card">
+<div class="video-card unrevealed">
     <a href="{{ vid_url | yt_path }}">
-        <div class="thumbnail">
-            <img src="{{ (video.thumbnail or (video.thumbnails and video.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg')) | proxy_image }}" alt="Thumbnail" loading="lazy">
+        <div class="thumbnail skeleton-box">
+            <img class="lazy-img" src="{{ (video.thumbnail or (video.thumbnails and video.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg')) | proxy_image }}" alt="" loading="lazy" onload="this.classList.add('loaded'); this.parentElement.classList.remove('skeleton-box');">
             <span class="duration">{{ video.duration | format_time }}</span>
         </div>
     </a>
@@ -17,7 +17,7 @@
         <div class="video-meta-row">
             {% if show_channel != False %}
             <a href="{{ channel_link | yt_path }}">
-                <img class="channel-avatar" src="{{ (video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff')) | proxy_image }}" loading="lazy">
+                <img class="channel-avatar lazy-img skeleton-box" src="{{ (video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff')) | proxy_image }}" alt="" loading="lazy" onload="this.classList.add('loaded'); this.classList.remove('skeleton-box');">
             </a>
             {% endif %}
             <div class="video-text">

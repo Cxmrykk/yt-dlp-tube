@@ -1,15 +1,15 @@
 {% for s in videos %}
 {% set s_url = s.url or ('https://www.youtube.com/watch?v=' ~ s.id) %}
-<a href="{{ s_url | yt_path }}" class="s-card">
-    <div class="s-thumb">
-        <img src="{{ (s.thumbnail or (s.thumbnails and s.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ s.id ~ '/hqdefault.jpg')) | proxy_image }}" loading="lazy">
+<a href="{{ s_url | yt_path }}" class="s-card unrevealed">
+    <div class="s-thumb skeleton-box">
+        <img class="lazy-img" src="{{ (s.thumbnail or (s.thumbnails and s.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ s.id ~ '/hqdefault.jpg')) | proxy_image }}" alt="" loading="lazy" onload="this.classList.add('loaded'); this.parentElement.classList.remove('skeleton-box');">
         <span class="duration">{{ s.duration | format_time }}</span>
     </div>
     <div class="s-info" style="min-width: 0; flex: 1;">
         <span class="s-title">{{ s.title }}</span>
         <div style="display: flex; gap: 10px; margin-top: 4px; min-width: 0;">
             {% if s.channel_icon %}
-            <img src="{{ s.channel_icon | proxy_image }}" style="width: 32px; height: 32px; min-width: 32px; border-radius: 50%; object-fit: cover; background: #333; margin-top: 2px;">
+            <img class="lazy-img skeleton-box" src="{{ s.channel_icon | proxy_image }}" alt="" style="width: 32px; height: 32px; min-width: 32px; border-radius: 50%; object-fit: cover; background: #333; margin-top: 2px;" loading="lazy" onload="this.classList.add('loaded'); this.classList.remove('skeleton-box');">
             {% endif %}
             <div style="display: flex; flex-direction: column; min-width: 0; flex: 1;">
                 <div class="marquee-wrapper" style="margin-bottom: 2px;">

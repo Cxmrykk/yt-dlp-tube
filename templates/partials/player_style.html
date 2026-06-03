@@ -118,6 +118,12 @@
     .controls-container svg {
         fill: white; width: 28px; height: 28px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.3s ease;
     }
+    
+    /* Fixes double-click menu issue by ensuring SVGs inside buttons do not steal the event.target */
+    .controls-container button svg, 
+    .controls-container button path { 
+        pointer-events: none; 
+    }
 
     .time-display { color: #eee; font-size: 13px; user-select: none; font-variant-numeric: tabular-nums; }
 

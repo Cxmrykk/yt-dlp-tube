@@ -190,13 +190,15 @@
     <h3 style="margin-top: 0; margin-bottom: 15px;">Manage Subscriptions</h3>
     
     <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
-        <a href="/settings/export" class="btn" style="text-decoration: none;">Export JSON</a>
+        <form action="/settings/export" method="GET" style="margin: 0;">
+            <button type="submit" class="btn" style="box-sizing: border-box; height: 38px; font-family: inherit; font-size: 14px;">Export JSON</button>
+        </form>
         
         <form id="importForm" action="/settings" method="POST" enctype="multipart/form-data" style="margin: 0;">
             <input type="hidden" name="action" value="import_subs">
             <input type="file" id="import_file" name="import_file" accept=".json" style="display: none;" 
                    onchange="if(this.value) { document.getElementById('importBtn').innerText = 'Importing...'; this.form.submit(); }">
-            <button type="button" id="importBtn" class="btn" onclick="document.getElementById('import_file').click();">
+            <button type="button" id="importBtn" class="btn" onclick="document.getElementById('import_file').click();" style="box-sizing: border-box; height: 38px; font-family: inherit; font-size: 14px;">
                 Import JSON
             </button>
         </form>
@@ -204,7 +206,7 @@
         <form action="/settings" method="POST" style="margin: 0; margin-left: auto;" 
               onsubmit="return confirm('⚠️ Are you sure you want to delete ALL subscriptions? This cannot be undone.');">
             <input type="hidden" name="action" value="reset_subs">
-            <button type="submit" class="btn" style="background: #d32f2f; color: white;">Reset All</button>
+            <button type="submit" class="btn" style="background: #d32f2f; color: white; box-sizing: border-box; height: 38px; font-family: inherit; font-size: 14px;">Reset All</button>
         </form>
     </div>
     

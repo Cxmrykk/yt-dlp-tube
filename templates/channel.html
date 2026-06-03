@@ -73,13 +73,26 @@
     }
 
     let page = 1; let loading = false; const reqType = "channel";
+    
+    function revealStaggered() {
+        const unrevealed = document.querySelectorAll('.unrevealed');
+        unrevealed.forEach((card, index) => {
+            setTimeout(() => {
+                card.classList.remove('unrevealed');
+                card.classList.add('reveal-anim');
+            }, index * 80);
+        });
+    }
+    
     function loadVideos() {
         loading = true; document.getElementById('loader').innerText = 'Loading videos...';
         fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(chUrl)}&page=${page}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
-                    document.getElementById('video-grid').insertAdjacentHTML('beforeend', html); loading = false;
+                    document.getElementById('video-grid').insertAdjacentHTML('beforeend', html);
+                    revealStaggered();
+                    loading = false;
                     document.getElementById('loader').innerText = 'Scroll down for more';
                     setTimeout(() => {
                         if (!loading) {
@@ -87,7 +100,19 @@
                             if (rect.top <= window.innerHeight + 200) { page++; loadVideos(); }
                         }
                     }, 100);
-                } else { document.getElementById('loader').innerText = "No more videos"; loading = true; }
+                } else { 
+                    document.getElementById('loader').style.display = "none";
+                    const endCard = `
+                    <div class="video-card unrevealed" style="cursor: default;">
+                        <div class="thumbnail" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <svg viewBox="0 0 24 24" width="48" height="48" fill="#444" style="margin-bottom: 8px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            <span style="color: #555; font-weight: bold; font-size: 1.1rem;">No more videos</span>
+                        </div>
+                    </div>`;
+                    document.getElementById('video-grid').insertAdjacentHTML('beforeend', endCard);
+                    revealStaggered();
+                    loading = true; 
+                }
             }).catch(err => { loading = false; document.getElementById('loader').innerText = "Error loading videos. Scroll to retry."; });
     }
 

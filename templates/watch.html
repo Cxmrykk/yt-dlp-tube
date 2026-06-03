@@ -225,6 +225,17 @@
 
     // --- 2. Infinite Scrollers ---
     let suggestedPage = 0; let suggestedLoading = false; let suggestedQuery = "";
+    
+    function revealStaggeredSuggested() {
+        const unrevealed = document.querySelectorAll('#suggested-grid .unrevealed');
+        unrevealed.forEach((card, index) => {
+            setTimeout(() => {
+                card.classList.remove('unrevealed');
+                card.classList.add('reveal-anim');
+            }, index * 80);
+        });
+    }
+    
     function loadSuggestedVideos() {
         if (!suggestedQuery) return;
         suggestedLoading = true; suggestedPage++;
@@ -235,6 +246,7 @@
             .then(html => {
                 if(html.trim() !== '') {
                     document.getElementById('suggested-grid').insertAdjacentHTML('beforeend', html);
+                    revealStaggeredSuggested();
                     suggestedLoading = false;
                     document.getElementById('suggested-loader').innerText = 'Scroll for more';
                     setTimeout(() => {
@@ -244,7 +256,17 @@
                             if (loader.getBoundingClientRect().top <= scrollArea.getBoundingClientRect().bottom + 200) loadSuggestedVideos();
                         }
                     }, 100);
-                } else { document.getElementById('suggested-loader').innerText = "No more videos"; }
+                } else { 
+                    document.getElementById('suggested-loader').style.display = "none"; 
+                    const endCard = `
+                    <div class="s-card unrevealed" style="cursor: default;">
+                        <div class="s-thumb" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
+                            <svg viewBox="0 0 24 24" width="32" height="32" fill="#444"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                        </div>
+                    </div>`;
+                    document.getElementById('suggested-grid').insertAdjacentHTML('beforeend', endCard);
+                    revealStaggeredSuggested();
+                }
             });
     }
 

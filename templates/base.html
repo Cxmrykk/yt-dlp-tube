@@ -20,9 +20,11 @@
             position: sticky; top: 0; z-index: 1000; height: 40px;
         }
         nav a { color: var(--text-color); text-decoration: none; font-weight: bold; font-size: 1.2rem; display: flex; align-items: center; gap: 8px;}
-        .nav-links { display: flex; align-items: center; gap: 20px; }
-        .nav-links a { font-size: 1rem; font-weight: normal; margin-left: 0; }
+        .nav-links { display: flex; align-items: center; gap: 15px; }
+        .nav-links a { font-size: 1rem; font-weight: normal; margin-left: 0; display: flex; align-items: center; padding: 6px; border-radius: 50%; transition: background 0.2s;}
+        .nav-links a:hover { background: rgba(255, 255, 255, 0.1); }
         .nav-links a.logout { color: #ff4a4a; }
+        .nav-links a.logout:hover { background: rgba(255, 74, 74, 0.15); }
         .search-bar { display: flex; }
         .search-bar input { padding: 8px; border-radius: 20px 0 0 20px; border: 1px solid #333; background: #121212; color: white; width: 400px; padding-left: 15px;}
         .search-bar button { padding: 8px 20px; border-radius: 0 20px 20px 0; border: 1px solid #333; background: #333; color: white; cursor: pointer;}
@@ -56,6 +58,23 @@
         .btn-danger:hover { background: #ddd; }
         
         #loader { text-align: center; padding: 20px; font-weight: bold; color: var(--text-muted); }
+
+        /* Skeleton loader and Lazy images */
+        .skeleton-box { position: relative; overflow: hidden; background-color: #222; }
+        .skeleton-box::after {
+            content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.08), transparent);
+            animation: shimmer 1.5s infinite;
+        }
+        @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
+        
+        .lazy-img { opacity: 0; transition: opacity 0.4s ease-in-out; }
+        .lazy-img.loaded { opacity: 1; }
+
+        /* Staggered card reveal */
+        .unrevealed { opacity: 0; transform: translateY(20px); }
+        .reveal-anim { opacity: 1; transform: translateY(0); transition: opacity 0.5s ease, transform 0.5s ease; }
+        @keyframes fadeIn { to { opacity: 1; } }
     </style>
 </head>
 <body>
@@ -69,8 +88,12 @@
             <button type="submit">Search</button>
         </form>
         <div class="nav-links">
-            <a href="/settings">Settings</a>
-            <a href="/logout" class="logout">Logout</a>
+            <a href="/settings" title="Settings">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M19.14,12.94c0.04-0.3,0.06-0.61,0.06-0.94c0-0.32-0.02-0.64-0.06-0.94l2.03-1.58c0.18-0.14,0.23-0.41,0.12-0.61 l-1.92-3.32c-0.12-0.22-0.37-0.29-0.59-0.22l-2.39,0.96c-0.5-0.38-1.03-0.7-1.62-0.94L14.4,2.81c-0.04-0.24-0.24-0.41-0.48-0.41 h-3.84c-0.24,0-0.43,0.17-0.47,0.41L9.25,5.35C8.66,5.59,8.12,5.92,7.63,6.29L5.24,5.33c-0.22-0.08-0.47,0-0.59,0.22L2.73,8.87 C2.62,9.08,2.66,9.34,2.86,9.48l2.03,1.58C4.84,11.36,4.8,11.69,4.8,12s0.02,0.64,0.06,0.94l-2.03,1.58 c-0.18,0.14-0.23,0.41-0.12,0.61l1.92,3.32c0.12,0.22,0.37,0.29,0.59,0.22l2.39-0.96c0.5,0.38,1.03,0.7,1.62,0.94l0.36,2.54 c0.05,0.24,0.24,0.41,0.48,0.41h3.84c0.24,0,0.43-0.17,0.47-0.41l0.36-2.54c0.59-0.24,1.13-0.56,1.62-0.94l2.39,0.96 c0.22,0.08,0.47,0,0.59-0.22l1.92-3.32c0.12-0.22,0.07-0.49-0.12-0.61L19.14,12.94z M12,15.6c-1.98,0-3.6-1.62-3.6-3.6 s1.62-3.6,3.6-3.6s3.6,1.62,3.6,3.6S13.98,15.6,12,15.6z"/></svg>
+            </a>
+            <a href="/logout" class="logout" title="Logout">
+                <svg viewBox="0 0 24 24" width="24" height="24" fill="currentColor"><path d="M17 7l-1.41 1.41L18.17 11H8v2h10.17l-2.58 2.58L17 17l5-5zM4 5h8V3H4c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h8v-2H4V5z"/></svg>
+            </a>
         </div>
     </nav>
     <div class="layout">
