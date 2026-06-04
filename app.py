@@ -232,7 +232,9 @@ def get_settings():
 
 def save_settings(settings):
     with FILE_LOCK:
-        with open(SETTINGS_FILE, 'w') as f: json.dump(settings, f)
+        tmp_file = SETTINGS_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(settings, f)
+        os.replace(tmp_file, SETTINGS_FILE)
 
 def get_subs():
     with FILE_LOCK:
@@ -244,7 +246,9 @@ def get_subs():
 
 def save_subs(subs):
     with FILE_LOCK:
-        with open(SUBS_FILE, 'w') as f: json.dump(subs, f)
+        tmp_file = SUBS_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(subs, f)
+        os.replace(tmp_file, SUBS_FILE)
 
 def get_video_dates():
     with FILE_LOCK:
@@ -256,26 +260,40 @@ def get_video_dates():
 
 def save_video_dates(dates):
     with FILE_LOCK:
-        with open(VIDEO_DATES_FILE, 'w') as f: json.dump(dates, f)
+        tmp_file = VIDEO_DATES_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(dates, f)
+        os.replace(tmp_file, VIDEO_DATES_FILE)
 
-def sync_video_dates(entries, is_initial_or_backlog=False):
+def sync_video_dates(entries):
     dates_cache = get_video_dates()
     changed = False
     now = time.time()
     
-    for e in entries:
+    # Baseline Check: Does the database already know about this channel?
+    known_count = sum(1 for e in entries if e and e.get('id') in dates_cache)
+    is_baseline_run = (known_count == 0)
+    
+    for idx, e in enumerate(entries):
         if not e: continue
         vid = e.get('id')
         if not vid: continue
         
         if vid not in dates_cache:
-            # New to the DB! If this is a backlog fetch, flag it false. Else, flag it as a genuine new upload.
-            dates_cache[vid] = {"timestamp": now, "is_new": not is_initial_or_backlog}
+            # Prevent feed flood: A video is only "new" if we aren't baselining, 
+            # and it appears in the top 5 of the fetched list.
+            if is_baseline_run:
+                is_new = False
+            else:
+                is_new = (idx < 5)
+                
+            dates_cache[vid] = {"timestamp": now, "is_new": is_new}
             changed = True
+            
         elif isinstance(dates_cache[vid], (int, float)):
-            # Database Migration: Cleans out old float formats so they don't corrupt the new feed.
+            # Database Migration: Cleans out old float formats
             dates_cache[vid] = {"timestamp": dates_cache[vid], "is_new": False}
             changed = True
+            
         elif not isinstance(dates_cache[vid], dict):
             # Fallback for corrupted cache entries
             dates_cache[vid] = {"timestamp": now, "is_new": False}
@@ -333,7 +351,6 @@ def update_feed_now():
         fetch_limit = max(50, settings['per_page'] * 3) 
         
         def fetch_flat(sub):
-            is_initial = not sub.get('initial_fetch_done', False)
             ydl_opts = {
                 'extract_flat': 'in_playlist', 
                 'playlistend': fetch_limit, 
@@ -351,37 +368,21 @@ def update_feed_now():
                                 e['channel_name'] = sub['name']
                                 e['channel_icon'] = sub.get('icon', '')
                                 e['channel_url'] = sub['url']
-                                e['is_initial_fetch'] = is_initial
                                 valid_entries.append(e)
                         return sub['url'], valid_entries, True # Extraction strictly succeeded
             except Exception as e: 
                 print(f"Background fetch failed for {sub['url']}: {e}")
             return sub['url'], [], False # Fail, prevents poisoning the DB next run
 
-        # Lowered to 5 to protect from YT Rate Limits blocking the mass initial loads
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             results = list(executor.map(fetch_flat, subs))
             
         all_entries = []
-        successful_urls = set()
-        
         for url, entries, success in results:
-            if success:
-                successful_urls.add(url)
-                if entries:
-                    is_initial = entries[0].get('is_initial_fetch', False)
-                    sync_video_dates(entries, is_initial_or_backlog=is_initial)
-                    all_entries.extend(entries)
+            if success and entries:
+                sync_video_dates(entries)
+                all_entries.extend(entries)
                 
-        # Mark subs as initially fetched ONLY if the fetch successfully processed
-        changed_subs = False
-        for s in subs:
-            if not s.get('initial_fetch_done') and s['url'] in successful_urls:
-                s['initial_fetch_done'] = True
-                changed_subs = True
-        if changed_subs:
-            save_subs(subs)
-        
         # The Feed is now exclusively populated by genuinely new uploads.
         new_vids = [e for e in all_entries if e.get('is_new')]
         new_vids.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
@@ -690,7 +691,6 @@ def api_toggle_sub():
             c_info = fetch_channel_info(url)
             name = name if (name and name != 'Unknown') else c_info['name']
             icon = icon or c_info['icon']
-        # Omitting 'initial_fetch_done' means it defaults to False, making the first background fetch process it as backlog
         subs.append({"name": name, "url": url, "icon": icon, "id": ""})
         save_subs(subs)
         return jsonify({"status": "added", "is_subbed": True})
@@ -735,8 +735,6 @@ def api_videos():
                         e['channel_icon'] = c_icon
                         e['channel_url'] = query
                         videos.append(e)
-        # Prevent manual channel scrolling from populating the new upload feed
-        sync_video_dates(videos, is_initial_or_backlog=True)
         return render_template('partials/video_cards.html', videos=videos, show_date=False, show_channel=False)
     elif req_type == 'search' and query:
         start = (page - 1) * per_page + 1
@@ -866,7 +864,7 @@ def settings_page():
         elif action == 'reset_subs':
             save_subs([])
             feed_cache['data'] = []
-            save_video_dates({}) # Wipe the corrupted DB cache as well
+            save_video_dates({}) 
             
         elif action == 'update_settings':
             try:
