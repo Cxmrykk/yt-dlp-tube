@@ -10,6 +10,7 @@
 <div id="loader">Scroll down for more</div>
 
 <script>
+(function() {
     let page = 1;
     let loading = false;
     const reqType = "{{ type }}";
@@ -19,6 +20,7 @@
         const unrevealed = document.querySelectorAll('.unrevealed');
         unrevealed.forEach((card, index) => {
             setTimeout(() => {
+                if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
                 card.classList.remove('unrevealed');
                 card.classList.add('reveal-anim');
             }, index * 80);
@@ -29,7 +31,7 @@
         loading = true;
         document.getElementById('loader').innerText = 'Loading videos...';
         
-        fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(reqQuery)}&page=${page}`)
+        window.appFetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(reqQuery)}&page=${page}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
@@ -39,7 +41,7 @@
                     document.getElementById('loader').innerText = 'Scroll down for more';
                     
                     setTimeout(() => {
-                        if (!loading) {
+                        if (!loading && !window.pageAbortController.signal.aborted) {
                             const rect = document.getElementById('loader').getBoundingClientRect();
                             if (rect.top <= window.innerHeight + 200) {
                                 page++;
@@ -58,10 +60,11 @@
                     </div>`;
                     document.getElementById('video-grid').insertAdjacentHTML('beforeend', endCard);
                     revealStaggered();
-                    loading = true; // Stop observer
+                    loading = true; 
                 }
             })
             .catch(err => {
+                if (err.name === 'AbortError') return;
                 loading = false;
                 document.getElementById('loader').innerText = "Error loading videos. Scroll to retry.";
             });
@@ -75,5 +78,10 @@
     }, { rootMargin: "200px" });
 
     observer.observe(document.getElementById('loader'));
+
+    window.pageTeardown = function() {
+        observer.disconnect();
+    };
+})();
 </script>
 {% endblock %}

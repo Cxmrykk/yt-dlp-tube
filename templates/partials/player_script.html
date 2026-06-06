@@ -1,16 +1,18 @@
 <script>
+(function() {
     const videoContainer = document.getElementById('videoContainer');
     const mainVideo = document.getElementById('vid-player');
     const audio = document.getElementById('aud-player');
     const previewVideo = document.getElementById('previewVideo');
     
+    window.mainVideo = mainVideo;
+    window.isScrubbing = false;
+    
     let currentVideoHeight = 0;
     const resizeObs = new ResizeObserver(entries => {
         for (let entry of entries) {
             currentVideoHeight = entry.contentRect.height;
-            if (typeof window.updateCcStyles === 'function') {
-                window.updateCcStyles();
-            }
+            if (typeof window.updateCcStyles === 'function') window.updateCcStyles();
         }
     });
     resizeObs.observe(videoContainer);
@@ -56,7 +58,6 @@
     const submenuContent = document.getElementById('submenuContent');
     const submenuBackBtn = document.getElementById('submenuBackBtn');
 
-    let isScrubbing = false;
     let wasPausedBeforeScrub = false;
     let isDualAudio = false;
     let resolutionsList = [];
@@ -140,7 +141,7 @@
         volMutedIcon.style.display = vol === 0 ? 'block' : 'none';
     }
 
-    document.addEventListener('keydown', (e) => {
+    const handleGlobalKeydown = (e) => {
         if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
         let key = e.key === ' ' ? 'Space' : e.key;
 
@@ -191,7 +192,8 @@
                 showOverlay(iconSvgBwd);
             }
         }
-    });
+    };
+    document.addEventListener('keydown', handleGlobalKeydown);
 
     mainVideo.addEventListener('waiting', () => videoContainer.classList.add('buffering'));
     mainVideo.addEventListener('playing', () => videoContainer.classList.remove('buffering'));
@@ -252,15 +254,12 @@
         if (opt) {
             opt.classList.add('selected');
             const autoCheck = document.getElementById('autoCheckIcon');
-            if (autoCheck) {
-                autoCheck.style.opacity = (opt.dataset.isAuto === 'true') ? '1' : '0';
-            }
+            if (autoCheck) autoCheck.style.opacity = (opt.dataset.isAuto === 'true') ? '1' : '0';
         }
         
         if (userInitiated) {
-            if (val === 'off') {
-                localStorage.setItem('prefSubState', 'off');
-            } else {
+            if (val === 'off') localStorage.setItem('prefSubState', 'off');
+            else {
                 localStorage.setItem('prefSubState', 'on');
                 localStorage.setItem('prefSubLang', val.split('|')[0].toLowerCase());
             }
@@ -282,7 +281,7 @@
         }
     }
 
-    function initializePlayer(data) {
+    window.initializePlayer = function(data) {
         resolutionsList = data.resolutions;
         videoChapters = data.chapters || [];
         
@@ -447,12 +446,24 @@
         updateVolumeIcons();
 
         mainVideo.addEventListener('loadedmetadata', () => {
+            if (window.resumeTime && window.resumeTime > 0) {
+                const targetTime = window.resumeTime;
+                mainVideo.currentTime = targetTime;
+                
+                if (isDualAudio) {
+                    const syncInit = () => { audio.currentTime = targetTime; };
+                    if (audio.readyState >= 1) syncInit();
+                    else audio.addEventListener('loadedmetadata', syncInit, {once: true});
+                }
+                window.resumeTime = 0; 
+            }
+            
             playIcon.style.display = 'block';
             pauseIcon.style.display = 'none';
             videoContainer.classList.add('paused');
             drawChapterMarkers();
         }, {once: true});
-    }
+    };
 
     function drawChapterMarkers() {
         const dur = getValidDuration(mainVideo);
@@ -506,44 +517,66 @@
             }
             
             document.getElementById('lbl-quality').innerText = label;
-            if (!isPaused) { let p = mainVideo.play(); if(p) p.catch(()=>{}); }
+            if (!isPaused) { 
+                let p1 = mainVideo.play(); 
+                let p2; 
+                if (isDualAudio) p2 = audio.play();
+                if(p1) p1.catch(()=>{});
+                if(p2) p2.catch(()=>{});
+            }
             videoContainer.classList.remove('buffering');
         }, { once: true });
     }
 
     function syncAudio() {
         if (!isDualAudio) return;
-        if (isFinite(mainVideo.currentTime) && Math.abs(mainVideo.currentTime - audio.currentTime) > 0.3) audio.currentTime = mainVideo.currentTime;
+        if (isFinite(mainVideo.currentTime) && isFinite(audio.currentTime)) {
+            const diff = mainVideo.currentTime - audio.currentTime;
+            
+            if (Math.abs(diff) > 1.0) {
+                audio.currentTime = mainVideo.currentTime;
+            } 
+            else if (audio.readyState >= 3) {
+                if (diff > 0.15) audio.playbackRate = mainVideo.playbackRate + 0.1;
+                else if (diff < -0.15) audio.playbackRate = Math.max(0.1, mainVideo.playbackRate - 0.1);
+                else if (audio.playbackRate !== mainVideo.playbackRate) audio.playbackRate = mainVideo.playbackRate;
+            }
+        }
     }
 
     function setupMediaSync() {
-        mainVideo.addEventListener('play', () => { 
-            if (isDualAudio && audio.paused) {
-                const p = audio.play();
-                if (p !== undefined) { p.catch(e => { if (e.name === 'NotAllowedError') mainVideo.pause(); }); }
-            } 
-        });
-        mainVideo.addEventListener('pause', () => { if (isDualAudio) audio.pause(); });
-        mainVideo.addEventListener('seeking', syncAudio);
-        mainVideo.addEventListener('seeked', syncAudio);
-        mainVideo.addEventListener('waiting', () => { if (isDualAudio) audio.pause(); });
-        mainVideo.addEventListener('playing', () => { if (isDualAudio) audio.play().catch(()=>{}); });
+        const forceSync = () => { if (isDualAudio) audio.currentTime = mainVideo.currentTime; };
+        mainVideo.addEventListener('seeking', forceSync);
+        mainVideo.addEventListener('seeked', forceSync);
         
-        setInterval(() => {
-            if (isDualAudio && !mainVideo.paused && !isScrubbing && mainVideo.readyState >= 3) {
-                syncAudio(); if (audio.paused) audio.play().catch(()=>{});
+        mainVideo.addEventListener('waiting', () => { if (isDualAudio) audio.pause(); });
+        mainVideo.addEventListener('playing', () => { 
+            if (isDualAudio && audio.paused && !mainVideo.paused) audio.play().catch(()=>{}); 
+        });
+        
+        window.mediaSyncInterval = setInterval(() => {
+            if (isDualAudio && !mainVideo.paused && !window.isScrubbing && mainVideo.readyState >= 3) {
+                syncAudio();
             }
-        }, 1000);
+        }, 500);
     }
 
     function togglePlay() {
         if (mainVideo.paused) {
-            let p = mainVideo.play();
-            if(p) { p.then(() => { if (isDualAudio && audio.paused) audio.play().catch(()=>{}); }).catch(()=>{}); }
+            let p1 = mainVideo.play();
+            let p2;
+            if (isDualAudio && audio.paused) p2 = audio.play();
+            
+            if(p1) p1.catch(()=>{});
+            if(p2) p2.catch((e)=>{ console.warn("Background audio suppressed by browser gesture policy", e); });
+
             playIcon.style.display = 'none'; pauseIcon.style.display = 'block';
             videoContainer.classList.remove('paused'); resetInactivity();
         } else {
-            mainVideo.pause(); playIcon.style.display = 'block'; pauseIcon.style.display = 'none';
+            mainVideo.pause(); 
+            if (isDualAudio) audio.pause();
+            
+            playIcon.style.display = 'block'; pauseIcon.style.display = 'none';
             videoContainer.classList.add('paused'); resetInactivity();
         }
     }
@@ -575,7 +608,7 @@
     mainVideo.addEventListener('timeupdate', () => {
         updateBuffer(); 
         const dur = getValidDuration(mainVideo);
-        if (!isScrubbing && dur > 0) {
+        if (!window.isScrubbing && dur > 0) {
             const percent = (mainVideo.currentTime / dur) * 100;
             progressBar.style.width = `${percent}%`; progressThumb.style.left = `${percent}%`;
             currentTimeDisplay.textContent = formatTime(mainVideo.currentTime);
@@ -596,20 +629,27 @@
     }
 
     progressArea.addEventListener('mousedown', (e) => {
-        isScrubbing = true; wasPausedBeforeScrub = mainVideo.paused;
-        videoContainer.classList.add('scrubbing'); mainVideo.pause(); handleScrub(e);
+        window.isScrubbing = true; wasPausedBeforeScrub = mainVideo.paused;
+        videoContainer.classList.add('scrubbing'); mainVideo.pause(); if (isDualAudio) audio.pause(); handleScrub(e);
     });
 
-    document.addEventListener('mousemove', (e) => { if (isScrubbing) handleScrub(e); });
-    document.addEventListener('mouseup', () => {
-        if (isScrubbing) {
-            isScrubbing = false; videoContainer.classList.remove('scrubbing');
+    const handleGlobalMousemove = (e) => { if (window.isScrubbing) handleScrub(e); };
+    document.addEventListener('mousemove', handleGlobalMousemove);
+
+    const handleGlobalMouseup = () => {
+        if (window.isScrubbing) {
+            window.isScrubbing = false; videoContainer.classList.remove('scrubbing');
             if (!wasPausedBeforeScrub) {
-                let p = mainVideo.play(); if(p) p.catch(()=>{});
+                let p1 = mainVideo.play(); 
+                let p2;
+                if(isDualAudio) p2 = audio.play();
+                if(p1) p1.catch(()=>{});
+                if(p2) p2.catch(()=>{});
                 playIcon.style.display = 'none'; pauseIcon.style.display = 'block'; videoContainer.classList.remove('paused');
             }
         }
-    });
+    };
+    document.addEventListener('mouseup', handleGlobalMouseup);
 
     let lastPreviewUpdate = 0;
     progressArea.addEventListener('mousemove', (e) => {
@@ -770,7 +810,7 @@
         saveBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             saveBtn.innerText = 'Saving...';
-            fetch('/api/save_cc_settings', {
+            window.appFetch('/api/save_cc_settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({
@@ -785,7 +825,8 @@
                 saveBtn.innerText = 'Saved!';
                 globalCcSettings = { ...ccSettings };
                 setTimeout(() => saveBtn.innerText = 'Save Changes', 2000);
-            }).catch(() => {
+            }).catch((err) => {
+                if (err.name === 'AbortError') return;
                 saveBtn.innerText = 'Error';
                 setTimeout(() => saveBtn.innerText = 'Save Changes', 2000);
             });
@@ -829,10 +870,11 @@
     settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); if (settingsMenu.classList.contains('open')) closeSettingsMenu(); else openSettingsMenu(); });
     ccBtn.addEventListener('click', (e) => { e.stopPropagation(); if (ccMenu.classList.contains('open')) closeCcMenu(); else openCcMenu(); });
     
-    document.addEventListener('click', (e) => { 
+    const handleBodyMenuClick = (e) => { 
         if (!settingsMenu.contains(e.target) && !settingsBtn.contains(e.target)) closeSettingsMenu(); 
         if (!ccMenu.contains(e.target) && !ccBtn.contains(e.target)) closeCcMenu();
-    });
+    };
+    document.addEventListener('click', handleBodyMenuClick);
 
     mainPaneItems.forEach(item => {
         item.addEventListener('click', (e) => {
@@ -857,4 +899,43 @@
     submenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); });
     ccSubmenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); ccMenu.classList.remove('show-submenu'); setMenuHeight(ccMainPane, ccMenu); });
     ccOptionsBackBtn.addEventListener('click', (e) => { e.stopPropagation(); ccMenu.classList.remove('show-options'); setMenuHeight(ccMainPane, ccMenu); });
+
+    // Strict Player Teardown lifecycle triggered upon PJAX navigation away from the watch page
+    window.playerCleanup = function() {
+        if(inactivityTimeout) clearTimeout(inactivityTimeout);
+        if(window.mediaSyncInterval) clearInterval(window.mediaSyncInterval);
+
+        document.removeEventListener('keydown', handleGlobalKeydown);
+        document.removeEventListener('mousemove', handleGlobalMousemove);
+        document.removeEventListener('mouseup', handleGlobalMouseup);
+        document.removeEventListener('click', handleBodyMenuClick);
+        
+        if (resizeObs) resizeObs.disconnect();
+
+        // Hard un-mounting of media resources avoids Decoder Exhaustion Bugs
+        if (mainVideo) {
+            mainVideo.pause();
+            mainVideo.removeAttribute('src');
+            mainVideo.load();
+            mainVideo.remove(); 
+        }
+        if (audio) {
+            audio.pause();
+            audio.removeAttribute('src');
+            audio.load();
+            audio.remove();
+        }
+        if (previewVideo) {
+            previewVideo.pause();
+            previewVideo.removeAttribute('src');
+            previewVideo.load();
+            previewVideo.remove();
+        }
+        
+        window.mainVideo = null;
+        window.isScrubbing = false;
+        window.resumeTime = 0;
+        window.commentThreadMap = {};
+    };
+})();
 </script>

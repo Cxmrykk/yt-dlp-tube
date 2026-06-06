@@ -3,6 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="view-transition" content="same-origin">
     <title>yt-dlp Tube</title>
     <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     <style>
@@ -14,7 +15,24 @@
         body {
             margin: 0; font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
             background-color: var(--bg-color); color: var(--text-color);
+            overflow: hidden; /* Main scroll handles inner content */
         }
+        
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+        ::-webkit-scrollbar-track {
+            background: transparent;
+        }
+        ::-webkit-scrollbar-thumb {
+            background: rgba(255, 255, 255, 0.2);
+            border-radius: 4px;
+        }
+        ::-webkit-scrollbar-thumb:hover {
+            background: rgba(255, 255, 255, 0.4);
+        }
+
         nav {
             background-color: var(--nav-bg); padding: 12px 20px;
             display: flex; justify-content: space-between; align-items: center;
@@ -30,14 +48,14 @@
         .search-bar input { padding: 8px; border-radius: 20px 0 0 20px; border: 1px solid #333; background: #121212; color: white; width: 400px; padding-left: 15px;}
         .search-bar button { padding: 8px 20px; border-radius: 0 20px 20px 0; border: 1px solid #333; background: #333; color: white; cursor: pointer;}
         
-        .layout { display: flex; min-height: calc(100vh - 64px); }
-        .sidebar { width: 240px; background: var(--nav-bg); padding: 20px 10px; position: sticky; top: 64px; height: calc(100vh - 104px); overflow-y: auto; }
+        .layout { display: flex; height: calc(100vh - 64px); }
+        .sidebar { width: 240px; background: var(--nav-bg); padding: 20px 10px; overflow-y: auto; flex-shrink: 0; }
         .sidebar h3 { font-size: 1rem; color: var(--text-muted); margin: 0 0 10px 10px; text-transform: uppercase; }
         .sidebar a { display: flex; align-items: center; gap: 12px; color: var(--text-color); text-decoration: none; padding: 10px; border-radius: 8px; font-size: 0.95rem; }
         .sidebar a:hover { background: #333; }
         .sidebar img:not(.nav-icon) { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
         
-        .main-content { flex: 1; padding: 20px; overflow-x: hidden; }
+        .main-content { flex: 1; padding: 20px; overflow-y: auto; overflow-x: hidden; position: relative; }
         .video-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(300px, 1fr)); gap: 20px; }
         .video-card { display: flex; flex-direction: column; gap: 10px; }
         .thumbnail { position: relative; width: 100%; aspect-ratio: 16/9; background: #333; border-radius: 12px; overflow: hidden;}
@@ -73,10 +91,15 @@
 
         .unrevealed { opacity: 0; transform: translateY(20px); }
         .reveal-anim { opacity: 1; transform: translateY(0); transition: opacity 0.5s ease, transform 0.5s ease; }
-        @keyframes fadeIn { to { opacity: 1; } }
+        
+        #pjax-progress {
+            position: fixed; top: 0; left: 0; height: 3px; background: #f03; width: 0%;
+            z-index: 9999; transition: width 0.3s, opacity 0.3s; opacity: 0; pointer-events: none;
+        }
     </style>
 </head>
 <body>
+    <div id="pjax-progress"></div>
     <nav>
         <a href="/">
             <img src="/static/icons/logo.svg" style="width: 28px; height: 28px;" alt="Logo">
@@ -90,16 +113,20 @@
             <a href="/settings" title="Settings">
                 <img src="/static/icons/settings.svg" style="width: 24px; height: 24px;" alt="Settings">
             </a>
-            <a href="/logout" class="logout" title="Logout">
+            <a href="/logout" class="logout" data-no-pjax="true" title="Logout">
                 <img src="/static/icons/logout.svg" style="width: 24px; height: 24px;" alt="Logout">
             </a>
         </div>
     </nav>
     <div class="layout">
-        <aside class="sidebar">
+        <aside class="sidebar" id="sidebar">
             <a href="/">
                 <img src="/static/icons/home.svg" class="nav-icon" style="width: 22px; height: 22px;" alt="Home">
                 Home Feed
+            </a>
+            <a href="/history">
+                <img src="/static/icons/history.svg" class="nav-icon" style="width: 22px; height: 22px;" alt="History">
+                History
             </a>
             <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
             <h3>Subscriptions</h3>
@@ -125,9 +152,136 @@
             {% endfor %}
             
         </aside>
-        <main class="main-content">
+        <main class="main-content" id="main-content">
             {% block content %}{% endblock %}
         </main>
     </div>
+
+    <script>
+        // --- Bulletproof PJAX Architecture ---
+        window.pageAbortController = new AbortController();
+
+        // 1. Centralized Safe Fetch
+        window.appFetch = function(url, options = {}) {
+            return fetch(url, { ...options, signal: window.pageAbortController.signal });
+        };
+
+        // 2. Link Interception
+        document.addEventListener('click', e => {
+            const a = e.target.closest('a');
+            if (!a || !a.href) return;
+            const url = new URL(a.href);
+            
+            if (url.origin !== window.location.origin) return;
+            if (a.target === '_blank' || a.hasAttribute('download') || a.hasAttribute('data-no-pjax')) return;
+            if (e.ctrlKey || e.metaKey || e.shiftKey) return;
+
+            e.preventDefault();
+            navigateTo(url.href, true);
+        });
+
+        // 3. Form Interception
+        document.addEventListener('submit', e => {
+            const form = e.target;
+            if (form.hasAttribute('data-no-pjax') || form.enctype === 'multipart/form-data') return;
+            e.preventDefault();
+
+            const url = new URL(form.action || window.location.href);
+            const formData = new FormData(form);
+            const method = (form.method || 'GET').toUpperCase();
+
+            let fetchOpts = { method };
+            if (method === 'GET') {
+                const params = new URLSearchParams(formData);
+                url.search = params.toString();
+            } else {
+                fetchOpts.body = new URLSearchParams(formData);
+                fetchOpts.headers = { 'Content-Type': 'application/x-www-form-urlencoded' };
+            }
+
+            navigateTo(url.href, true, fetchOpts);
+        });
+
+        // 4. Back/Forward Navigation
+        window.addEventListener('popstate', (e) => {
+            if (e.state && e.state.pjax) {
+                navigateTo(window.location.href, false, { _restoreScroll: e.state.scrollPos });
+            } else {
+                navigateTo(window.location.href, false, { _restoreScroll: 0 });
+            }
+        });
+
+        // 5. The Routing Engine
+        async function navigateTo(url, pushState, fetchOpts = {}) {
+            const pb = document.getElementById('pjax-progress');
+            pb.style.width = '30%'; pb.style.opacity = '1';
+            
+            // Abort pending requests
+            if (window.pageAbortController) window.pageAbortController.abort();
+            window.pageAbortController = new AbortController();
+            
+            // Execute deep teardown hooks (Removes observers, media elements, intervals)
+            if (typeof window.pageTeardown === 'function') window.pageTeardown();
+            window.pageTeardown = null; 
+
+            // Save active scroll state before replacing content
+            const mainEl = document.getElementById('main-content');
+            if (pushState) {
+                history.replaceState({ scrollPos: mainEl.scrollTop, pjax: true }, '', window.location.href);
+            }
+
+            try {
+                fetchOpts.signal = window.pageAbortController.signal;
+                const resp = await fetch(url, fetchOpts);
+                
+                // Track redirects implicitly (e.g. form POST returning a redirect)
+                const finalUrl = resp.url;
+
+                pb.style.width = '70%';
+                const html = await resp.text();
+                const doc = new DOMParser().parseFromString(html, 'text/html');
+                const newContent = doc.querySelector('#main-content');
+                
+                if (!newContent) throw new Error('No main content found');
+
+                mainEl.innerHTML = newContent.innerHTML;
+                document.title = doc.title;
+                
+                if (pushState) history.pushState({ scrollPos: 0, pjax: true }, '', finalUrl);
+
+                pb.style.width = '100%';
+                setTimeout(() => { pb.style.opacity = '0'; setTimeout(() => pb.style.width = '0%', 300); }, 300);
+
+                // Re-initialize scripts inside the new PJAX container
+                const scripts = mainEl.querySelectorAll('script');
+                scripts.forEach(oldScript => {
+                    const newScript = document.createElement('script');
+                    if (oldScript.src) newScript.src = oldScript.src;
+                    else newScript.textContent = oldScript.textContent;
+                    oldScript.parentNode.replaceChild(newScript, oldScript);
+                });
+                
+                mainEl.scrollTop = fetchOpts._restoreScroll || 0;
+
+            } catch(e) {
+                if (e.name !== 'AbortError') {
+                    console.error("PJAX Navigation failed, hard loading...", e);
+                    window.location.href = url;
+                }
+            }
+        }
+        
+        // Ensure sidebar scroll persists natively (doesn't refresh on PJAX)
+        const sidebar = document.getElementById('sidebar');
+        if (sidebar) {
+            let scrollTimeout;
+            sidebar.addEventListener('scroll', function() {
+                clearTimeout(scrollTimeout);
+                scrollTimeout = setTimeout(() => { sessionStorage.setItem('sidebarScrollPos', sidebar.scrollTop); }, 100);
+            });
+            const scrollPos = sessionStorage.getItem('sidebarScrollPos');
+            if (scrollPos) sidebar.scrollTop = parseInt(scrollPos, 10);
+        }
+    </script>
 </body>
 </html>

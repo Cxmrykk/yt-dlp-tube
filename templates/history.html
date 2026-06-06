@@ -1,0 +1,72 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 20px; flex-wrap: wrap; gap: 15px;">
+    <h2 style="margin: 0;">Watch History</h2>
+    
+    <div style="display: flex; gap: 10px; align-items: center; flex-wrap: wrap;">
+        <form action="/history/export" method="GET" data-no-pjax="true" style="margin: 0;">
+            <button type="submit" class="btn" style="box-sizing: border-box; height: 38px; font-family: inherit; font-size: 14px;">Export JSON</button>
+        </form>
+        
+        <form action="/history/import" method="POST" enctype="multipart/form-data" data-no-pjax="true" style="margin: 0;">
+            <input type="file" id="import_history_file" name="import_file" accept=".json" style="display: none;" 
+                   onchange="if(this.value) { this.form.submit(); }">
+            <button type="button" class="btn" onclick="document.getElementById('import_history_file').click();" 
+                    style="box-sizing: border-box; height: 38px; font-family: inherit; font-size: 14px;">
+                Import JSON
+            </button>
+        </form>
+        
+        <form action="/api/history/clear" method="POST" style="margin: 0;" onsubmit="return confirm('Are you sure you want to clear your entire watch history?');">
+            <button type="submit" class="btn btn-danger" style="box-sizing: border-box; height: 38px; font-family: inherit; font-size: 14px;">Clear History</button>
+        </form>
+    </div>
+</div>
+
+<div class="video-grid" id="history-grid">
+    {% for video in history %}
+    {% set uploader_name = video.uploader | default('Unknown') %}
+    {% set channel_link = video.uploader_url | default('https://www.youtube.com/@' ~ uploader_name) %}
+    {% set vid_url = 'https://www.youtube.com/watch?v=' ~ video.id %}
+
+    <div class="video-card">
+        <a href="{{ vid_url | yt_path }}">
+            <div class="thumbnail skeleton-box">
+                <img class="lazy-img" src="{{ (video.thumbnail) | proxy_image }}" alt="" loading="lazy" onload="this.classList.add('loaded'); this.parentElement.classList.remove('skeleton-box');">
+                <span class="duration">{{ video.duration | format_time }}</span>
+                <div style="position: absolute; bottom: 0; left: 0; height: 4px; background: rgba(255,255,255,0.2); width: 100%;">
+                    <div style="height: 100%; background: #f03; width: {{ (video.watch_duration / video.duration * 100) if video.duration else 0 }}%;"></div>
+                </div>
+            </div>
+        </a>
+        <div class="video-info">
+            <a href="{{ vid_url | yt_path }}" class="video-title">{{ video.title | default('Untitled') }}</a>
+            
+            <div class="video-meta-row">
+                <a href="{{ channel_link | yt_path }}">
+                    <img class="channel-avatar lazy-img skeleton-box" src="{{ (video.channel_icon or ('https://ui-avatars.com/api/?name=' ~ (uploader_name | urlencode) ~ '&background=333&color=fff')) | proxy_image }}" alt="" loading="lazy" onload="this.classList.add('loaded'); this.classList.remove('skeleton-box');">
+                </a>
+                <div class="video-text">
+                    <a href="{{ channel_link | yt_path }}" class="channel-name">
+                        {{ uploader_name }}
+                    </a>
+                    
+                    <span style="color: var(--text-muted); font-size: 0.85rem;">
+                        Viewed {{ video.last_viewed | time_ago }}
+                    </span>
+                </div>
+            </div>
+        </div>
+    </div>
+    {% else %}
+    <p style="color: var(--text-muted); grid-column: 1 / -1;">No watch history found.</p>
+    {% endfor %}
+</div>
+
+<script>
+(function() {
+    window.pageTeardown = null; 
+})();
+</script>
+{% endblock %}

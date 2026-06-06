@@ -6,8 +6,6 @@
     @media (max-width: 1100px) { .watch-layout { grid-template-columns: 1fr; height: auto; } .main-video-col, .suggested-list { height: auto; overflow-y: visible; } }
     
     .main-video-col { display: flex; flex-direction: column; height: 100%; overflow-y: auto; padding-right: 10px; }
-    .main-video-col::-webkit-scrollbar { width: 8px; }
-    .main-video-col::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
     
     .video-title { font-size: 1.4rem; font-weight: bold; margin: 10px 0; color: white; line-height: 1.3; flex-shrink: 0;}
     .channel-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 15px; flex-shrink: 0; flex-wrap: wrap; gap: 10px;}
@@ -33,8 +31,6 @@
     .replies-box[open] .reply-icon { transform: rotate(180deg); }
     
     .suggested-list { display: flex; flex-direction: column; gap: 15px; overflow-y: auto; height: 100%; padding-right: 10px;}
-    .suggested-list::-webkit-scrollbar { width: 8px; }
-    .suggested-list::-webkit-scrollbar-thumb { background: #444; border-radius: 4px; }
     
     .s-card { display: flex; gap: 10px; text-decoration: none; }
     .s-thumb { width: 160px; min-width: 160px; aspect-ratio: 16/9; border-radius: 8px; overflow: hidden; position: relative; background: #333;}
@@ -71,7 +67,7 @@
                     </a>
                     <span id="ui-channel-subs" style="color: var(--text-muted); font-size: 0.85rem;"></span>
                 </div>
-                <button class="btn" id="ui-sub-btn" onclick="toggleSubscribe()" style="display:none; margin-left: 10px;">Subscribe</button>
+                <button class="btn" id="ui-sub-btn" onclick="window.toggleSubscribe()" style="display:none; margin-left: 10px;">Subscribe</button>
             </div>
             <div id="ui-video-stats" style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500; background: #222; padding: 6px 12px; border-radius: 8px;"></div>
         </div>
@@ -86,7 +82,7 @@
         <div class="comments-section" style="flex-shrink: 0;" id="comments-scroll">
             <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <h3 style="margin: 0;">Comments</h3>
-                <select id="comment-sort" onchange="changeCommentSort()" style="background: #333; color: white; border: none; padding: 6px 12px; border-radius: 20px; font-weight: bold; outline: none; cursor: pointer; font-size: 0.85rem;">
+                <select id="comment-sort" onchange="window.changeCommentSort()" style="background: #333; color: white; border: none; padding: 6px 12px; border-radius: 20px; font-weight: bold; outline: none; cursor: pointer; font-size: 0.85rem;">
                     <option value="top">Top Comments</option>
                     <option value="new">Newest First</option>
                 </select>
@@ -104,7 +100,9 @@
 </div>
 
 <script>
+(function() {
     const videoUrl = "{{ video_url }}";
+    window.resumeTime = {{ resume_time | default(0) }};
     let currentChannel = {};
     const checkIcon = `<img src="/static/icons/check.svg" style="width: 18px; height: 18px; margin-left: 4px;" alt="Subscribed">`;
 
@@ -139,7 +137,9 @@
         return fullUrl;
     }
 
-    fetch(`/api/info?url=${encodeURIComponent(videoUrl)}`)
+    let suggestedPage = 0; let suggestedLoading = false; let suggestedQuery = ""; let currentVideoId = "";
+
+    window.appFetch(`/api/info?url=${encodeURIComponent(videoUrl)}`)
         .then(r => r.json())
         .then(data => {
             if(data.error) {
@@ -163,14 +163,14 @@
             updateSubButton(data.is_subbed);
             
             if (!data.channel_icon) {
-                fetch(`/api/channel_info?url=${encodeURIComponent(data.uploader_url)}`)
+                window.appFetch(`/api/channel_info?url=${encodeURIComponent(data.uploader_url)}`)
                     .then(r => r.json())
                     .then(cData => {
                         if (cData.icon) {
                             document.getElementById('ui-channel-icon').src = getImgProxyUrl(cData.icon);
                             currentChannel.icon = cData.icon; 
                         }
-                    }).catch(e => console.error("Icon fetch failed:", e));
+                    }).catch(e => { if (e.name !== 'AbortError') console.error("Icon fetch failed:", e); });
             }
             
             let stats = [];
@@ -181,13 +181,44 @@
             document.getElementById('ui-desc').innerText = data.description || "No description provided.";
             initDescription();
 
-            initializePlayer(data);
+            if (typeof window.initializePlayer === 'function') window.initializePlayer(data);
 
             suggestedQuery = data.search_query || data.id;
+            currentVideoId = data.id;
+            
             suggObserver.observe(document.getElementById('suggested-loader'));
             commentsObserver.observe(document.getElementById('comments-loader'));
+
+            let watchSessionTime = 0;
+            let lastHistoryPing = 0;
+            if (window.historyInterval) clearInterval(window.historyInterval);
+            window.historyInterval = setInterval(() => {
+                if (window.mainVideo && !window.mainVideo.paused && !window.isScrubbing && window.mainVideo.readyState >= 3) {
+                    watchSessionTime++;
+                    if (watchSessionTime - lastHistoryPing >= 10) {
+                        lastHistoryPing = watchSessionTime;
+                        const th_url = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`;
+                        
+                        window.appFetch('/api/history/update', {
+                            method: 'POST',
+                            headers: {'Content-Type': 'application/json'},
+                            body: JSON.stringify({
+                                id: data.id,
+                                title: data.title,
+                                uploader: data.uploader,
+                                uploader_url: data.uploader_url,
+                                channel_icon: currentChannel.icon,
+                                thumbnail: th_url,
+                                duration: (window.mainVideo.duration && isFinite(window.mainVideo.duration)) ? window.mainVideo.duration : (data.duration || 0),
+                                watch_time_increment: 10
+                            })
+                        }).catch(()=>{});
+                    }
+                }
+            }, 1000);
         })
         .catch(err => {
+            if (err.name === 'AbortError') return;
             document.getElementById('video-skeleton').innerText = "Failed to fetch video data.";
         });
 
@@ -202,28 +233,28 @@
         btn.dataset.subbed = isSubbed;
     }
 
-    function toggleSubscribe() {
+    window.toggleSubscribe = function() {
         const btn = document.getElementById('ui-sub-btn');
         const isSubbed = btn.dataset.subbed === 'true';
         btn.innerHTML = 'Saving...';
         
-        fetch('/api/toggle_sub', {
+        window.appFetch('/api/toggle_sub', {
             method: 'POST', headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(currentChannel)
         }).then(r => r.json()).then(res => {
             updateSubButton(res.is_subbed);
         }).catch(err => {
+            if (err.name === 'AbortError') return;
             alert("Error toggling subscription");
             updateSubButton(isSubbed);
         });
     }
 
-    let suggestedPage = 0; let suggestedLoading = false; let suggestedQuery = "";
-    
     function revealStaggeredSuggested() {
         const unrevealed = document.querySelectorAll('#suggested-grid .unrevealed');
         unrevealed.forEach((card, index) => {
             setTimeout(() => {
+                if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
                 card.classList.remove('unrevealed');
                 card.classList.add('reveal-anim');
             }, index * 80);
@@ -235,7 +266,7 @@
         suggestedLoading = true; suggestedPage++;
         document.getElementById('suggested-loader').innerText = 'Loading suggested...';
         
-        fetch(`/api/videos?type=suggested&query=${encodeURIComponent(suggestedQuery)}&page=${suggestedPage}`)
+        window.appFetch(`/api/videos?type=suggested&query=${encodeURIComponent(suggestedQuery)}&page=${suggestedPage}&current_id=${encodeURIComponent(currentVideoId)}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
@@ -244,7 +275,7 @@
                     suggestedLoading = false;
                     document.getElementById('suggested-loader').innerText = 'Scroll for more';
                     setTimeout(() => {
-                        if (!suggestedLoading) {
+                        if (!suggestedLoading && !window.pageAbortController.signal.aborted) {
                             const loader = document.getElementById('suggested-loader');
                             const scrollArea = document.getElementById('suggested-scroll');
                             if (loader.getBoundingClientRect().top <= scrollArea.getBoundingClientRect().bottom + 200) loadSuggestedVideos();
@@ -261,7 +292,7 @@
                     document.getElementById('suggested-grid').insertAdjacentHTML('beforeend', endCard);
                     revealStaggeredSuggested();
                 }
-            });
+            }).catch(err => { if(err.name === 'AbortError') return; });
     }
 
     const suggObserver = new IntersectionObserver((entries) => {
@@ -271,7 +302,7 @@
     let commentsPage = 1; let commentsLoading = false; let commentsFinished = false;
     window.commentThreadMap = window.commentThreadMap || {};
 
-    function changeCommentSort() {
+    window.changeCommentSort = function() {
         commentsPage = 1; commentsFinished = false; commentsLoading = false;
         window.commentThreadMap = {};
         document.getElementById('comments-container').innerHTML = ''; loadComments();
@@ -283,7 +314,7 @@
         document.getElementById('comments-loader').innerText = (commentsPage === 1) ? 'Extracting comments...' : 'Loading more...';
         const sortMode = document.getElementById('comment-sort').value;
         
-        fetch(`/api/comments?url=${encodeURIComponent(videoUrl)}&page=${commentsPage}&sort=${sortMode}`)
+        window.appFetch(`/api/comments?url=${encodeURIComponent(videoUrl)}&page=${commentsPage}&sort=${sortMode}`)
             .then(r => { if (!r.ok) throw new Error("Server Error"); return r.text(); })
             .then(html => {
                 if (html.trim() !== '') {
@@ -362,6 +393,7 @@
                     document.getElementById('comments-loader').innerText = (commentsPage === 1) ? '' : 'No more comments';
                 }
             }).catch(err => {
+                if(err.name === 'AbortError') return;
                 commentsLoading = false; document.getElementById('comments-loader').innerText = 'Failed to load comments.';
             });
     }
@@ -370,7 +402,7 @@
         if (entries[0].isIntersecting && !commentsLoading && !commentsFinished && suggestedQuery) loadComments();
     }, { rootMargin: "200px" });
 
-    document.addEventListener('mouseover', (e) => {
+    const handleCardHover = (e) => {
         const card = e.target.closest('.s-card');
         if (card && !card.dataset.hoverSetup) {
             card.dataset.hoverSetup = 'true';
@@ -404,48 +436,19 @@
             
             card.dispatchEvent(new Event('mouseenter'));
         }
-    });
+    };
+    document.addEventListener('mouseover', handleCardHover);
 
-    window.setupMediaSync = function() {
-        mainVideo.addEventListener('play', () => { 
-            if (isDualAudio && audio.paused) {
-                const p = audio.play();
-                if (p !== undefined) { p.catch(e => { if (e.name === 'NotAllowedError') mainVideo.pause(); }); }
-            } 
-        });
-        mainVideo.addEventListener('pause', () => { if (isDualAudio) audio.pause(); });
+    // Coordinate with global PJAX architecture
+    window.pageTeardown = function() {
+        if (window.historyInterval) clearInterval(window.historyInterval);
+        suggObserver.disconnect();
+        commentsObserver.disconnect();
+        document.removeEventListener('mouseover', handleCardHover);
         
-        const forceSync = () => { if (isDualAudio) audio.currentTime = mainVideo.currentTime; };
-        mainVideo.addEventListener('seeking', forceSync);
-        mainVideo.addEventListener('seeked', forceSync);
-        
-        mainVideo.addEventListener('waiting', () => { if (isDualAudio) audio.pause(); });
-        mainVideo.addEventListener('playing', () => { if (isDualAudio) audio.play().catch(()=>{}); });
-        
-        setInterval(() => {
-            if (isDualAudio && !mainVideo.paused && !isScrubbing && mainVideo.readyState >= 3) {
-                
-                if (isFinite(mainVideo.currentTime) && isFinite(audio.currentTime)) {
-                    const diff = mainVideo.currentTime - audio.currentTime;
-                    
-                    if (Math.abs(diff) > 1.0) {
-                        audio.currentTime = mainVideo.currentTime;
-                    } 
-                    else if (diff > 0.15) {
-                        audio.playbackRate = mainVideo.playbackRate + 0.1;
-                    } 
-                    else if (diff < -0.15) {
-                        audio.playbackRate = Math.max(0.1, mainVideo.playbackRate - 0.1);
-                    } 
-                    else {
-                        if (audio.playbackRate !== mainVideo.playbackRate) {
-                            audio.playbackRate = mainVideo.playbackRate;
-                        }
-                    }
-                }
-                if (audio.paused) audio.play().catch(()=>{});
-            }
-        }, 500);
-    }
+        // Execute player's underlying teardown hooks
+        if (typeof window.playerCleanup === 'function') window.playerCleanup();
+    };
+})();
 </script>
 {% endblock %}

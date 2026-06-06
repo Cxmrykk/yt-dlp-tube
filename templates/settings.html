@@ -71,7 +71,8 @@
     </form>
     
     <div style="display: flex; gap: 10px;">
-        <form id="importFontsForm" action="/settings" method="POST" enctype="multipart/form-data" style="margin: 0;">
+        <!-- File uploads bypass PJAX safety architecture for browser security compatibility -->
+        <form id="importFontsForm" action="/settings" method="POST" enctype="multipart/form-data" data-no-pjax="true" style="margin: 0;">
             <input type="hidden" name="action" value="import_fonts">
             <input type="file" id="import_fonts_file" name="import_file" accept=".json" style="display: none;" 
                    onchange="if(this.value) { this.form.submit(); }">
@@ -118,7 +119,7 @@
 <div class="add-form">
     <h3 style="margin-top: 0; display: flex; justify-content: space-between; align-items: center;">
         Keyboard Shortcuts
-        <button type="button" class="btn" onclick="resetShortcuts()" style="font-size: 0.8rem; padding: 4px 10px;">Reset to Defaults</button>
+        <button type="button" class="btn" onclick="window.resetShortcuts()" style="font-size: 0.8rem; padding: 4px 10px;">Reset to Defaults</button>
     </h3>
     <form action="/settings" method="POST">
         <input type="hidden" name="action" value="update_shortcuts">
@@ -133,6 +134,7 @@
         </style>
 
         <script>
+        (function() {
             let currentListeningBtn = null;
             let boundHandler = null;
 
@@ -140,8 +142,8 @@
                 document.getElementById('unsaved-warning').style.display = 'inline-block';
             }
 
-            function startListening(btn, inputId) {
-                if (currentListeningBtn) stopListening();
+            window.startListening = function(btn, inputId) {
+                if (currentListeningBtn) window.stopListening();
                 currentListeningBtn = btn;
                 btn.classList.add('listening');
                 btn.innerText = "Press any key...";
@@ -158,7 +160,7 @@
                     }
                     
                     btn.innerText = key;
-                    stopListening();
+                    window.stopListening();
                 };
                 
                 setTimeout(() => {
@@ -166,7 +168,7 @@
                 }, 10);
             }
 
-            function stopListening() {
+            window.stopListening = function() {
                 if (currentListeningBtn) {
                     currentListeningBtn.classList.remove('listening');
                     if (currentListeningBtn.innerText === "Press any key...") {
@@ -181,14 +183,15 @@
                 }
             }
             
-            document.addEventListener('click', (e) => {
+            const handleBodyClick = (e) => {
                 if (currentListeningBtn && e.target !== currentListeningBtn) {
-                    stopListening();
+                    window.stopListening();
                 }
-            });
+            };
+            document.addEventListener('click', handleBodyClick);
 
-            function clearShortcut(inputId, btnId) {
-                stopListening();
+            window.clearShortcut = function(inputId, btnId) {
+                window.stopListening();
                 const inputEl = document.getElementById(inputId);
                 if (inputEl.value !== '') {
                     inputEl.value = '';
@@ -203,8 +206,8 @@
                 'inp_chap_next': 'PageUp', 'inp_chap_prev': 'PageDown'
             };
 
-            function resetShortcuts() {
-                stopListening();
+            window.resetShortcuts = function() {
+                window.stopListening();
                 let changed = false;
                 for (const [id, val] of Object.entries(defaults)) {
                     const el = document.getElementById(id);
@@ -216,6 +219,12 @@
                 }
                 if (changed) showUnsavedWarning();
             }
+
+            window.pageTeardown = function() {
+                document.removeEventListener('click', handleBodyClick);
+                if (boundHandler) document.removeEventListener('keydown', boundHandler);
+            };
+        })();
         </script>
 
         {% set shortcuts = [
@@ -232,8 +241,8 @@
         <div class="shortcut-row">
             <label>{{ label }}:</label>
             <input type="hidden" name="{{ name }}" id="inp_{{ short }}" value="{{ val }}">
-            <button type="button" class="btn-shortcut" id="btn_{{ short }}" onclick="startListening(this, 'inp_{{ short }}')">{{ val if val else 'Unbound' }}</button>
-            <button type="button" class="btn-clear" onclick="clearShortcut('inp_{{ short }}', 'btn_{{ short }}')">Clear</button>
+            <button type="button" class="btn-shortcut" id="btn_{{ short }}" onclick="window.startListening(this, 'inp_{{ short }}')">{{ val if val else 'Unbound' }}</button>
+            <button type="button" class="btn-clear" onclick="window.clearShortcut('inp_{{ short }}', 'btn_{{ short }}')">Clear</button>
         </div>
         {% endfor %}
 
@@ -257,11 +266,11 @@
     <h3 style="margin-top: 0; margin-bottom: 15px;">Manage Subscriptions</h3>
     
     <div style="display: flex; flex-wrap: wrap; gap: 15px; align-items: center;">
-        <form action="/settings/export" method="GET" style="margin: 0;">
+        <form action="/settings/export" method="GET" data-no-pjax="true" style="margin: 0;">
             <button type="submit" class="btn" style="box-sizing: border-box; height: 38px; font-family: inherit; font-size: 14px;">Export JSON</button>
         </form>
         
-        <form id="importForm" action="/settings" method="POST" enctype="multipart/form-data" style="margin: 0;">
+        <form id="importForm" action="/settings" method="POST" enctype="multipart/form-data" data-no-pjax="true" style="margin: 0;">
             <input type="hidden" name="action" value="import_subs">
             <input type="file" id="import_file" name="import_file" accept=".json" style="display: none;" 
                    onchange="if(this.value) { document.getElementById('importBtn').innerText = 'Importing...'; this.form.submit(); }">

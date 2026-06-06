@@ -9,12 +9,14 @@ import time
 import secrets
 import requests
 import re
+import hashlib
 from urllib.parse import quote, urlparse
 
 app = Flask(__name__)
 SUBS_FILE = 'subscriptions.json'
 SETTINGS_FILE = 'settings.json'
 VIDEO_DATES_FILE = 'video_dates.json'
+HISTORY_FILE = 'history.json'
 AUTH_FILE = 'secret.key'
 
 DEFAULT_SETTINGS = {
@@ -31,9 +33,9 @@ DEFAULT_SETTINGS = {
     'cc_font': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
     'cc_color': '#ffffff',
     'cc_bg': '#000000',
-    'cc_bg_op': 0.75,
-    'cc_scale': 1.15,
-    'cc_v_offset': 0,
+    'cc_bg_op': 0.6,
+    'cc_scale': 1.4,
+    'cc_v_offset': 10,
     'cc_custom_fonts': [
         {"name": "Sans-Serif", "value": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"},
         {"name": "Serif", "value": "Georgia, 'Times New Roman', Times, serif"},
@@ -136,12 +138,22 @@ def proxy_image():
     url = request.args.get('url')
     if not url or not is_safe_url(url):
         return "Invalid or unsafe URL", 400
+        
+    etag = hashlib.md5(url.encode('utf-8')).hexdigest()
+    
+    if request.headers.get('If-None-Match') == f'"{etag}"':
+        resp = Response(status=304)
+        resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        resp.headers['ETag'] = f'"{etag}"'
+        return resp
+        
     try:
         headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)'}
         r = SESSION.get(url, headers=headers, timeout=10)
         
         resp = Response(r.content, content_type=r.headers.get('Content-Type', 'image/jpeg'))
         resp.headers['Cache-Control'] = 'public, max-age=31536000, immutable'
+        resp.headers['ETag'] = f'"{etag}"'
         return resp
     except Exception:
         return "Image proxy failed", 500
@@ -277,6 +289,20 @@ def save_video_dates(dates):
         tmp_file = VIDEO_DATES_FILE + '.tmp'
         with open(tmp_file, 'w') as f: json.dump(dates, f)
         os.replace(tmp_file, VIDEO_DATES_FILE)
+
+def get_history():
+    with FILE_LOCK:
+        if os.path.exists(HISTORY_FILE):
+            try:
+                with open(HISTORY_FILE, 'r') as f: return json.load(f)
+            except: pass
+        return []
+
+def save_history(history):
+    with FILE_LOCK:
+        tmp_file = HISTORY_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(history, f)
+        os.replace(tmp_file, HISTORY_FILE)
 
 def sync_video_dates(entries):
     dates_cache = get_video_dates()
@@ -518,6 +544,104 @@ def feed():
     session['last_feed_view'] = time.time()
     return resp
 
+@app.route('/history')
+def history_page():
+    history = get_history()
+    history.sort(key=lambda x: x.get('last_viewed', 0), reverse=True)
+    return render_template('history.html', history=history)
+
+@app.route('/history/export')
+def export_history():
+    return app.response_class(
+        response=json.dumps(get_history(), indent=4),
+        status=200,
+        mimetype='application/json',
+        headers={"Content-disposition": "attachment; filename=history.json"}
+    )
+
+@app.route('/history/import', methods=['POST'])
+def import_history():
+    file = request.files.get('import_file')
+    if file and file.filename.endswith('.json'):
+        try:
+            imported_hist = json.load(file)
+            if isinstance(imported_hist, list):
+                current_hist = get_history()
+                hist_map = {item['id']: item for item in current_hist}
+                
+                for item in imported_hist:
+                    if not isinstance(item, dict) or 'id' not in item: continue
+                    vid = item['id']
+                    if vid in hist_map:
+                        if item.get('last_viewed', 0) > hist_map[vid].get('last_viewed', 0):
+                            hist_map[vid].update(item)
+                    else:
+                        hist_map[vid] = item
+                        
+                new_hist = list(hist_map.values())
+                new_hist.sort(key=lambda x: x.get('last_viewed', 0), reverse=True)
+                
+                if len(new_hist) > 500:
+                    new_hist = new_hist[:500]
+                    
+                save_history(new_hist)
+        except Exception as e: print(f"History import error: {e}")
+    return redirect(url_for('history_page'))
+
+@app.route('/api/history/update', methods=['POST'])
+def update_history():
+    data = request.get_json()
+    if not data or 'id' not in data:
+        return jsonify({"error": "Invalid data"}), 400
+        
+    vid_id = data['id']
+    hist = get_history()
+    
+    existing = next((item for item in hist if item['id'] == vid_id), None)
+    now = time.time()
+    
+    if existing:
+        new_duration = existing.get('watch_duration', 0) + data.get('watch_time_increment', 0)
+        total_dur = data.get('duration') or existing.get('duration') or 0
+        if total_dur and new_duration > total_dur:
+            new_duration = total_dur
+            
+        existing['watch_duration'] = new_duration
+        existing['last_viewed'] = now
+        existing['title'] = data.get('title', existing.get('title'))
+        existing['uploader'] = data.get('uploader', existing.get('uploader'))
+        existing['uploader_url'] = data.get('uploader_url', existing.get('uploader_url'))
+        existing['thumbnail'] = data.get('thumbnail', existing.get('thumbnail'))
+        existing['channel_icon'] = data.get('channel_icon', existing.get('channel_icon'))
+        existing['duration'] = total_dur
+        
+        hist.remove(existing)
+        hist.insert(0, existing)
+    else:
+        item = {
+            'id': vid_id,
+            'title': data.get('title'),
+            'uploader': data.get('uploader'),
+            'uploader_url': data.get('uploader_url'),
+            'thumbnail': data.get('thumbnail'),
+            'channel_icon': data.get('channel_icon'),
+            'duration': data.get('duration', 0),
+            'watch_duration': data.get('watch_time_increment', 0),
+            'last_viewed': now
+        }
+        hist.insert(0, item)
+        
+    if len(hist) > 500:
+        hist = hist[:500]
+        
+    save_history(hist)
+    return jsonify({"status": "ok"})
+
+@app.route('/api/history/clear', methods=['POST'])
+def clear_history():
+    save_history([])
+    return redirect(url_for('history_page'))
+
 @app.route('/search')
 def search():
     query = request.args.get('q')
@@ -527,12 +651,30 @@ def search():
 @app.route('/watch')
 def watch():
     v = request.args.get('v')
+    video_url = request.args.get('url')
     if v:
         video_url = f"https://www.youtube.com/watch?v={v}"
-    else:
-        video_url = request.args.get('url')
+    
     if not video_url: return "Video URL required", 400
-    return render_template('watch.html', video_url=video_url)
+
+    vid_id = v
+    if not vid_id:
+        parsed = urlparse(video_url)
+        if 'v=' in parsed.query:
+            vid_id = dict(q.split('=') for q in parsed.query.split('&')).get('v')
+        elif 'youtu.be' in parsed.netloc:
+            vid_id = parsed.path.strip('/')
+
+    resume_time = 0
+    if vid_id:
+        hist = get_history()
+        existing = next((item for item in hist if item['id'] == vid_id), None)
+        if existing and existing.get('watch_duration'):
+            resume_time = existing['watch_duration']
+            if existing.get('duration') and (existing['duration'] - resume_time < 5):
+                resume_time = 0
+
+    return render_template('watch.html', video_url=video_url, resume_time=resume_time)
 
 @app.route('/shorts/<video_id>')
 def shorts_redirect(video_id):
@@ -762,12 +904,19 @@ def api_videos():
         fetch_missing_icons(videos)
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
     elif req_type == 'suggested' and query:
+        current_id = request.args.get('current_id', '')
         start = (page - 1) * per_page + 1
         end = page * per_page
-        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
+        fetch_end = end + 2
+        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{fetch_end}'}
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
+            info = ydl.extract_info(f"ytsearch{fetch_end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
+            
+        if current_id:
+            videos = [v for v in videos if v.get('id') != current_id]
+            
+        videos = videos[:per_page]
         fetch_missing_icons(videos)
         return render_template('partials/suggested_cards.html', videos=videos)
     return render_template('partials/video_cards.html', videos=[])

@@ -12,7 +12,7 @@
             </div>
         </div>
     </div>
-    <button id="sub-btn" class="btn" style="display: none;" onclick="toggleSubscribe()">Subscribe</button>
+    <button id="sub-btn" class="btn" style="display: none;" onclick="window.toggleSubscribe()">Subscribe</button>
 </div>
 
 <div class="video-grid" id="video-grid">
@@ -22,6 +22,7 @@
 <div id="loader">Scroll down for more</div>
 
 <script>
+(function() {
     const needsFetch = {{ 'true' if needs_fetch else 'false' }};
     const chUrl = "{{ url }}";
     const checkIcon = `<img src="/static/icons/check.svg" style="width: 18px; height: 18px; margin-left: 4px;" alt="Subscribed">`;
@@ -36,7 +37,7 @@
     }
     
     if (needsFetch) {
-        fetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
+        window.appFetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
             .then(r => r.json())
             .then(data => {
                 document.getElementById('ch-name').innerText = data.name;
@@ -49,12 +50,13 @@
                 
                 isSubbed = data.is_subbed;
                 updateSubButton();
-            });
+            }).catch(err => { if (err.name !== 'AbortError') console.error(err); });
     } else {
         updateSubButton();
-        fetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
+        window.appFetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
             .then(r => r.json())
-            .then(data => { if (data.subscriber_count) document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers'; });
+            .then(data => { if (data.subscriber_count) document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers'; })
+            .catch(err => { if (err.name !== 'AbortError') console.error(err); });
     }
 
     function updateSubButton() {
@@ -64,12 +66,15 @@
         else { btn.className = 'btn btn-danger'; btn.innerHTML = 'Subscribe'; }
     }
 
-    function toggleSubscribe() {
+    window.toggleSubscribe = function() {
         const btn = document.getElementById('sub-btn'); btn.innerHTML = 'Saving...';
-        fetch('/api/toggle_sub', {
+        window.appFetch('/api/toggle_sub', {
             method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentChannel)
         }).then(r => r.json()).then(res => { isSubbed = res.is_subbed; updateSubButton();
-        }).catch(err => { alert("Error toggling subscription"); updateSubButton(); });
+        }).catch(err => { 
+            if (err.name === 'AbortError') return;
+            alert("Error toggling subscription"); updateSubButton(); 
+        });
     }
 
     let page = 1; let loading = false; const reqType = "channel";
@@ -78,6 +83,7 @@
         const unrevealed = document.querySelectorAll('.unrevealed');
         unrevealed.forEach((card, index) => {
             setTimeout(() => {
+                if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
                 card.classList.remove('unrevealed');
                 card.classList.add('reveal-anim');
             }, index * 80);
@@ -86,7 +92,7 @@
     
     function loadVideos() {
         loading = true; document.getElementById('loader').innerText = 'Loading videos...';
-        fetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(chUrl)}&page=${page}`)
+        window.appFetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(chUrl)}&page=${page}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
@@ -95,7 +101,7 @@
                     loading = false;
                     document.getElementById('loader').innerText = 'Scroll down for more';
                     setTimeout(() => {
-                        if (!loading) {
+                        if (!loading && !window.pageAbortController.signal.aborted) {
                             const rect = document.getElementById('loader').getBoundingClientRect();
                             if (rect.top <= window.innerHeight + 200) { page++; loadVideos(); }
                         }
@@ -113,7 +119,10 @@
                     revealStaggered();
                     loading = true; 
                 }
-            }).catch(err => { loading = false; document.getElementById('loader').innerText = "Error loading videos. Scroll to retry."; });
+            }).catch(err => { 
+                if (err.name === 'AbortError') return;
+                loading = false; document.getElementById('loader').innerText = "Error loading videos. Scroll to retry."; 
+            });
     }
 
     const observer = new IntersectionObserver((entries) => {
@@ -121,5 +130,10 @@
     }, { rootMargin: "200px" });
 
     observer.observe(document.getElementById('loader'));
+
+    window.pageTeardown = function() {
+        observer.disconnect();
+    };
+})();
 </script>
 {% endblock %}
