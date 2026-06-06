@@ -1,0 +1,14 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="100" height="90" viewBox="222 27 100 90">
+  <defs>
+    <style>
+      .logo-mark {
+        fill: #fff;
+        fill-rule: evenodd;
+        stroke: #282828;
+        stroke-linejoin: round;
+        stroke-width: 1px;
+      }
+    </style>
+  </defs>
+  <path class="logo-mark" d="M223.055,40.6l36.161,20.584L223.055,82.439,231.011,94.4l43.337-26.926V54.9l-43.5-26.926Zm97.968,76.216v-13.8H265.391v13.8h55.632Z"/>
+</svg>

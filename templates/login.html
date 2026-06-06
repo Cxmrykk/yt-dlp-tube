@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Login - yt-dlp Tube</title>
+    <link rel="icon" href="/static/favicon.svg" type="image/svg+xml">
     <style>
         :root {
             --bg-color: #0f0f0f;
@@ -40,7 +41,7 @@
 <body>
     <div class="login-box">
         <h1>
-            <svg viewBox="0 0 24 24" width="28" height="28" fill="var(--accent)"><path d="M8 5v14l11-7z"/></svg>
+            <img src="/static/icons/logo.svg" style="width: 28px; height: 28px;" alt="Logo">
             yt-dlp Tube
         </h1>
         <p style="color: var(--text-muted); margin-bottom: 25px; font-size: 0.95rem;">Enter your server's secret key to securely access the interface.</p>
@@ -62,13 +63,12 @@
             const errorDiv = document.querySelector('.error');
             
             if (errorDiv) {
-                // Wrong key provided. Wipe the cache.
                 localStorage.removeItem('secret_key');
             } else {
                 const storedKey = localStorage.getItem('secret_key');
                 if (storedKey) {
                     secretInput.value = storedKey;
-                    form.style.display = 'none'; // Hide form to prevent jumping
+                    form.style.display = 'none';
                     
                     const loadingP = document.createElement('p');
                     loadingP.style.color = "var(--text-muted)";

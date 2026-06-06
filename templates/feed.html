@@ -38,7 +38,6 @@
                     loading = false;
                     document.getElementById('loader').innerText = 'Scroll down for more';
                     
-                    // Auto-trigger next page if window height is larger than loaded content
                     setTimeout(() => {
                         if (!loading) {
                             const rect = document.getElementById('loader').getBoundingClientRect();
@@ -53,7 +52,7 @@
                     const endCard = `
                     <div class="video-card unrevealed" style="cursor: default;">
                         <div class="thumbnail" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <svg viewBox="0 0 24 24" width="48" height="48" fill="#444" style="margin-bottom: 8px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            <img src="/static/icons/no-more.svg" style="width: 48px; height: 48px; margin-bottom: 8px;" alt="No more">
                             <span style="color: #555; font-weight: bold; font-size: 1.1rem;">No more videos</span>
                         </div>
                     </div>`;

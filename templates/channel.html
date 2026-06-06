@@ -24,7 +24,7 @@
 <script>
     const needsFetch = {{ 'true' if needs_fetch else 'false' }};
     const chUrl = "{{ url }}";
-    const checkIcon = `<svg viewBox="0 0 24 24" width="18" height="18" fill="currentColor" style="margin-left: 4px;"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg>`;
+    const checkIcon = `<img src="/static/icons/check.svg" style="width: 18px; height: 18px; margin-left: 4px;" alt="Subscribed">`;
     
     let currentChannel = { url: chUrl, name: "{{ channel_name }}", icon: "{{ channel_icon }}" };
     let isSubbed = {{ 'true' if is_subbed else 'false' }};
@@ -45,7 +45,7 @@
                 
                 const rawFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=333&color=fff`;
                 document.getElementById('ch-icon').src = getImgProxyUrl(data.icon || rawFallback);
-                currentChannel.icon = data.icon || rawFallback; // Store un-proxied URL to save to DB safely
+                currentChannel.icon = data.icon || rawFallback;
                 
                 isSubbed = data.is_subbed;
                 updateSubButton();
@@ -105,7 +105,7 @@
                     const endCard = `
                     <div class="video-card unrevealed" style="cursor: default;">
                         <div class="thumbnail" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <svg viewBox="0 0 24 24" width="48" height="48" fill="#444" style="margin-bottom: 8px;"><path d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2zm-2 15l-5-5 1.41-1.41L10 14.17l7.59-7.59L19 8l-9 9z"/></svg>
+                            <img src="/static/icons/no-more.svg" style="width: 48px; height: 48px; margin-bottom: 8px;" alt="No more">
                             <span style="color: #555; font-weight: bold; font-size: 1.1rem;">No more videos</span>
                         </div>
                     </div>`;

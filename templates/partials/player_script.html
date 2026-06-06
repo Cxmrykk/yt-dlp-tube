@@ -1,5 +1,4 @@
 <script>
-    // Custom Player Elements Setup
     const videoContainer = document.getElementById('videoContainer');
     const mainVideo = document.getElementById('vid-player');
     const audio = document.getElementById('aud-player');
@@ -62,13 +61,13 @@
         chapPrev: "{{ app_settings.shortcut_chap_prev | default('PageDown') }}"
     };
 
-    const iconSvgPlay = `<svg viewBox="0 0 36 36"><path d="M 12 8 L 12 28 L 28 18 Z" /></svg>`;
-    const iconSvgPause = `<svg viewBox="0 0 36 36"><path d="M 12 8 L 12 28 L 16 28 L 16 8 Z M 20 8 L 20 28 L 24 28 L 24 8 Z" /></svg>`;
-    const iconSvgFwd = `<svg viewBox="0 0 24 24"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>`;
-    const iconSvgBwd = `<svg viewBox="0 0 24 24"><path d="M11 18V6l-8.5 6 8.5 6zm.5-6l8.5 6V6l-8.5 6z"/></svg>`;
-    const iconSvgMute = `<svg viewBox="0 0 24 24"><path d="M16.5 12c0-1.77-1.02-3.29-2.5-4.03v2.21l2.45 2.45c.03-.2.05-.41.05-.63zm2.5 0c0 .94-.2 1.82-.54 2.64l1.51 1.51C20.63 14.91 21 13.5 21 12c0-4.28-2.99-7.86-7-8.77v2.06c2.89.86 5 3.54 5 6.71zM4.27 3L3 4.27 7.73 9H3v6h4l5 5v-6.73l4.25 4.25c-.67.52-1.42.93-2.25 1.18v2.06c1.38-.31 2.63-.95 3.69-1.81L19.73 21 21 19.73l-9-9L4.27 3zM12 4L9.91 6.09 12 8.18V4z"/></svg>`;
-    const iconSvgVolHigh = `<svg viewBox="0 0 24 24"><path d="M3 9v6h4l5 5V4L7 9H3zm13.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02zM14 3.23v2.06c2.89.86 5 3.54 5 6.71s-2.11 5.85-5 6.71v2.06c4.01-.91 7-4.49 7-8.77s-2.99-7.86-7-8.77z"/></svg>`;
-    const iconSvgVolLow = `<svg viewBox="0 0 24 24"><path d="M5 9v6h4l5 5V4L9 9H5zm11.5 3c0-1.77-1.02-3.29-2.5-4.03v8.05c1.48-.73 2.5-2.25 2.5-4.02z"/></svg>`;
+    const iconSvgPlay = `<img src="/static/icons/play.svg" class="overlay-icon" alt="Play">`;
+    const iconSvgPause = `<img src="/static/icons/pause.svg" class="overlay-icon" alt="Pause">`;
+    const iconSvgFwd = `<img src="/static/icons/fwd.svg" class="overlay-icon" alt="Fwd">`;
+    const iconSvgBwd = `<img src="/static/icons/bwd.svg" class="overlay-icon" alt="Bwd">`;
+    const iconSvgMute = `<img src="/static/icons/vol-muted.svg" class="overlay-icon" alt="Mute">`;
+    const iconSvgVolHigh = `<img src="/static/icons/vol-high.svg" class="overlay-icon" alt="Vol">`;
+    const iconSvgVolLow = `<img src="/static/icons/vol-low.svg" class="overlay-icon" alt="Vol Low">`;
 
     const menuData = {
         speed: {
@@ -265,12 +264,10 @@
             isDualAudio = false; 
         }
 
-        // --- SUBTITLES MENU SETUP ---
         const subsList = data.subtitles || [];
         ccMainPane.innerHTML = '';
         ccSubmenuContent.innerHTML = '';
         
-        // Purge old tracks when reinitializing
         Array.from(mainVideo.querySelectorAll('track')).forEach(t => t.remove());
 
         let manualSubs = [];
@@ -301,7 +298,7 @@
             const createOption = (label, val, isSelected) => {
                 const div = document.createElement('div');
                 div.className = `submenu-option ${isSelected ? 'selected' : ''}`;
-                div.innerHTML = `<svg class="check-icon" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>${label}</span>`;
+                div.innerHTML = `<img src="/static/icons/check.svg" class="check-icon" alt="Check"><span>${label}</span>`;
                 div.dataset.val = val;
                 return div;
             };
@@ -314,7 +311,7 @@
                 autoBtn.className = 'settings-item';
                 autoBtn.innerHTML = `
                     <div class="settings-label"><span>Auto-generated</span></div>
-                    <div class="settings-value"><svg class="settings-chevron" viewBox="0 0 24 24"><path d="M9.4 18.4l-1.4-1.4 5.6-5.6-5.6-5.6 1.4-1.4 7 7-7 7z"/></svg></div>
+                    <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
                 `;
                 autoBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -326,7 +323,6 @@
                 autoSubs.forEach(sub => ccSubmenuContent.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false)));
             }
 
-            // CC Appearance Settings Button
             const divi = document.createElement('div');
             divi.style.cssText = "height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0;";
             ccMainPane.appendChild(divi);
@@ -335,10 +331,10 @@
             optionsBtn.className = 'settings-item';
             optionsBtn.innerHTML = `
                 <div class="settings-label">
-                    <svg viewBox="0 0 24 24" style="width:20px; height:20px; fill:#fff;"><path d="M19.43,12.98c0.04-0.32,0.07-0.64,0.07-0.98s-0.03-0.66-0.07-0.98l2.11-1.65c0.19-0.15,0.24-0.42,0.12-0.64l-2-3.46 c-0.12-0.22-0.39-0.3-0.61-0.22l-2.49,1c-0.52-0.4-1.08-0.73-1.69-0.98l-0.38-2.65C14.46,2.18,14.25,2,14,2h-4 c-0.25,0-0.46,0.18-0.49,0.42l-0.38,2.65c-0.61,0.25-1.17,0.59-1.69,0.98l-2.49-1c-0.23-0.09-0.49,0-0.61,0.22l-2,3.46 c-0.13,0.22-0.07,0.49,0.12,0.64l2.11,1.65c-0.04,0.32-0.07,0.65-0.07,0.98s0.03,0.66,0.07,0.98l-2.11,1.65 c-0.19,0.15-0.24,0.42-0.12,0.64l2,3.46c0.12,0.22,0.39,0.3,0.61,0.22l2.49-1c0.52,0.4,1.08,0.73,1.69,0.98l0.38,2.65 C9.54,21.82,9.75,22,10,22h4c0.25,0,0.46-0.18,0.49-0.42l0.38-2.65c0.61-0.25,1.17-0.59,1.69-0.98l2.49,1 c0.23,0.09,0.49,0,0.61-0.22l2-3.46c0.12-0.22,0.07-0.49-0.12-0.64L19.43,12.98z M12,15.5c-1.93,0-3.5-1.57-3.5-3.5 s1.57-3.5,3.5-3.5s3.5,1.57,3.5,3.5S13.93,15.5,12,15.5z"/></svg>
+                    <img src="/static/icons/appearance.svg" style="width:20px; height:20px;" alt="Appearance">
                     <span>Appearance</span>
                 </div>
-                <div class="settings-value"><svg class="settings-chevron" viewBox="0 0 24 24"><path d="M9.4 18.4l-1.4-1.4 5.6-5.6-5.6-5.6 1.4-1.4 7 7-7 7z"/></svg></div>
+                <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
             `;
             optionsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -596,7 +592,6 @@
         });
     });
 
-    // --- Subtitle Dynamic Settings Engine ---
     function updateCcStyles() {
         const size = localStorage.getItem('cc_size') || 1.15;
         const color = localStorage.getItem('cc_color') || '#ffffff';
@@ -711,7 +706,6 @@
 
     bindCcOptions();
 
-    // --- Menu Handling Logic ---
     function setMenuHeight(paneElement, menuElement) { menuElement.style.height = `${paneElement.offsetHeight}px`; }
     
     function openSettingsMenu() { 
@@ -759,7 +753,7 @@
                 const isSelected = data.current === opt.value;
                 const optionDiv = document.createElement('div');
                 optionDiv.className = `submenu-option ${isSelected ? 'selected' : ''}`;
-                optionDiv.innerHTML = `<svg class="check-icon" viewBox="0 0 24 24"><path d="M9 16.17L4.83 12l-1.42 1.41L9 19 21 7l-1.41-1.41z"/></svg><span>${opt.label}</span>`;
+                optionDiv.innerHTML = `<img src="/static/icons/check.svg" class="check-icon" alt="Check"><span>${opt.label}</span>`;
                 optionDiv.addEventListener('click', (eClick) => {
                     eClick.stopPropagation(); data.current = opt.value; data.onSelect(opt.value, opt.label);
                     settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); setTimeout(closeSettingsMenu, 250); 
