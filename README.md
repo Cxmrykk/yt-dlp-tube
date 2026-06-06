@@ -40,6 +40,14 @@ A self-hosted, lightweight YouTube web client
 
 ---
 
+## Limitations
+
+- **Simplified Home Feed Metadata**: To ensure fast response times and avoid rate limits, the background engine uses `yt-dlp`'s `extract_flat` mode when scanning subscriptions. This skips retrieving full video details, which is why view counts and accurate upload dates are not displayed on the home feed page or channel page.
+- **Discovery-Based Upload Dates**: Because precise publication dates are omitted during flat playlist extraction, the application records a timestamp based on when the background scheduler first detected the video. Consequently, feed dates reflect discovery time rather than the exact YouTube publish date and the feed is only updated when a new video is uploaded. Full and accurate metadata is resolved only when a video is loaded on its watch page.
+- **Dual-Stream Playback Drift**: YouTube delivers high-resolution streams (1080p and above) with separate video and audio tracks. While the custom player implements a background rate-adjustment sync loop to reconcile drift, temporary browser tab throttling, hardware limitations, or network hiccups can occasionally result in subtle audio desynchronization.
+
+---
+
 ## Requirements
 
 - Python 3.8+
@@ -48,7 +56,7 @@ A self-hosted, lightweight YouTube web client
 
 ---
 
-## Installation & Setup
+## Installation & Local Setup
 
 1. **Clone the repository**:
 
@@ -62,8 +70,6 @@ A self-hosted, lightweight YouTube web client
    ```bash
    pip install -r requirements.txt
    ```
-
-   _(Ensure `Flask`, `yt-dlp`, and `requests` are installed if a requirements file is not used)._
 
 3. **Run the application**:
 
