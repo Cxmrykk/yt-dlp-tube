@@ -25,6 +25,7 @@ DEFAULT_SETTINGS = {
     'shortcut_seek_fwd': 'ArrowRight',
     'shortcut_seek_bwd': 'ArrowLeft',
     'shortcut_mute': 'm',
+    'shortcut_cc': 'v',
     'shortcut_chap_next': 'PageUp',
     'shortcut_chap_prev': 'PageDown',
     'cc_font': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
@@ -904,6 +905,7 @@ def settings_page():
             app_settings['shortcut_seek_fwd'] = request.form.get('shortcut_seek_fwd', 'ArrowRight')
             app_settings['shortcut_seek_bwd'] = request.form.get('shortcut_seek_bwd', 'ArrowLeft')
             app_settings['shortcut_mute'] = request.form.get('shortcut_mute', 'm')
+            app_settings['shortcut_cc'] = request.form.get('shortcut_cc', 'v')
             app_settings['shortcut_chap_next'] = request.form.get('shortcut_chap_next', 'PageUp')
             app_settings['shortcut_chap_prev'] = request.form.get('shortcut_chap_prev', 'PageDown')
             save_settings(app_settings)

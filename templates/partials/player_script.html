@@ -4,7 +4,6 @@
     const audio = document.getElementById('aud-player');
     const previewVideo = document.getElementById('previewVideo');
     
-    // We observe the video container to grab exact pixel height, solving Webkit/ShadowDOM margin constraints
     let currentVideoHeight = 0;
     const resizeObs = new ResizeObserver(entries => {
         for (let entry of entries) {
@@ -68,6 +67,7 @@
         seekFwd: "{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}",
         seekBwd: "{{ app_settings.shortcut_seek_bwd | default('ArrowLeft') }}",
         mute: "{{ app_settings.shortcut_mute | default('m') }}",
+        cc: "{{ app_settings.shortcut_cc | default('v') }}",
         chapNext: "{{ app_settings.shortcut_chap_next | default('PageUp') }}",
         chapPrev: "{{ app_settings.shortcut_chap_prev | default('PageDown') }}"
     };
@@ -79,6 +79,8 @@
     const iconSvgMute = `<img src="/static/icons/vol-muted.svg" class="overlay-icon" alt="Mute">`;
     const iconSvgVolHigh = `<img src="/static/icons/vol-high.svg" class="overlay-icon" alt="Vol">`;
     const iconSvgVolLow = `<img src="/static/icons/vol-low.svg" class="overlay-icon" alt="Vol Low">`;
+    const iconSvgCcOn = `<img src="/static/icons/cc-filled.svg" class="overlay-icon" alt="CC On">`;
+    const iconSvgCcOff = `<img src="/static/icons/cc-outline.svg" class="overlay-icon" alt="CC Off">`;
 
     const menuData = {
         speed: {
@@ -154,6 +156,8 @@
             e.preventDefault(); toggleMute();
             if (mainVideo.muted || mainVideo.volume === 0) showOverlay(iconSvgMute);
             else if (mainVideo.volume > 0.5) showOverlay(iconSvgVolHigh); else showOverlay(iconSvgVolLow);
+        } else if (key && key === userShortcuts.cc) {
+            e.preventDefault(); toggleCc();
         } else if (key && key === userShortcuts.chapNext) {
             e.preventDefault();
             if (videoChapters.length > 0) {
@@ -224,6 +228,60 @@
         else ccBtn.classList.remove('cc-on');
     }
 
+    function getBestSubVal(manualSubs, autoSubs) {
+        let prefLang = localStorage.getItem('prefSubLang');
+        let browserLang = prefLang || (navigator.language || navigator.userLanguage).split('-')[0].toLowerCase();
+        let bestSub = null;
+
+        if (manualSubs.length > 0 || autoSubs.length > 0) {
+            bestSub = manualSubs.find(s => s.lang.toLowerCase().startsWith(browserLang));
+            if (!bestSub) bestSub = autoSubs.find(s => s.is_source && s.lang.toLowerCase().startsWith(browserLang));
+            if (!bestSub) bestSub = autoSubs.find(s => s.lang.toLowerCase().startsWith(browserLang));
+            if (!bestSub) bestSub = autoSubs.find(s => s.is_source);
+            if (!bestSub) bestSub = manualSubs.find(s => s.lang.toLowerCase().startsWith('en'));
+            if (!bestSub) bestSub = autoSubs.find(s => s.lang.toLowerCase().startsWith('en'));
+            if (!bestSub && manualSubs.length > 0) bestSub = manualSubs[0];
+            if (!bestSub && autoSubs.length > 0) bestSub = autoSubs[0];
+        }
+        return bestSub ? `${bestSub.lang}|${bestSub.label}` : "off";
+    }
+
+    function setSubtitleOption(val, userInitiated = false) {
+        document.querySelectorAll('#ccMenu .submenu-option').forEach(o => o.classList.remove('selected'));
+        const opt = document.querySelector(`#ccMenu .submenu-option[data-val="${val.replace(/"/g, '\\"')}"]`);
+        if (opt) {
+            opt.classList.add('selected');
+            const autoCheck = document.getElementById('autoCheckIcon');
+            if (autoCheck) {
+                autoCheck.style.opacity = (opt.dataset.isAuto === 'true') ? '1' : '0';
+            }
+        }
+        
+        if (userInitiated) {
+            if (val === 'off') {
+                localStorage.setItem('prefSubState', 'off');
+            } else {
+                localStorage.setItem('prefSubState', 'on');
+                localStorage.setItem('prefSubLang', val.split('|')[0].toLowerCase());
+            }
+        }
+        
+        changeSubtitle(val);
+    }
+
+    function toggleCc() {
+        if (window.currentSubVal === "off") {
+            const bestVal = getBestSubVal(window.currentManualSubs || [], window.currentAutoSubs || []);
+            if (bestVal !== "off") {
+                setSubtitleOption(bestVal, true);
+                showOverlay(iconSvgCcOn);
+            }
+        } else {
+            setSubtitleOption("off", true);
+            showOverlay(iconSvgCcOff);
+        }
+    }
+
     function initializePlayer(data) {
         resolutionsList = data.resolutions;
         videoChapters = data.chapters || [];
@@ -292,6 +350,9 @@
                 else manualSubs.push(sub);
             });
 
+            window.currentManualSubs = manualSubs;
+            window.currentAutoSubs = autoSubs;
+
             const createOption = (label, val, isSelected, isAuto) => {
                 const div = document.createElement('div');
                 div.className = `submenu-option ${isSelected ? 'selected' : ''}`;
@@ -301,7 +362,7 @@
                 return div;
             };
 
-            ccMainPane.appendChild(createOption('Off', 'off', true, false));
+            ccMainPane.appendChild(createOption('Off', 'off', false, false));
             manualSubs.forEach(sub => ccMainPane.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false, false)));
 
             if (autoSubs.length > 0) {
@@ -359,67 +420,24 @@
             document.querySelectorAll('#ccMenu .submenu-option').forEach(opt => {
                 opt.addEventListener('click', (e) => {
                     e.stopPropagation();
-                    document.querySelectorAll('#ccMenu .submenu-option').forEach(o => o.classList.remove('selected'));
-                    opt.classList.add('selected');
-                    
-                    const autoCheck = document.getElementById('autoCheckIcon');
-                    if (autoCheck) {
-                        autoCheck.style.opacity = (opt.dataset.isAuto === 'true') ? '1' : '0';
-                    }
-                    
-                    changeSubtitle(opt.dataset.val);
+                    setSubtitleOption(opt.dataset.val, true);
                     closeCcMenu();
                 });
             });
 
-            // --- Auto-Selection Logic with Browser Fallback ---
-            let browserLang = (navigator.language || navigator.userLanguage).split('-')[0].toLowerCase();
-            let bestSub = null;
-
-            if (manualSubs.length > 0 || autoSubs.length > 0) {
-                // Priority 1: Manual matching browser lang
-                bestSub = manualSubs.find(s => s.lang.toLowerCase().startsWith(browserLang));
-                
-                // Priority 2: Auto original matching browser lang
-                if (!bestSub) bestSub = autoSubs.find(s => s.is_source && s.lang.toLowerCase().startsWith(browserLang));
-                
-                // Priority 3: Auto translated matching browser lang
-                if (!bestSub) bestSub = autoSubs.find(s => s.lang.toLowerCase().startsWith(browserLang));
-
-                // Priority 4: Auto original (any language)
-                if (!bestSub) bestSub = autoSubs.find(s => s.is_source);
-
-                // Priority 5: Fallback to manual English
-                if (!bestSub) bestSub = manualSubs.find(s => s.lang.toLowerCase().startsWith('en'));
-                
-                // Priority 6: Fallback to auto English
-                if (!bestSub) bestSub = autoSubs.find(s => s.lang.toLowerCase().startsWith('en'));
-
-                // Priority 7: First available manual
-                if (!bestSub && manualSubs.length > 0) bestSub = manualSubs[0];
-
-                // Priority 8: First available auto
-                if (!bestSub && autoSubs.length > 0) bestSub = autoSubs[0];
+            let prefState = localStorage.getItem('prefSubState') || 'off';
+            let defaultVal = "off";
+            if (prefState === 'on') {
+                defaultVal = getBestSubVal(manualSubs, autoSubs);
             }
-
-            let defaultVal = bestSub ? `${bestSub.lang}|${bestSub.label}` : "off";
-            let defaultIsAuto = bestSub ? bestSub.is_auto : false;
-
-            document.querySelectorAll('#ccMenu .submenu-option').forEach(o => o.classList.remove('selected'));
-            const defaultOpt = document.querySelector(`#ccMenu .submenu-option[data-val="${defaultVal}"]`);
-            if (defaultOpt) defaultOpt.classList.add('selected');
-
-            const autoCheck = document.getElementById('autoCheckIcon');
-            if (autoCheck) {
-                autoCheck.style.opacity = defaultIsAuto ? '1' : '0';
-            }
-
-            window.currentSubVal = defaultVal;
-            changeSubtitle(defaultVal);
+            
+            setSubtitleOption(defaultVal, false);
 
         } else {
             ccBtn.style.display = 'none';
             window.currentSubVal = "off";
+            window.currentManualSubs = [];
+            window.currentAutoSubs = [];
         }
 
         document.getElementById('video-skeleton').style.display = 'none';

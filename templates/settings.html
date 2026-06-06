@@ -199,7 +199,7 @@
 
             const defaults = {
                 'inp_pause': 'Space', 'inp_seek_fwd': 'ArrowRight',
-                'inp_seek_bwd': 'ArrowLeft', 'inp_mute': 'm',
+                'inp_seek_bwd': 'ArrowLeft', 'inp_mute': 'm', 'inp_cc': 'v',
                 'inp_chap_next': 'PageUp', 'inp_chap_prev': 'PageDown'
             };
 
@@ -223,6 +223,7 @@
             ('Seek Forward', 'shortcut_seek_fwd', 'seek_fwd', app_settings.shortcut_seek_fwd | default('ArrowRight')),
             ('Seek Backward', 'shortcut_seek_bwd', 'seek_bwd', app_settings.shortcut_seek_bwd | default('ArrowLeft')),
             ('Mute / Unmute', 'shortcut_mute', 'mute', app_settings.shortcut_mute | default('m')),
+            ('Toggle Subtitles (CC)', 'shortcut_cc', 'cc', app_settings.shortcut_cc | default('v')),
             ('Next Chapter', 'shortcut_chap_next', 'chap_next', app_settings.shortcut_chap_next | default('PageUp')),
             ('Prev Chapter', 'shortcut_chap_prev', 'chap_prev', app_settings.shortcut_chap_prev | default('PageDown'))
         ] %}
