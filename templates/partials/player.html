@@ -27,13 +27,32 @@
                 </div>
                 <div id="ccOptionsContent" style="padding-bottom: 5px;">
                     <div class="appearance-control">
+                        <label>Vertical Offset</label>
+                        <div class="appearance-row">
+                            <input type="range" id="ccVOffsetInput" class="appearance-slider" min="0" max="100" step="1" value="0">
+                            <span id="ccVOffsetVal" class="appearance-val">0%</span>
+                        </div>
+                    </div>
+                    <div class="appearance-control">
+                        <label>Font Size Scale</label>
+                        <div class="appearance-row">
+                            <input type="range" id="ccSizeInput" class="appearance-slider" min="0.5" max="3" step="0.1" value="1.15">
+                            <span id="ccSizeVal" class="appearance-val">1.15x</span>
+                        </div>
+                    </div>
+                    <div class="appearance-control">
+                        <label>Background Opacity</label>
+                        <div class="appearance-row">
+                            <input type="range" id="ccOpacityInput" class="appearance-slider" min="0" max="1" step="0.1" value="0.75">
+                            <span id="ccOpacityVal" class="appearance-val">75%</span>
+                        </div>
+                    </div>
+                    <div class="appearance-control">
                         <label>Font Family</label>
                         <select id="ccFontSelect" class="appearance-select">
-                            <option value="'Segoe UI', Tahoma, Geneva, Verdana, sans-serif">Sans-Serif</option>
-                            <option value="Georgia, 'Times New Roman', Times, serif">Serif</option>
-                            <option value="'Courier New', Courier, monospace">Monospace</option>
-                            <option value="Impact, Charcoal, sans-serif">Impact</option>
-                            <option value="'Comic Sans MS', cursive, sans-serif">Comic Sans</option>
+                            {% for font in app_settings.cc_custom_fonts %}
+                            <option value="{{ font.value }}">{{ font.name }}</option>
+                            {% endfor %}
                         </select>
                     </div>
                     <div class="appearance-control">
@@ -44,32 +63,8 @@
                         <label>Background Color</label>
                         <input type="color" id="ccBgInput" class="appearance-color" value="#000000">
                     </div>
-                    <div class="appearance-control">
-                        <label>Background Opacity</label>
-                        <div class="appearance-row">
-                            <input type="range" id="ccOpacityInput" class="appearance-slider" min="0" max="1" step="0.1" value="0.75">
-                            <span id="ccOpacityVal" class="appearance-val">75%</span>
-                        </div>
-                    </div>
-                    <div class="appearance-control">
-                        <label>Font Size Scale</label>
-                        <div class="appearance-row">
-                            <input type="range" id="ccSizeInput" class="appearance-slider" min="0.5" max="2.5" step="0.1" value="1.15">
-                            <span id="ccSizeVal" class="appearance-val">1.15x</span>
-                        </div>
-                    </div>
-                    <div class="appearance-control">
-                        <label>Sync Delay</label>
-                        <div class="appearance-row">
-                            <input type="range" id="ccOffsetInput" class="appearance-slider" min="-5" max="5" step="0.25" value="0">
-                            <span id="ccOffsetVal" class="appearance-val">0.00s</span>
-                        </div>
-                        <div style="display: flex; justify-content: space-between; margin-top: 6px;">
-                            <button type="button" class="btn" id="ccOffsetMinus" style="padding: 2px 10px; font-size: 12px; border-radius: 4px;">-0.25s</button>
-                            <button type="button" class="btn" id="ccOffsetPlus" style="padding: 2px 10px; font-size: 12px; border-radius: 4px;">+0.25s</button>
-                        </div>
-                    </div>
-                    <div class="appearance-control" style="align-items: center; margin-top: 2px; padding: 12px 16px;">
+                    <div class="appearance-control" style="flex-direction: row; justify-content: space-between; align-items: center; margin-top: 2px; padding: 12px 16px;">
+                        <button type="button" id="ccSaveBtn" style="color: #4aff4a; background: none; border: none; cursor: pointer; text-decoration: underline; font-size: 12px; font-weight: bold;">Save Changes</button>
                         <button type="button" id="ccResetBtn" style="color: #ff4a4a; background: none; border: none; cursor: pointer; text-decoration: underline; font-size: 12px;">Reset Defaults</button>
                     </div>
                 </div>

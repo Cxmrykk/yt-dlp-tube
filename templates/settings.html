@@ -5,18 +5,85 @@
     .sub-list { list-style: none; padding: 0; max-width: 700px;}
     .sub-item { display: flex; justify-content: space-between; align-items: center; background: var(--card-bg); padding: 15px; margin-bottom: 10px; border-radius: 8px;}
     .add-form { background: var(--card-bg); padding: 25px; border-radius: 8px; max-width: 650px; margin-bottom: 30px;}
-    .add-form input[type="text"], .add-form input[type="number"], .add-form select { 
-        padding: 12px; width: calc(100% - 26px); margin-bottom: 15px; 
+    .add-form input[type="text"], .add-form input[type="number"], .add-form select, .add-form input[type="color"] { 
+        padding: 12px; width: 100%; margin-bottom: 15px; box-sizing: border-box;
         background: #111; color: white; border: 1px solid #444; border-radius: 6px; font-size: 1rem;
     }
+    .add-form input[type="color"] { height: 46px; padding: 4px 8px; cursor: pointer; }
 </style>
 
 <h2 style="margin-top: 0;">Settings & Subscriptions</h2>
 
 <div class="add-form">
+    <h3 style="margin-top: 0;">Global Subtitle Settings</h3>
+    <form action="/settings" method="POST">
+        <input type="hidden" name="action" value="update_cc_settings">
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Vertical Offset (% from bottom):</label>
+        <input type="number" name="cc_v_offset" value="{{ app_settings.cc_v_offset }}" min="0" max="100" step="1" required>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Scale (e.g. 1.15):</label>
+        <input type="number" name="cc_scale" value="{{ app_settings.cc_scale }}" min="0.5" max="3" step="0.05" required>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Background Opacity (0 to 1):</label>
+        <input type="number" name="cc_bg_op" value="{{ app_settings.cc_bg_op }}" min="0" max="1" step="0.05" required>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Font Family:</label>
+        <select name="cc_font">
+            {% for font in app_settings.cc_custom_fonts %}
+            <option value="{{ font.value }}" {% if app_settings.cc_font == font.value %}selected{% endif %}>{{ font.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Font Color:</label>
+        <input type="color" name="cc_color" value="{{ app_settings.cc_color }}">
+        
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Background Color:</label>
+        <input type="color" name="cc_bg" value="{{ app_settings.cc_bg }}">
+
+        <button type="submit" class="btn btn-danger" style="margin-top: 10px;">Save Subtitle Settings</button>
+    </form>
+</div>
+
+<div class="add-form">
+    <h3 style="margin-top: 0; margin-bottom: 15px;">Manage Custom Fonts</h3>
+    <ul class="sub-list" style="margin-bottom: 20px;">
+        {% for font in app_settings.cc_custom_fonts %}
+        <li class="sub-item" style="padding: 10px 15px;">
+            <div>
+                <strong style="font-family: {{ font.value }};">{{ font.name }}</strong><br>
+                <span style="font-size: 0.8rem; color: var(--text-muted);">{{ font.value }}</span>
+            </div>
+            <form action="/settings" method="POST" style="margin: 0;">
+                <input type="hidden" name="action" value="delete_font">
+                <input type="hidden" name="font_index" value="{{ loop.index0 }}">
+                <button type="submit" class="btn" {% if app_settings.cc_custom_fonts|length <= 1 %}disabled{% endif %}>Delete</button>
+            </form>
+        </li>
+        {% endfor %}
+    </ul>
+    
+    <form action="/settings" method="POST" style="display: flex; gap: 10px; margin-bottom: 20px;">
+        <input type="hidden" name="action" value="add_font">
+        <input type="text" name="font_name" placeholder="Font Name (e.g. Open Sans)" required style="flex: 1; margin: 0;">
+        <input type="text" name="font_value" placeholder="CSS Value (e.g. 'Open Sans', sans-serif)" required style="flex: 2; margin: 0;">
+        <button type="submit" class="btn btn-danger">Add Font</button>
+    </form>
+    
+    <div style="display: flex; gap: 10px;">
+        <form id="importFontsForm" action="/settings" method="POST" enctype="multipart/form-data" style="margin: 0;">
+            <input type="hidden" name="action" value="import_fonts">
+            <input type="file" id="import_fonts_file" name="import_file" accept=".json" style="display: none;" 
+                   onchange="if(this.value) { this.form.submit(); }">
+            <button type="button" class="btn" onclick="document.getElementById('import_fonts_file').click();">Import Fonts JSON</button>
+        </form>
+    </div>
+</div>
+
+<div class="add-form">
     <h3 style="margin-top: 0;">Playback Settings</h3>
     <label style="display: block; margin-bottom: 10px; color: var(--text-muted);">Preferred Resolution:</label>
-    <select id="pref-res" onchange="localStorage.setItem('prefRes', this.value)" style="width: 100%; padding: 12px; background: #111; color: white; border: 1px solid #444; border-radius: 6px; font-size: 1rem; cursor: pointer; outline: none;">
+    <select id="pref-res" onchange="localStorage.setItem('prefRes', this.value)" style="cursor: pointer; outline: none;">
         <option value="auto">Auto (Detect by Screen Size)</option>
         <option value="2160">2160p (4K)</option>
         <option value="1440">1440p (2K)</option>
@@ -94,7 +161,6 @@
                     stopListening();
                 };
                 
-                // Slight delay so the click that opened this doesn't immediately fire a keydown (if using space/enter to click)
                 setTimeout(() => {
                     document.addEventListener('keydown', boundHandler);
                 }, 10);

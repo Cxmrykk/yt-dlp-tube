@@ -4,6 +4,18 @@
     const audio = document.getElementById('aud-player');
     const previewVideo = document.getElementById('previewVideo');
     
+    // We observe the video container to grab exact pixel height, solving Webkit/ShadowDOM margin constraints
+    let currentVideoHeight = 0;
+    const resizeObs = new ResizeObserver(entries => {
+        for (let entry of entries) {
+            currentVideoHeight = entry.contentRect.height;
+            if (typeof window.updateCcStyles === 'function') {
+                window.updateCcStyles();
+            }
+        }
+    });
+    resizeObs.observe(videoContainer);
+    
     const playPauseBtn = document.getElementById('playPauseBtn');
     const playIcon = document.getElementById('playIcon');
     const pauseIcon = document.getElementById('pauseIcon');
@@ -50,7 +62,6 @@
     let isDualAudio = false;
     let resolutionsList = [];
     let videoChapters = [];
-    let currentSubOffset = parseFloat(localStorage.getItem('cc_offset') || 0);
 
     const userShortcuts = {
         pause: "{{ app_settings.shortcut_pause | default('Space') }}",
@@ -213,14 +224,6 @@
         else ccBtn.classList.remove('cc-on');
     }
 
-    function applyOffsetToTrack(track, delta) {
-        if (!track || !track.cues) return;
-        for (let i = 0; i < track.cues.length; i++) {
-            track.cues[i].startTime += delta;
-            track.cues[i].endTime += delta;
-        }
-    }
-
     function initializePlayer(data) {
         resolutionsList = data.resolutions;
         videoChapters = data.chapters || [];
@@ -282,12 +285,6 @@
                 track.label = sub.label;
                 track.srclang = sub.lang;
                 track.src = getSubProxyUrl(sub.url); 
-                
-                track.addEventListener('load', function() {
-                    if (currentSubOffset !== 0) {
-                        applyOffsetToTrack(this.track, currentSubOffset);
-                    }
-                });
 
                 mainVideo.appendChild(track);
 
@@ -295,22 +292,26 @@
                 else manualSubs.push(sub);
             });
 
-            const createOption = (label, val, isSelected) => {
+            const createOption = (label, val, isSelected, isAuto) => {
                 const div = document.createElement('div');
                 div.className = `submenu-option ${isSelected ? 'selected' : ''}`;
                 div.innerHTML = `<img src="/static/icons/check.svg" class="check-icon" alt="Check"><span>${label}</span>`;
                 div.dataset.val = val;
+                div.dataset.isAuto = isAuto;
                 return div;
             };
 
-            ccMainPane.appendChild(createOption('Off', 'off', true));
-            manualSubs.forEach(sub => ccMainPane.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false)));
+            ccMainPane.appendChild(createOption('Off', 'off', true, false));
+            manualSubs.forEach(sub => ccMainPane.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false, false)));
 
             if (autoSubs.length > 0) {
                 const autoBtn = document.createElement('div');
                 autoBtn.className = 'settings-item';
                 autoBtn.innerHTML = `
-                    <div class="settings-label"><span>Auto-generated</span></div>
+                    <div class="settings-label">
+                        <img src="/static/icons/check.svg" class="check-icon" id="autoCheckIcon" style="opacity: 0; width: 20px; height: 20px; margin-right: -4px;" alt="Check">
+                        <span>Auto-generated</span>
+                    </div>
                     <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
                 `;
                 autoBtn.addEventListener('click', (e) => {
@@ -320,7 +321,19 @@
                 });
                 ccMainPane.appendChild(autoBtn);
 
-                autoSubs.forEach(sub => ccSubmenuContent.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false)));
+                const sourceAuto = autoSubs.find(s => s.is_source);
+                const translationSubs = autoSubs.filter(s => !s.is_source);
+
+                if (sourceAuto) {
+                    ccSubmenuContent.appendChild(createOption(sourceAuto.label, `${sourceAuto.lang}|${sourceAuto.label}`, false, true));
+                    if (translationSubs.length > 0) {
+                        const divider = document.createElement('div');
+                        divider.style.cssText = "height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0;";
+                        ccSubmenuContent.appendChild(divider);
+                    }
+                }
+
+                translationSubs.forEach(sub => ccSubmenuContent.appendChild(createOption(sub.label, `${sub.lang}|${sub.label}`, false, true)));
             }
 
             const divi = document.createElement('div');
@@ -349,13 +362,60 @@
                     document.querySelectorAll('#ccMenu .submenu-option').forEach(o => o.classList.remove('selected'));
                     opt.classList.add('selected');
                     
+                    const autoCheck = document.getElementById('autoCheckIcon');
+                    if (autoCheck) {
+                        autoCheck.style.opacity = (opt.dataset.isAuto === 'true') ? '1' : '0';
+                    }
+                    
                     changeSubtitle(opt.dataset.val);
                     closeCcMenu();
                 });
             });
 
-            window.currentSubVal = "off";
-            changeSubtitle("off");
+            // --- Auto-Selection Logic with Browser Fallback ---
+            let browserLang = (navigator.language || navigator.userLanguage).split('-')[0].toLowerCase();
+            let bestSub = null;
+
+            if (manualSubs.length > 0 || autoSubs.length > 0) {
+                // Priority 1: Manual matching browser lang
+                bestSub = manualSubs.find(s => s.lang.toLowerCase().startsWith(browserLang));
+                
+                // Priority 2: Auto original matching browser lang
+                if (!bestSub) bestSub = autoSubs.find(s => s.is_source && s.lang.toLowerCase().startsWith(browserLang));
+                
+                // Priority 3: Auto translated matching browser lang
+                if (!bestSub) bestSub = autoSubs.find(s => s.lang.toLowerCase().startsWith(browserLang));
+
+                // Priority 4: Auto original (any language)
+                if (!bestSub) bestSub = autoSubs.find(s => s.is_source);
+
+                // Priority 5: Fallback to manual English
+                if (!bestSub) bestSub = manualSubs.find(s => s.lang.toLowerCase().startsWith('en'));
+                
+                // Priority 6: Fallback to auto English
+                if (!bestSub) bestSub = autoSubs.find(s => s.lang.toLowerCase().startsWith('en'));
+
+                // Priority 7: First available manual
+                if (!bestSub && manualSubs.length > 0) bestSub = manualSubs[0];
+
+                // Priority 8: First available auto
+                if (!bestSub && autoSubs.length > 0) bestSub = autoSubs[0];
+            }
+
+            let defaultVal = bestSub ? `${bestSub.lang}|${bestSub.label}` : "off";
+            let defaultIsAuto = bestSub ? bestSub.is_auto : false;
+
+            document.querySelectorAll('#ccMenu .submenu-option').forEach(o => o.classList.remove('selected'));
+            const defaultOpt = document.querySelector(`#ccMenu .submenu-option[data-val="${defaultVal}"]`);
+            if (defaultOpt) defaultOpt.classList.add('selected');
+
+            const autoCheck = document.getElementById('autoCheckIcon');
+            if (autoCheck) {
+                autoCheck.style.opacity = defaultIsAuto ? '1' : '0';
+            }
+
+            window.currentSubVal = defaultVal;
+            changeSubtitle(defaultVal);
 
         } else {
             ccBtn.style.display = 'none';
@@ -592,35 +652,17 @@
         });
     });
 
-    function updateCcStyles() {
-        const size = localStorage.getItem('cc_size') || 1.15;
-        const color = localStorage.getItem('cc_color') || '#ffffff';
-        const bg = localStorage.getItem('cc_bg') || '#000000';
-        const opacity = localStorage.getItem('cc_bg_op') || '0.75';
-        const font = localStorage.getItem('cc_font') || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-
-        const hex2rgb = (hex) => {
-            const match = hex.replace('#','').match(/.{1,2}/g);
-            return {
-                r: parseInt(match[0], 16), g: parseInt(match[1], 16), b: parseInt(match[2], 16)
-            };
-        };
-        const rgb = hex2rgb(bg);
-
-        const css = `
-            ::cue {
-                background-color: rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity}) !important;
-                color: ${color} !important;
-                font-family: ${font} !important;
-                font-size: ${size}rem !important;
-                text-shadow: 0 1px 3px rgba(0,0,0,1) !important;
-                text-align: center !important;
-            }
-        `;
-        document.getElementById('custom-cc-style').innerHTML = css;
-    }
-
     function bindCcOptions() {
+        let globalCcSettings = {
+            font: {{ app_settings.cc_font | tojson }},
+            color: {{ app_settings.cc_color | tojson }},
+            bg: {{ app_settings.cc_bg | tojson }},
+            bg_op: parseFloat({{ app_settings.cc_bg_op | tojson }}),
+            scale: parseFloat({{ app_settings.cc_scale | tojson }}),
+            v_offset: parseFloat({{ app_settings.cc_v_offset | tojson }})
+        };
+        let ccSettings = { ...globalCcSettings };
+
         const fontSel = document.getElementById('ccFontSelect');
         const colorInp = document.getElementById('ccColorInput');
         const bgInp = document.getElementById('ccBgInput');
@@ -628,47 +670,70 @@
         const opVal = document.getElementById('ccOpacityVal');
         const sizeInp = document.getElementById('ccSizeInput');
         const sizeVal = document.getElementById('ccSizeVal');
-        const offsetInp = document.getElementById('ccOffsetInput');
-        const offsetVal = document.getElementById('ccOffsetVal');
-        const offsetMinus = document.getElementById('ccOffsetMinus');
-        const offsetPlus = document.getElementById('ccOffsetPlus');
+        const vOffsetInp = document.getElementById('ccVOffsetInput');
+        const vOffsetVal = document.getElementById('ccVOffsetVal');
         const resetBtn = document.getElementById('ccResetBtn');
+        const saveBtn = document.getElementById('ccSaveBtn');
 
-        fontSel.value = localStorage.getItem('cc_font') || "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-        colorInp.value = localStorage.getItem('cc_color') || '#ffffff';
-        bgInp.value = localStorage.getItem('cc_bg') || '#000000';
-        opInp.value = localStorage.getItem('cc_bg_op') || '0.75';
-        sizeInp.value = localStorage.getItem('cc_size') || '1.15';
-        offsetInp.value = localStorage.getItem('cc_offset') || '0';
+        const hex2rgb = (hex) => {
+            const match = hex.replace('#','').match(/.{1,2}/g);
+            return {
+                r: parseInt(match[0], 16), g: parseInt(match[1], 16), b: parseInt(match[2], 16)
+            };
+        };
+
+        window.updateCcStyles = () => {
+            const rgb = hex2rgb(ccSettings.bg);
+            const opacity = ccSettings.bg_op;
+            const color = ccSettings.color;
+            const font = ccSettings.font;
+            const size = ccSettings.scale;
+            const vOffset = ccSettings.v_offset;
+            
+            const pxOffset = (vOffset / 100) * (currentVideoHeight || videoContainer.clientHeight || 500);
+
+            const css = `
+                ::cue {
+                    background-color: rgba(${rgb.r}, ${rgb.g}, ${rgb.b}, ${opacity}) !important;
+                    color: ${color} !important;
+                    font-family: ${font} !important;
+                    font-size: ${size}rem !important;
+                    text-shadow: 0 1px 3px rgba(0,0,0,1) !important;
+                    text-align: center !important;
+                }
+                video::-webkit-media-text-track-display {
+                    transform: translateY(-${pxOffset}px) !important;
+                }
+            `;
+            document.getElementById('custom-cc-style').innerHTML = css;
+        };
 
         const updateLabels = () => {
-            opVal.innerText = Math.round(opInp.value * 100) + '%';
-            sizeVal.innerText = parseFloat(sizeInp.value).toFixed(2) + 'x';
-            offsetVal.innerText = parseFloat(offsetInp.value).toFixed(2) + 's';
+            opVal.innerText = Math.round(ccSettings.bg_op * 100) + '%';
+            sizeVal.innerText = parseFloat(ccSettings.scale).toFixed(2) + 'x';
+            vOffsetVal.innerText = ccSettings.v_offset + '%';
+        };
+
+        const syncUI = () => {
+            fontSel.value = ccSettings.font;
+            colorInp.value = ccSettings.color;
+            bgInp.value = ccSettings.bg;
+            opInp.value = ccSettings.bg_op;
+            sizeInp.value = ccSettings.scale;
+            vOffsetInp.value = ccSettings.v_offset;
+            updateLabels();
+            if (window.updateCcStyles) window.updateCcStyles();
         };
 
         const triggerUpdate = () => {
-            localStorage.setItem('cc_font', fontSel.value);
-            localStorage.setItem('cc_color', colorInp.value);
-            localStorage.setItem('cc_bg', bgInp.value);
-            localStorage.setItem('cc_bg_op', opInp.value);
-            localStorage.setItem('cc_size', sizeInp.value);
+            ccSettings.font = fontSel.value;
+            ccSettings.color = colorInp.value;
+            ccSettings.bg = bgInp.value;
+            ccSettings.bg_op = parseFloat(opInp.value);
+            ccSettings.scale = parseFloat(sizeInp.value);
+            ccSettings.v_offset = parseFloat(vOffsetInp.value);
             updateLabels();
-            updateCcStyles();
-        };
-
-        const changeOffset = (newVal) => {
-            newVal = Math.max(-5, Math.min(5, parseFloat(newVal)));
-            offsetInp.value = newVal;
-            const delta = newVal - currentSubOffset;
-            currentSubOffset = newVal;
-            localStorage.setItem('cc_offset', currentSubOffset);
-            updateLabels();
-            
-            const tracks = mainVideo.textTracks;
-            for (let i = 0; i < tracks.length; i++) {
-                applyOffsetToTrack(tracks[i], delta);
-            }
+            if (window.updateCcStyles) window.updateCcStyles();
         };
 
         fontSel.addEventListener('change', triggerUpdate);
@@ -676,32 +741,39 @@
         bgInp.addEventListener('input', triggerUpdate);
         opInp.addEventListener('input', triggerUpdate);
         sizeInp.addEventListener('input', triggerUpdate);
-        
-        offsetInp.addEventListener('input', (e) => changeOffset(e.target.value));
-        offsetMinus.addEventListener('click', (e) => { e.stopPropagation(); changeOffset(currentSubOffset - 0.25); });
-        offsetPlus.addEventListener('click', (e) => { e.stopPropagation(); changeOffset(currentSubOffset + 0.25); });
+        vOffsetInp.addEventListener('input', triggerUpdate);
 
         resetBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            localStorage.removeItem('cc_font');
-            localStorage.removeItem('cc_color');
-            localStorage.removeItem('cc_bg');
-            localStorage.removeItem('cc_bg_op');
-            localStorage.removeItem('cc_size');
-            localStorage.removeItem('cc_offset');
-            
-            fontSel.value = "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif";
-            colorInp.value = '#ffffff';
-            bgInp.value = '#000000';
-            opInp.value = '0.75';
-            sizeInp.value = '1.15';
-            
-            changeOffset(0);
-            triggerUpdate();
+            ccSettings = { ...globalCcSettings };
+            syncUI();
         });
 
-        updateLabels();
-        updateCcStyles();
+        saveBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            saveBtn.innerText = 'Saving...';
+            fetch('/api/save_cc_settings', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    cc_font: ccSettings.font,
+                    cc_color: ccSettings.color,
+                    cc_bg: ccSettings.bg,
+                    cc_bg_op: ccSettings.bg_op,
+                    cc_scale: ccSettings.scale,
+                    cc_v_offset: ccSettings.v_offset
+                })
+            }).then(r => r.json()).then(data => {
+                saveBtn.innerText = 'Saved!';
+                globalCcSettings = { ...ccSettings };
+                setTimeout(() => saveBtn.innerText = 'Save Changes', 2000);
+            }).catch(() => {
+                saveBtn.innerText = 'Error';
+                setTimeout(() => saveBtn.innerText = 'Save Changes', 2000);
+            });
+        });
+
+        syncUI();
     }
 
     bindCcOptions();

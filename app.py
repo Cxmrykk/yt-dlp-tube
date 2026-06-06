@@ -26,7 +26,20 @@ DEFAULT_SETTINGS = {
     'shortcut_seek_bwd': 'ArrowLeft',
     'shortcut_mute': 'm',
     'shortcut_chap_next': 'PageUp',
-    'shortcut_chap_prev': 'PageDown'
+    'shortcut_chap_prev': 'PageDown',
+    'cc_font': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+    'cc_color': '#ffffff',
+    'cc_bg': '#000000',
+    'cc_bg_op': 0.75,
+    'cc_scale': 1.15,
+    'cc_v_offset': 0,
+    'cc_custom_fonts': [
+        {"name": "Sans-Serif", "value": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"},
+        {"name": "Serif", "value": "Georgia, 'Times New Roman', Times, serif"},
+        {"name": "Monospace", "value": "'Courier New', Courier, monospace"},
+        {"name": "Impact", "value": "Impact, Charcoal, sans-serif"},
+        {"name": "Comic Sans", "value": "'Comic Sans MS', cursive, sans-serif"}
+    ]
 }
 
 feed_cache = {'data': [], 'last_update': 0}
@@ -269,7 +282,6 @@ def sync_video_dates(entries):
     changed = False
     now = time.time()
     
-    # Baseline Check: Does the database already know about this channel?
     known_count = sum(1 for e in entries if e and e.get('id') in dates_cache)
     is_baseline_run = (known_count == 0)
     
@@ -279,8 +291,6 @@ def sync_video_dates(entries):
         if not vid: continue
         
         if vid not in dates_cache:
-            # Prevent feed flood: A video is only "new" if we aren't baselining, 
-            # and it appears in the top 5 of the fetched list.
             if is_baseline_run:
                 is_new = False
             else:
@@ -290,12 +300,10 @@ def sync_video_dates(entries):
             changed = True
             
         elif isinstance(dates_cache[vid], (int, float)):
-            # Database Migration: Cleans out old float formats
             dates_cache[vid] = {"timestamp": dates_cache[vid], "is_new": False}
             changed = True
             
         elif not isinstance(dates_cache[vid], dict):
-            # Fallback for corrupted cache entries
             dates_cache[vid] = {"timestamp": now, "is_new": False}
             changed = True
             
@@ -343,7 +351,7 @@ def fetch_channel_info(url):
 
 def update_feed_now():
     if not FEED_UPDATE_LOCK.acquire(blocking=False):
-        return # Skip if a background update is already actively running
+        return 
         
     try:
         subs = get_subs()
@@ -369,10 +377,10 @@ def update_feed_now():
                                 e['channel_icon'] = sub.get('icon', '')
                                 e['channel_url'] = sub['url']
                                 valid_entries.append(e)
-                        return sub['url'], valid_entries, True # Extraction strictly succeeded
+                        return sub['url'], valid_entries, True 
             except Exception as e: 
                 print(f"Background fetch failed for {sub['url']}: {e}")
-            return sub['url'], [], False # Fail, prevents poisoning the DB next run
+            return sub['url'], [], False
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             results = list(executor.map(fetch_flat, subs))
@@ -383,7 +391,6 @@ def update_feed_now():
                 sync_video_dates(entries)
                 all_entries.extend(entries)
                 
-        # The Feed is now exclusively populated by genuinely new uploads.
         new_vids = [e for e in all_entries if e.get('is_new')]
         new_vids.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
         
@@ -408,8 +415,6 @@ def get_flat_feed(page=1):
     settings = get_settings()
     per_page = settings['per_page']
     
-    # We no longer strictly block the frontend router to trigger background jobs.
-    # The bg worker loops naturally.
     all_videos = feed_cache.get('data', [])
     start = (page - 1) * per_page
     end = page * per_page
@@ -632,21 +637,31 @@ def api_info():
                     'label': label,
                     'lang': lang,
                     'url': vtt_data['url'],
-                    'is_auto': False
+                    'is_auto': False,
+                    'is_source': False
                 })
 
     auto_subs = info.get('automatic_captions')
     if isinstance(auto_subs, dict):
+        source_lang = None
+        for lang in auto_subs.keys():
+            if '-orig' in lang:
+                source_lang = lang
+                break
+
         for lang, sub_formats in auto_subs.items():
             if not any(s['lang'] == lang and not s['is_auto'] for s in subtitles_list):
                 vtt_data = extract_vtt_url(sub_formats)
                 if vtt_data:
                     label = vtt_data['name'] or lang
+                    if lang == source_lang:
+                        label = label.replace('-orig', '').strip()
                     subtitles_list.append({
                         'label': label, 
                         'lang': lang,
                         'url': vtt_data['url'],
-                        'is_auto': True
+                        'is_auto': True,
+                        'is_source': (lang == source_lang)
                     })
                     
     subtitles_list.sort(key=lambda x: (x['is_auto'], x['label']))
@@ -809,6 +824,16 @@ def api_comments():
     if not chunk: return "" if page > 1 else "<p style='color:var(--text-muted);'>No comments found.</p>"
     return render_template('partials/comments.html', comments=chunk)
 
+@app.route('/api/save_cc_settings', methods=['POST'])
+def save_cc_settings():
+    data = request.get_json()
+    app_settings = get_settings()
+    for k in ['cc_font', 'cc_color', 'cc_bg', 'cc_bg_op', 'cc_scale', 'cc_v_offset']:
+        if k in data:
+            app_settings[k] = data[k]
+    save_settings(app_settings)
+    return jsonify({"status": "success"})
+
 @app.route('/settings/export')
 def export_subs():
     urls = [s['url'] for s in get_subs()]
@@ -882,6 +907,48 @@ def settings_page():
             app_settings['shortcut_chap_next'] = request.form.get('shortcut_chap_next', 'PageUp')
             app_settings['shortcut_chap_prev'] = request.form.get('shortcut_chap_prev', 'PageDown')
             save_settings(app_settings)
+
+        elif action == 'update_cc_settings':
+            try:
+                app_settings['cc_font'] = request.form.get('cc_font', app_settings.get('cc_font'))
+                app_settings['cc_color'] = request.form.get('cc_color', app_settings.get('cc_color'))
+                app_settings['cc_bg'] = request.form.get('cc_bg', app_settings.get('cc_bg'))
+                app_settings['cc_bg_op'] = float(request.form.get('cc_bg_op', app_settings.get('cc_bg_op')))
+                app_settings['cc_scale'] = float(request.form.get('cc_scale', app_settings.get('cc_scale')))
+                app_settings['cc_v_offset'] = float(request.form.get('cc_v_offset', app_settings.get('cc_v_offset')))
+                save_settings(app_settings)
+            except ValueError: pass
+            
+        elif action == 'add_font':
+            name = request.form.get('font_name')
+            val = request.form.get('font_value')
+            if name and val:
+                fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
+                fonts.append({"name": name, "value": val})
+                app_settings['cc_custom_fonts'] = fonts
+                save_settings(app_settings)
+                
+        elif action == 'delete_font':
+            idx = int(request.form.get('font_index', -1))
+            fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
+            if 0 <= idx < len(fonts) and len(fonts) > 1:
+                fonts.pop(idx)
+                app_settings['cc_custom_fonts'] = fonts
+                save_settings(app_settings)
+                
+        elif action == 'import_fonts':
+            file = request.files.get('import_file')
+            if file and file.filename.endswith('.json'):
+                try:
+                    imported_fonts = json.load(file)
+                    if isinstance(imported_fonts, list):
+                        fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
+                        for f in imported_fonts:
+                            if isinstance(f, dict) and 'name' in f and 'value' in f:
+                                fonts.append({"name": f["name"], "value": f["value"]})
+                        app_settings['cc_custom_fonts'] = fonts
+                        save_settings(app_settings)
+                except Exception as e: print(f"Font import error: {e}")
                 
         return redirect(request.referrer or url_for('settings_page'))
     return render_template('settings.html', subs=subs, app_settings=app_settings)
