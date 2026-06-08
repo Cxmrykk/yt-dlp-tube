@@ -97,6 +97,17 @@
             z-index: 9999; transition: width 0.3s, opacity 0.3s; opacity: 0; pointer-events: none;
         }
     </style>
+
+    <script>
+        // --- Core Application State & Fetch Wrapper ---
+        // Placing this in the head ensures it is defined before any sub-template tries to execute it during a hard page load.
+        window.pageAbortController = new AbortController();
+
+        // 1. Centralized Safe Fetch
+        window.appFetch = function(url, options = {}) {
+            return fetch(url, { ...options, signal: window.pageAbortController.signal });
+        };
+    </script>
 </head>
 <body>
     <div id="pjax-progress"></div>
@@ -159,13 +170,7 @@
 
     <script>
         // --- Bulletproof PJAX Architecture ---
-        window.pageAbortController = new AbortController();
-
-        // 1. Centralized Safe Fetch
-        window.appFetch = function(url, options = {}) {
-            return fetch(url, { ...options, signal: window.pageAbortController.signal });
-        };
-
+        
         // 2. Link Interception
         document.addEventListener('click', e => {
             const a = e.target.closest('a');
