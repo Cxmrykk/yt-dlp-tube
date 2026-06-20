@@ -189,6 +189,10 @@
             suggObserver.observe(document.getElementById('suggested-loader'));
             commentsObserver.observe(document.getElementById('comments-loader'));
 
+            // Preload comments and suggested immediately instead of waiting for scroll
+            if (!suggestedLoading) loadSuggestedVideos();
+            if (!commentsLoading && !commentsFinished) loadComments();
+
             let watchSessionTime = 0;
             let lastHistoryPing = 0;
             if (window.historyInterval) clearInterval(window.historyInterval);

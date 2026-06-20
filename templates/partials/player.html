@@ -10,6 +10,19 @@
     <video id="vid-player" class="main-video" playsinline preload="auto" crossorigin="anonymous" style="display:none;"></video>
     <audio id="aud-player" preload="auto" style="display:none;"></audio>
     
+    <div class="settings-menu cache-menu-popup" id="cacheMenu">
+        <div class="settings-panes-wrapper">
+            <div class="settings-pane" style="width: 100%;">
+                <div class="settings-item" id="downloadCacheBtn">
+                    <div class="settings-label">
+                        <img src="/static/icons/download.svg" alt="Download">
+                        <span>Download to Device</span>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <div class="settings-menu cc-menu-popup" id="ccMenu">
         <div class="settings-panes-wrapper" id="ccWrapper">
             <div class="settings-pane" id="ccMainPane"></div>

@@ -56,7 +56,7 @@
     const settingsMenu = document.getElementById('settingsMenu');
     const mainPane = document.getElementById('mainPane');
     const subPane = document.getElementById('subPane');
-    const mainPaneItems = document.querySelectorAll('.settings-item');
+    const mainPaneItems = document.querySelectorAll('.settings-item:not(#downloadCacheBtn)');
     const submenuTitle = document.getElementById('submenuTitle');
     const submenuContent = document.getElementById('submenuContent');
     const submenuBackBtn = document.getElementById('submenuBackBtn');
@@ -65,6 +65,8 @@
     const cacheIconDefault = document.getElementById('cacheIconDefault');
     const cacheIconDone = document.getElementById('cacheIconDone');
     const progressCached = document.getElementById('progressCached');
+    const cacheMenu = document.getElementById('cacheMenu');
+    const downloadCacheBtn = document.getElementById('downloadCacheBtn');
     let cacheInterval = null;
 
     let wasPausedBeforeScrub = false;
@@ -144,6 +146,7 @@
                             }
                             
                             const localUrl = `/proxy/local?key=${vidId}_${resolution}`;
+                            previewVideo.src = localUrl;
                             mainVideo.src = localUrl;
                             mainVideo.addEventListener('loadedmetadata', () => {
                                 mainVideo.currentTime = currTime;
@@ -189,15 +192,8 @@
         const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
         
         if (isCurrentResCached) {
-            // Trigger direct file download locally
-            const title = document.getElementById('ui-title').textContent || 'Video';
-            const dlUrl = `/proxy/local?key=${currentVideoId}_${targetRes}&download=1&title=${encodeURIComponent(title)}`;
-            
-            const a = document.createElement('a');
-            a.href = dlUrl;
-            document.body.appendChild(a);
-            a.click();
-            document.body.removeChild(a);
+            if (cacheMenu.classList.contains('open')) closeCacheMenu();
+            else openCacheMenu();
             return;
         }
         
@@ -225,6 +221,21 @@
         });
     });
 
+    downloadCacheBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if(!currentVideoId) return;
+        
+        const resStr = document.getElementById('lbl-quality').textContent;
+        const resMatch = resStr.match(/(\d+)p/);
+        const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
+        
+        const title = document.getElementById('ui-title').textContent || 'Video';
+        const dlUrl = `/proxy/local?key=${currentVideoId}_${targetRes}&download=1&title=${encodeURIComponent(title)}`;
+        
+        window.open(dlUrl, '_blank');
+        closeCacheMenu();
+    });
+
     function getValidDuration(vid) { return (vid && typeof vid.duration === 'number' && !isNaN(vid.duration) && isFinite(vid.duration)) ? vid.duration : 0; }
 
     let inactivityTimeout;
@@ -233,7 +244,7 @@
         videoContainer.classList.remove('hide-cursor');
         clearTimeout(inactivityTimeout);
         inactivityTimeout = setTimeout(() => {
-            if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) {
+            if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open') && !cacheMenu.classList.contains('open')) {
                 videoContainer.classList.remove('user-active'); videoContainer.classList.add('hide-cursor');
             }
         }, 2500);
@@ -243,7 +254,7 @@
     videoContainer.addEventListener('mousedown', resetInactivity);
     videoContainer.addEventListener('touchstart', resetInactivity);
     videoContainer.addEventListener('mouseleave', () => {
-        if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) videoContainer.classList.remove('user-active');
+        if (!mainVideo.paused && !settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open') && !cacheMenu.classList.contains('open')) videoContainer.classList.remove('user-active');
     });
 
     document.querySelector('.controls-container').addEventListener('mouseenter', () => {
@@ -447,7 +458,9 @@
             bestMatch = { url: getMediaProxyUrl(r.url), label: `${r.height}p`, has_audio: r.has_audio, height: r.height };
         }
 
-        if (resolutionsList.length > 0) {
+        if (highestCachedMatch) {
+            previewVideo.src = highestCachedMatch.url;
+        } else if (resolutionsList.length > 0) {
             previewVideo.src = getMediaProxyUrl(resolutionsList[resolutionsList.length - 1].url);
         }
 
@@ -738,7 +751,7 @@
     }
 
     playPauseBtn.addEventListener('click', togglePlay);
-    mainVideo.addEventListener('click', () => { if (!settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open')) togglePlay(); });
+    mainVideo.addEventListener('click', () => { if (!settingsMenu.classList.contains('open') && !ccMenu.classList.contains('open') && !cacheMenu.classList.contains('open')) togglePlay(); });
 
     function formatTime(seconds) {
         if (isNaN(seconds)) return "0:00";
@@ -997,6 +1010,7 @@
     
     function openSettingsMenu() { 
         closeCcMenu(); 
+        closeCacheMenu();
         settingsMenu.classList.add('open'); 
         settingsBtn.classList.add('active-menu-btn'); 
         videoContainer.classList.add('menu-open'); 
@@ -1006,12 +1020,13 @@
     function closeSettingsMenu() {
         settingsMenu.classList.remove('open'); 
         settingsBtn.classList.remove('active-menu-btn'); 
-        if(!ccMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
+        if(!ccMenu.classList.contains('open') && !cacheMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
         setTimeout(() => { settingsMenu.classList.remove('show-submenu'); setMenuHeight(mainPane, settingsMenu); }, 300); 
     }
 
     function openCcMenu() {
         closeSettingsMenu(); 
+        closeCacheMenu();
         ccMenu.classList.add('open');
         videoContainer.classList.add('menu-open');
         setMenuHeight(ccMainPane, ccMenu);
@@ -1019,8 +1034,24 @@
 
     function closeCcMenu() {
         ccMenu.classList.remove('open');
-        if(!settingsMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
+        if(!settingsMenu.classList.contains('open') && !cacheMenu.classList.contains('open')) videoContainer.classList.remove('menu-open');
         setTimeout(() => { ccMenu.classList.remove('show-submenu', 'show-options'); setMenuHeight(ccMainPane, ccMenu); }, 300);
+    }
+
+    function openCacheMenu() {
+        closeSettingsMenu();
+        closeCcMenu();
+        cacheMenu.classList.add('open');
+        cacheBtn.classList.add('active-menu-btn');
+        videoContainer.classList.add('menu-open');
+    }
+
+    function closeCacheMenu() {
+        cacheMenu.classList.remove('open');
+        cacheBtn.classList.remove('active-menu-btn');
+        if(!ccMenu.classList.contains('open') && !settingsMenu.classList.contains('open')) {
+            videoContainer.classList.remove('menu-open');
+        }
     }
 
     settingsBtn.addEventListener('click', (e) => { e.stopPropagation(); if (settingsMenu.classList.contains('open')) closeSettingsMenu(); else openSettingsMenu(); });
@@ -1029,6 +1060,7 @@
     const handleBodyMenuClick = (e) => { 
         if (!settingsMenu.contains(e.target) && !settingsBtn.contains(e.target)) closeSettingsMenu(); 
         if (!ccMenu.contains(e.target) && !ccBtn.contains(e.target)) closeCcMenu();
+        if (!cacheMenu.contains(e.target) && !cacheBtn.contains(e.target)) closeCacheMenu();
     };
     document.addEventListener('click', handleBodyMenuClick);
 
