@@ -104,7 +104,7 @@
             onSelect: (val, label) => {
                 mainVideo.playbackRate = val;
                 audio.playbackRate = val;
-                document.getElementById('lbl-speed').innerText = label;
+                document.getElementById('lbl-speed').textContent = label;
             }
         },
         quality: { title: "Quality", options: [], current: "", onSelect: (val, label) => changeResolution(val, label) }
@@ -184,13 +184,13 @@
         e.stopPropagation();
         if(!currentVideoId) return;
         
-        const resStr = document.getElementById('lbl-quality').innerText;
+        const resStr = document.getElementById('lbl-quality').textContent;
         const resMatch = resStr.match(/(\d+)p/);
         const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
         
         if (isCurrentResCached) {
             // Trigger direct file download locally
-            const title = document.getElementById('ui-title').innerText || 'Video';
+            const title = document.getElementById('ui-title').textContent || 'Video';
             const dlUrl = `/proxy/local?key=${currentVideoId}_${targetRes}&download=1&title=${encodeURIComponent(title)}`;
             
             const a = document.createElement('a');
@@ -210,8 +210,8 @@
                 vid_id: currentVideoId, 
                 resolution: targetRes,
                 metadata: {
-                    title: document.getElementById('ui-title').innerText,
-                    uploader: document.getElementById('ui-channel-name').innerText,
+                    title: document.getElementById('ui-title').textContent,
+                    uploader: document.getElementById('ui-channel-name').textContent,
                     uploader_url: document.getElementById('ui-channel-link').href,
                     channel_icon: document.getElementById('ui-channel-icon').src,
                     duration: getValidDuration(mainVideo) || 0
@@ -454,7 +454,7 @@
         if (bestMatch) {
             isDualAudio = !bestMatch.has_audio;
             menuData.quality.current = bestMatch.url;
-            document.getElementById('lbl-quality').innerText = bestMatch.label;
+            document.getElementById('lbl-quality').textContent = bestMatch.label;
             mainVideo.src = bestMatch.url;
             
             // Initial poll matches bestMatch height
@@ -672,7 +672,7 @@
                 }
             }
             
-            document.getElementById('lbl-quality').innerText = label;
+            document.getElementById('lbl-quality').textContent = label;
             if (!isPaused) { 
                 let p1 = mainVideo.play(); 
                 let p2; 
@@ -923,9 +923,9 @@
         };
 
         const updateLabels = () => {
-            opVal.innerText = Math.round(ccSettings.bg_op * 100) + '%';
-            sizeVal.innerText = parseFloat(ccSettings.scale).toFixed(2) + 'x';
-            vOffsetVal.innerText = ccSettings.v_offset + '%';
+            opVal.textContent = Math.round(ccSettings.bg_op * 100) + '%';
+            sizeVal.textContent = parseFloat(ccSettings.scale).toFixed(2) + 'x';
+            vOffsetVal.textContent = ccSettings.v_offset + '%';
         };
 
         const syncUI = () => {
@@ -965,7 +965,7 @@
 
         saveBtn.addEventListener('click', (e) => {
             e.stopPropagation();
-            saveBtn.innerText = 'Saving...';
+            saveBtn.textContent = 'Saving...';
             window.appFetch('/api/save_cc_settings', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -978,13 +978,13 @@
                     cc_v_offset: ccSettings.v_offset
                 })
             }).then(r => r.json()).then(data => {
-                saveBtn.innerText = 'Saved!';
+                saveBtn.textContent = 'Saved!';
                 globalCcSettings = { ...ccSettings };
-                setTimeout(() => saveBtn.innerText = 'Save Changes', 2000);
+                setTimeout(() => saveBtn.textContent = 'Save Changes', 2000);
             }).catch((err) => {
                 if (err.name === 'AbortError') return;
-                saveBtn.innerText = 'Error';
-                setTimeout(() => saveBtn.innerText = 'Save Changes', 2000);
+                saveBtn.textContent = 'Error';
+                setTimeout(() => saveBtn.textContent = 'Save Changes', 2000);
             });
         });
 

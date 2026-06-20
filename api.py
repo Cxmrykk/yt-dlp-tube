@@ -8,7 +8,8 @@ from storage import get_history, save_history, get_subs, save_subs, get_settings
 from youtube import (
     get_cached_icon, fetch_channel_info, purge_channel_from_feed, 
     get_flat_feed, fix_youtube_url, fetch_missing_icons, 
-    parse_chapters_from_desc, start_caching_media, COMMENTS_CACHE, COMMENTS_LOCK
+    parse_chapters_from_desc, start_caching_media, inject_deno,
+    COMMENTS_CACHE, COMMENTS_LOCK
 )
 from utils import format_views_str, time_ago_str
 
@@ -78,6 +79,7 @@ def api_info():
         'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 
         'getcomments': False, 'writesubtitles': True, 'allsubtitles': True
     }
+    inject_deno(ydl_opts)
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -233,6 +235,7 @@ def api_videos():
         start = (page - 1) * per_page + 1
         end = page * per_page
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
+        inject_deno(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(fix_youtube_url(query), download=False)
             if info:
@@ -249,6 +252,7 @@ def api_videos():
         start = (page - 1) * per_page + 1
         end = page * per_page
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
+        inject_deno(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             if info: videos = info.get('entries', [])
@@ -260,6 +264,7 @@ def api_videos():
         end = page * per_page
         fetch_end = end + 2
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{fetch_end}'}
+        inject_deno(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{fetch_end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
@@ -298,6 +303,7 @@ def api_comments():
                 'skip_download': True, 'format': 'none', 
                 'extractor_args': { 'youtube': { 'comment_sort': [sort], 'max-comments': ['all,all'] } }
             }
+            inject_deno(ydl_opts)
             ydl = yt_dlp.YoutubeDL(ydl_opts)
             try:
                 info = ydl.extract_info(url, download=False, process=True)
@@ -339,6 +345,9 @@ def api_cache_start():
     vid_id = data.get('vid_id')
     res = data.get('resolution')
     metadata = data.get('metadata', {})
+    
+    # Verify the incoming resolution request from JS
+    print(f"[DEBUG - API] Cache request received. Video ID: {vid_id}, Resolution: {res}p")
     
     if vid_id and res:
         start_caching_media(vid_id, res, metadata)

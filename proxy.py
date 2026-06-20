@@ -65,9 +65,19 @@ def proxy_local():
     file_size = os.path.getsize(file_path)
     res = entry.get('resolution', '')
     
+    # Dynamically determine the content-type based on the extension saved by yt-dlp
+    ext = os.path.splitext(file_path)[1].lower()
+    if ext == '.webm':
+        content_type = 'video/webm'
+    elif ext == '.mkv':
+        content_type = 'video/x-matroska'
+    else:
+        content_type = 'video/mp4'
+        ext = '.mp4' # normalize just in case
+    
     # Sanitize title for filename
     safe_title = "".join([c for c in title_arg if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
-    filename = f"{safe_title}_{res}p.mp4".replace(' ', '_')
+    filename = f"{safe_title}_{res}p{ext}".replace(' ', '_')
     disposition = f'attachment; filename="{filename}"' if download_flag else 'inline'
     
     range_header = request.headers.get('Range', None)
@@ -94,7 +104,7 @@ def proxy_local():
             resp.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
             resp.headers['Accept-Ranges'] = 'bytes'
             resp.headers['Content-Length'] = str(length)
-            resp.headers['Content-Type'] = 'video/mp4'
+            resp.headers['Content-Type'] = content_type
             resp.headers['Content-Disposition'] = disposition
             if not download_flag:
                 resp.headers['Cache-Control'] = 'public, max-age=31536000'
@@ -107,7 +117,7 @@ def proxy_local():
                 
     resp = Response(generate_full(), status=200)
     resp.headers['Content-Length'] = str(file_size)
-    resp.headers['Content-Type'] = 'video/mp4'
+    resp.headers['Content-Type'] = content_type
     resp.headers['Content-Disposition'] = disposition
     if not download_flag:
         resp.headers['Cache-Control'] = 'public, max-age=31536000'

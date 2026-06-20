@@ -5,14 +5,53 @@ import threading
 import concurrent.futures
 import os
 import glob
+import shutil
 from storage import get_subs, get_settings, get_video_dates, save_video_dates, get_cache_manifest, save_cache_manifest
 from config import CACHE_DIR
+
+def inject_deno(ydl_opts):
+    """
+    Dynamically finds Deno (checking PATH and ~/.deno/bin/deno) and explicitly configures 
+    yt-dlp to use it. Also grants permission to download required JS solver scripts.
+    """
+    deno_path = shutil.which('deno')
+    if not deno_path:
+        home = os.path.expanduser("~")
+        possible_path = os.path.join(home, ".deno", "bin", "deno")
+        if os.path.exists(possible_path):
+            deno_path = possible_path
+    
+    if deno_path:
+        ydl_opts['js_runtimes'] = {'deno': {'path': deno_path}}
+    else:
+        # Fallback to standard handling if absolutely no binary is found locally
+        ydl_opts['js_runtimes'] = {'deno': {}}
+        
+    # Explicitly allow yt-dlp to fetch the cipher-solving EJS scripts from GitHub/NPM
+    ydl_opts['remote_components'] = ['ejs:github', 'ejs:npm']
+        
+    return ydl_opts
 
 feed_cache = {'data': [], 'last_update': 0}
 COMMENTS_CACHE = {} 
 COMMENTS_LOCK = threading.Lock()
 CHANNEL_ICON_CACHE = {}
 FEED_UPDATE_LOCK = threading.Lock()
+
+class YTDLPLogger:
+    """Custom logger to capture exactly what yt-dlp is doing for debugging."""
+    def debug(self, msg):
+        if not msg.startswith('[download]'):
+            print(f"[yt-dlp DEBUG] {msg}")
+            
+    def info(self, msg):
+        pass
+        
+    def warning(self, msg):
+        print(f"[yt-dlp WARNING] {msg}")
+        
+    def error(self, msg):
+        print(f"[yt-dlp ERROR] {msg}")
 
 def sync_video_dates(entries):
     dates_cache = get_video_dates()
@@ -66,6 +105,7 @@ def fix_youtube_url(url):
 
 def fetch_channel_info(url):
     ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': 1, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
+    inject_deno(ydl_opts)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(fix_youtube_url(url), download=False)
@@ -90,6 +130,7 @@ def update_feed_now():
         
         def fetch_flat(sub):
             ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': fetch_limit, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
+            inject_deno(ydl_opts)
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
@@ -147,13 +188,10 @@ def _download_task(vid_id, resolution, metadata):
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
             dl = d.get('downloaded_bytes', 0)
             
-            # Since video and audio download sequentially, we cap at 0.95 during raw download
-            # to prevent UI from resetting backward wildly. The Merger takes it to 1.0.
             current_ratio = manifest[cache_key].get('ratio', 0)
             calc_ratio = (dl / total) * 0.95
             
             if calc_ratio < current_ratio and calc_ratio < 0.1:
-                # Video file finished, audio file just started
                 calc_ratio = 0.8 + ((dl / total) * 0.15)
             elif calc_ratio < current_ratio:
                 calc_ratio = current_ratio
@@ -163,42 +201,67 @@ def _download_task(vid_id, resolution, metadata):
                 save_cache_manifest(manifest)
                 last_save[0] = time.time()
 
-    def pp_hook(d):
-        if d['status'] == 'finished' and d.get('postprocessor') == 'Merger':
-            filepath = d.get('info_dict', {}).get('filepath')
-            if not filepath:
-                filepath = os.path.join(CACHE_DIR, f"{cache_key}.mp4")
-            
-            manifest[cache_key]['file_path'] = filepath
-            manifest[cache_key]['status'] = 'complete'
-            manifest[cache_key]['ratio'] = 1.0
-            save_cache_manifest(manifest)
+    # Enforce strict container pairings so FFmpeg doesn't convert to mkv
+    fmt_str = (f'bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/'
+               f'bestvideo[height<={resolution}][ext=webm]+bestaudio[ext=webm]/'
+               f'bestvideo[height<={resolution}]+bestaudio/'
+               f'best[height<={resolution}]/best')
 
     ydl_opts = {
-        'format': f'bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/best[height<={resolution}][ext=mp4]/best',
-        'merge_output_format': 'mp4',
+        'format': fmt_str,
+        'merge_output_format': 'mp4/webm',
         'outtmpl': os.path.join(CACHE_DIR, f"{cache_key}.%(ext)s"),
         'progress_hooks': [progress_hook],
-        'postprocessor_hooks': [pp_hook],
-        'quiet': True,
+        'logger': YTDLPLogger(),
+        'quiet': False, 
         'noprogress': True,
         'ignoreerrors': True
     }
+    
+    inject_deno(ydl_opts)
+    
+    ffmpeg_path = shutil.which('ffmpeg')
+    if ffmpeg_path:
+        ydl_opts['ffmpeg_location'] = ffmpeg_path
 
     try:
+        print(f"[DEBUG] Starting yt-dlp extraction/download for {vid_id} at <= {resolution}p")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            # download=True blocks until merging is completely finished
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=True)
             
-            # Fallback if no merge was needed (e.g., format was already pre-combined)
-            if manifest[cache_key].get('status') != 'complete':
-                filepath = ydl.prepare_filename(info)
-                manifest[cache_key]['file_path'] = filepath
-                manifest[cache_key]['status'] = 'complete'
-                manifest[cache_key]['ratio'] = 1.0
-                save_cache_manifest(manifest)
+            if info:
+                filepath = None
+                
+                if 'requested_downloads' in info and len(info['requested_downloads']) > 0:
+                    filepath = info['requested_downloads'][0].get('filepath')
+                
+                if not filepath:
+                    filepath = ydl.prepare_filename(info)
+                    
+                if filepath and not os.path.exists(filepath):
+                    base, _ = os.path.splitext(filepath)
+                    for ext in ['.mp4', '.webm', '.mkv']:
+                        if os.path.exists(base + ext):
+                            filepath = base + ext
+                            break
+                            
+                if filepath and os.path.exists(filepath):
+                    manifest[cache_key]['file_path'] = filepath
+                    manifest[cache_key]['status'] = 'complete'
+                    manifest[cache_key]['ratio'] = 1.0
+                    print(f"[DEBUG] Caching complete. Final file located at: {filepath}")
+                else:
+                    print(f"[DEBUG] Download finished, but couldn't locate file at: {filepath}")
+                    manifest[cache_key]['status'] = 'error'
+            else:
+                print(f"[DEBUG] extract_info returned None for {vid_id}. Likely a fatal error.")
+                manifest[cache_key]['status'] = 'error'
+
+            save_cache_manifest(manifest)
 
     except Exception as e:
-        print(f"Caching failed for {vid_id}: {e}")
+        print(f"[DEBUG] Caching threw exception for {vid_id}: {e}")
         manifest[cache_key]['status'] = 'error'
         save_cache_manifest(manifest)
 
