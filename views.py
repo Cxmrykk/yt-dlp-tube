@@ -186,6 +186,13 @@ def settings_page():
                 app_settings['desc_preview_height'] = int(request.form.get('desc_preview_height', 100))
                 save_settings(app_settings)
             except ValueError: pass
+
+        elif action == 'update_cache_settings':
+            try:
+                app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 5))
+                app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 1))
+                save_settings(app_settings)
+            except ValueError: pass
                 
         elif action == 'update_shortcuts':
             app_settings['shortcut_pause'] = request.form.get('shortcut_pause', 'Space')

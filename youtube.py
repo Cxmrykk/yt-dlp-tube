@@ -3,8 +3,10 @@ import time
 import re
 import threading
 import concurrent.futures
-from urllib.parse import urlparse
-from storage import get_subs, get_settings, get_video_dates, save_video_dates
+import os
+import glob
+from storage import get_subs, get_settings, get_video_dates, save_video_dates, get_cache_manifest, save_cache_manifest
+from config import CACHE_DIR
 
 feed_cache = {'data': [], 'last_update': 0}
 COMMENTS_CACHE = {} 
@@ -121,10 +123,137 @@ def update_feed_now():
     finally:
         FEED_UPDATE_LOCK.release()
 
+def _download_task(vid_id, resolution, metadata):
+    cache_key = f"{vid_id}_{resolution}"
+    manifest = get_cache_manifest()
+    
+    if cache_key in manifest and manifest[cache_key].get('status') == 'complete':
+        return 
+
+    manifest[cache_key] = {
+        'vid_id': vid_id,
+        'resolution': resolution,
+        'status': 'downloading',
+        'ratio': 0.0,
+        'last_accessed': time.time(),
+        **metadata
+    }
+    save_cache_manifest(manifest)
+    
+    last_save = [time.time()]
+
+    def progress_hook(d):
+        if d['status'] == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
+            dl = d.get('downloaded_bytes', 0)
+            
+            # Since video and audio download sequentially, we cap at 0.95 during raw download
+            # to prevent UI from resetting backward wildly. The Merger takes it to 1.0.
+            current_ratio = manifest[cache_key].get('ratio', 0)
+            calc_ratio = (dl / total) * 0.95
+            
+            if calc_ratio < current_ratio and calc_ratio < 0.1:
+                # Video file finished, audio file just started
+                calc_ratio = 0.8 + ((dl / total) * 0.15)
+            elif calc_ratio < current_ratio:
+                calc_ratio = current_ratio
+
+            manifest[cache_key]['ratio'] = calc_ratio
+            if time.time() - last_save[0] > 1.0:
+                save_cache_manifest(manifest)
+                last_save[0] = time.time()
+
+    def pp_hook(d):
+        if d['status'] == 'finished' and d.get('postprocessor') == 'Merger':
+            filepath = d.get('info_dict', {}).get('filepath')
+            if not filepath:
+                filepath = os.path.join(CACHE_DIR, f"{cache_key}.mp4")
+            
+            manifest[cache_key]['file_path'] = filepath
+            manifest[cache_key]['status'] = 'complete'
+            manifest[cache_key]['ratio'] = 1.0
+            save_cache_manifest(manifest)
+
+    ydl_opts = {
+        'format': f'bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/best[height<={resolution}][ext=mp4]/best',
+        'merge_output_format': 'mp4',
+        'outtmpl': os.path.join(CACHE_DIR, f"{cache_key}.%(ext)s"),
+        'progress_hooks': [progress_hook],
+        'postprocessor_hooks': [pp_hook],
+        'quiet': True,
+        'noprogress': True,
+        'ignoreerrors': True
+    }
+
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=True)
+            
+            # Fallback if no merge was needed (e.g., format was already pre-combined)
+            if manifest[cache_key].get('status') != 'complete':
+                filepath = ydl.prepare_filename(info)
+                manifest[cache_key]['file_path'] = filepath
+                manifest[cache_key]['status'] = 'complete'
+                manifest[cache_key]['ratio'] = 1.0
+                save_cache_manifest(manifest)
+
+    except Exception as e:
+        print(f"Caching failed for {vid_id}: {e}")
+        manifest[cache_key]['status'] = 'error'
+        save_cache_manifest(manifest)
+
+def start_caching_media(vid_id, resolution, metadata):
+    threading.Thread(target=_download_task, args=(vid_id, resolution, metadata), daemon=True).start()
+
+def sweep_cache():
+    manifest = get_cache_manifest()
+    settings = get_settings()
+    ttl_seconds = settings.get('cache_ttl_hours', 1) * 3600
+    max_bytes = settings.get('cache_max_size_gb', 5) * 1024 * 1024 * 1024
+    
+    now = time.time()
+    changed = False
+    to_delete = []
+    
+    for h, data in list(manifest.items()):
+        if now - data.get('last_accessed', 0) > ttl_seconds:
+            to_delete.append(h)
+            
+    # Compute size directly from disk files, ignoring deleted keys
+    total_size = 0
+    for h, data in manifest.items():
+        if h not in to_delete:
+            path = data.get('file_path')
+            if path and os.path.exists(path):
+                total_size += os.path.getsize(path)
+                
+    if total_size > max_bytes:
+        remaining = [h for h in manifest.keys() if h not in to_delete]
+        remaining.sort(key=lambda x: manifest[x].get('last_accessed', 0))
+        for h in remaining:
+            if total_size <= max_bytes: break
+            to_delete.append(h)
+            path = manifest[h].get('file_path')
+            if path and os.path.exists(path):
+                total_size -= os.path.getsize(path)
+            
+    for h in to_delete:
+        del manifest[h]
+        changed = True
+        
+        # Glob delete main file + any orphaned ffmpeg .part or .f* segments
+        for f in glob.glob(os.path.join(CACHE_DIR, f"{h}*")):
+            try: os.remove(f)
+            except: pass
+                
+    if changed:
+        save_cache_manifest(manifest)
+
 def bg_worker_loop(app):
     with app.app_context():
         while True:
             update_feed_now()
+            sweep_cache()
             settings = get_settings()
             interval_seconds = settings.get('background_interval_mins', 30) * 60
             time.sleep(interval_seconds)

@@ -71,7 +71,6 @@
     </form>
     
     <div style="display: flex; gap: 10px;">
-        <!-- File uploads bypass PJAX safety architecture for browser security compatibility -->
         <form id="importFontsForm" action="/settings" method="POST" enctype="multipart/form-data" data-no-pjax="true" style="margin: 0;">
             <input type="hidden" name="action" value="import_fonts">
             <input type="file" id="import_fonts_file" name="import_file" accept=".json" style="display: none;" 
@@ -96,6 +95,21 @@
     <script>
         document.getElementById('pref-res').value = localStorage.getItem('prefRes') || 'auto';
     </script>
+</div>
+
+<div class="add-form">
+    <h3 style="margin-top: 0;">Cache Management</h3>
+    <form action="/settings" method="POST">
+        <input type="hidden" name="action" value="update_cache_settings">
+        
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Max Cache Size (GB):</label>
+        <input type="number" name="cache_max_size_gb" value="{{ app_settings.cache_max_size_gb | default(5) }}" min="1" max="100" required>
+        
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Cache Time-To-Live (Hours):</label>
+        <input type="number" name="cache_ttl_hours" value="{{ app_settings.cache_ttl_hours | default(1) }}" min="1" max="168" required>
+
+        <button type="submit" class="btn btn-danger">Save Cache Settings</button>
+    </form>
 </div>
 
 <div class="add-form">

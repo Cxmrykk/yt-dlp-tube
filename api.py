@@ -1,12 +1,14 @@
 import time
 import yt_dlp
+import os
+import urllib.parse
 from flask import Blueprint, request, jsonify, render_template
 
-from storage import get_history, save_history, get_subs, save_subs, get_settings, save_settings
+from storage import get_history, save_history, get_subs, save_subs, get_settings, get_cache_manifest, save_cache_manifest
 from youtube import (
     get_cached_icon, fetch_channel_info, purge_channel_from_feed, 
     get_flat_feed, fix_youtube_url, fetch_missing_icons, 
-    parse_chapters_from_desc, COMMENTS_CACHE, COMMENTS_LOCK
+    parse_chapters_from_desc, start_caching_media, COMMENTS_CACHE, COMMENTS_LOCK
 )
 from utils import format_views_str, time_ago_str
 
@@ -95,7 +97,26 @@ def api_info():
         if h and h not in unique_resolutions: unique_resolutions[h] = f
 
     resolutions = sorted(unique_resolutions.values(), key=lambda x: x.get('height', 0), reverse=True)
-    resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none'} for r in resolutions]
+    resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none', 'is_cached': False} for r in resolutions]
+
+    # --- Inject Local Cache Overrides ---
+    manifest = get_cache_manifest()
+    manifest_updated = False
+    vid_id = info.get('id')
+    
+    for r in resolutions_list:
+        cache_key = f"{vid_id}_{r['height']}"
+        entry = manifest.get(cache_key)
+        if entry and entry.get('status') == 'complete':
+            if os.path.exists(entry.get('file_path', '')):
+                r['url'] = f"/proxy/local?key={cache_key}"
+                r['has_audio'] = True  # Native dual-audio bypass
+                r['is_cached'] = True  # Signal for auto-selection in frontend
+                entry['last_accessed'] = time.time()
+                manifest_updated = True
+                
+    if manifest_updated:
+        save_cache_manifest(manifest)
 
     uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
     channel_icon = get_cached_icon(uploader_url)
@@ -111,7 +132,6 @@ def api_info():
     if not chapters:
         chapters = parse_chapters_from_desc(info.get('description', ''))
 
-    # Subtitles Extraction Logic
     subtitles_list = []
     def extract_vtt_url(sub_formats):
         if not isinstance(sub_formats, list) or not sub_formats: return None
@@ -150,13 +170,14 @@ def api_info():
     subtitles_list.sort(key=lambda x: (x['is_auto'], x['label']))
 
     return jsonify({
-        "id": info.get('id'), "title": info.get('title', 'Untitled'),
+        "id": vid_id, "title": info.get('title', 'Untitled'),
         "uploader": info.get('uploader') or info.get('channel') or 'Unknown', "uploader_url": uploader_url,
         "subscriber_count": format_views_str(info.get('channel_follower_count')), "view_count": format_views_str(info.get('view_count')),
         "time_ago": time_ago_str(info.get('timestamp') or info.get('upload_date')), "description": info.get('description', ''),
         "channel_icon": channel_icon, "is_subbed": is_subbed, "resolutions": resolutions_list,
         "best_audio": best_audio.get('url') if best_audio else None, "chapters": chapters,
-        "subtitles": subtitles_list, "search_query": broad_query
+        "subtitles": subtitles_list, "search_query": broad_query,
+        "duration": info.get('duration', 0)
     })
 
 @api_bp.route('/api/toggle_sub', methods=['POST'])
@@ -311,3 +332,28 @@ def save_cc_settings():
             app_settings[k] = data[k]
     save_settings(app_settings)
     return jsonify({"status": "success"})
+
+@api_bp.route('/api/cache/start', methods=['POST'])
+def api_cache_start():
+    data = request.get_json()
+    vid_id = data.get('vid_id')
+    res = data.get('resolution')
+    metadata = data.get('metadata', {})
+    
+    if vid_id and res:
+        start_caching_media(vid_id, res, metadata)
+    return jsonify({"status": "started"})
+
+@api_bp.route('/api/cache/status')
+def api_cache_status():
+    vid_id = request.args.get('vid_id')
+    res = request.args.get('resolution')
+    
+    cache_key = f"{vid_id}_{res}"
+    manifest = get_cache_manifest()
+    entry = manifest.get(cache_key)
+    
+    if not entry:
+        return jsonify({"ratio": 0.0, "status": "none"})
+        
+    return jsonify({"ratio": entry.get('ratio', 0.0), "status": entry.get('status', 'downloading')})

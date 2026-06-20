@@ -7,13 +7,17 @@ SUBS_FILE = os.path.join(DATA_DIR, 'subscriptions.json')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 VIDEO_DATES_FILE = os.path.join(DATA_DIR, 'video_dates.json')
 HISTORY_FILE = os.path.join(DATA_DIR, 'history.json')
+CACHE_MANIFEST_FILE = os.path.join(DATA_DIR, 'cache_manifest.json')
 
 FILE_LOCK = threading.Lock()
+_CACHE_MANIFEST = None
 
 DEFAULT_SETTINGS = {
     'background_interval_mins': 30,
     'per_page': 15,
     'desc_preview_height': 100,
+    'cache_ttl_hours': 1,
+    'cache_max_size_gb': 5,
     'shortcut_pause': 'Space',
     'shortcut_seek_fwd': 'ArrowRight',
     'shortcut_seek_bwd': 'ArrowLeft',
@@ -93,3 +97,25 @@ def save_history(history):
         tmp_file = HISTORY_FILE + '.tmp'
         with open(tmp_file, 'w') as f: json.dump(history, f)
         os.replace(tmp_file, HISTORY_FILE)
+
+def get_cache_manifest():
+    global _CACHE_MANIFEST
+    with FILE_LOCK:
+        if _CACHE_MANIFEST is None:
+            if os.path.exists(CACHE_MANIFEST_FILE):
+                try:
+                    with open(CACHE_MANIFEST_FILE, 'r') as f:
+                        _CACHE_MANIFEST = json.load(f)
+                except:
+                    _CACHE_MANIFEST = {}
+            else:
+                _CACHE_MANIFEST = {}
+        return _CACHE_MANIFEST
+
+def save_cache_manifest(manifest):
+    global _CACHE_MANIFEST
+    with FILE_LOCK:
+        _CACHE_MANIFEST = manifest
+        tmp_file = CACHE_MANIFEST_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(manifest, f)
+        os.replace(tmp_file, CACHE_MANIFEST_FILE)

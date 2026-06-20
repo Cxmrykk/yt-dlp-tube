@@ -7,6 +7,9 @@
     
     window.mainVideo = mainVideo;
     window.isScrubbing = false;
+    window.bestAudioUrl = '';
+    let currentVideoId = null;
+    let isCurrentResCached = false;
     
     let currentVideoHeight = 0;
     const resizeObs = new ResizeObserver(entries => {
@@ -58,6 +61,12 @@
     const submenuContent = document.getElementById('submenuContent');
     const submenuBackBtn = document.getElementById('submenuBackBtn');
 
+    const cacheBtn = document.getElementById('cacheBtn');
+    const cacheIconDefault = document.getElementById('cacheIconDefault');
+    const cacheIconDone = document.getElementById('cacheIconDone');
+    const progressCached = document.getElementById('progressCached');
+    let cacheInterval = null;
+
     let wasPausedBeforeScrub = false;
     let isDualAudio = false;
     let resolutionsList = [];
@@ -100,6 +109,121 @@
         },
         quality: { title: "Quality", options: [], current: "", onSelect: (val, label) => changeResolution(val, label) }
     };
+
+    function startCachePolling(vidId, resolution) {
+        if(cacheInterval) clearInterval(cacheInterval);
+        
+        const poll = () => {
+            if(window.pageAbortController && window.pageAbortController.signal.aborted) {
+                clearInterval(cacheInterval); return;
+            }
+            window.appFetch(`/api/cache/status?vid_id=${encodeURIComponent(vidId)}&resolution=${encodeURIComponent(resolution)}`)
+                .then(r => r.json())
+                .then(data => {
+                    const ratio = data.ratio;
+                    progressCached.style.width = `${ratio * 100}%`;
+                    
+                    if (ratio >= 1.0 && data.status === 'complete') {
+                        isCurrentResCached = true;
+                        clearInterval(cacheInterval);
+                        cacheIconDefault.style.display = 'none';
+                        cacheIconDone.style.display = 'block';
+                        cacheBtn.classList.remove('active');
+                        
+                        // Hot swap mechanism to seamlessly load merged local file
+                        if (mainVideo.src && !mainVideo.src.includes('/proxy/local')) {
+                            const currTime = mainVideo.currentTime;
+                            const wasPlaying = !mainVideo.paused;
+                            const currRate = mainVideo.playbackRate;
+                            
+                            isDualAudio = false;
+                            if(audio) {
+                                audio.pause();
+                                audio.removeAttribute('src');
+                                audio.load(); // Forces halt of background download if active
+                            }
+                            
+                            const localUrl = `/proxy/local?key=${vidId}_${resolution}`;
+                            mainVideo.src = localUrl;
+                            mainVideo.addEventListener('loadedmetadata', () => {
+                                mainVideo.currentTime = currTime;
+                                mainVideo.playbackRate = currRate;
+                                if(wasPlaying) mainVideo.play().catch(()=>{});
+                            }, {once: true});
+                            
+                            // Keep internal structures consistent so settings menu doesn't break
+                            const resObj = resolutionsList.find(r => r.height === parseInt(resolution));
+                            if(resObj) {
+                                resObj.url = localUrl;
+                                resObj.has_audio = true;
+                                const menuOpt = menuData.quality.options.find(o => o.label.includes(resolution + 'p'));
+                                if(menuOpt) {
+                                    menuOpt.value = resObj.url;
+                                }
+                            }
+                        }
+                    } else if (ratio > 0 || data.status === 'downloading') {
+                        isCurrentResCached = false;
+                        cacheIconDefault.style.display = 'block';
+                        cacheIconDone.style.display = 'none';
+                        cacheBtn.classList.add('active');
+                    } else {
+                        isCurrentResCached = false;
+                        cacheIconDefault.style.display = 'block';
+                        cacheIconDone.style.display = 'none';
+                        cacheBtn.classList.remove('active');
+                    }
+                }).catch(()=>{});
+        };
+        
+        cacheInterval = setInterval(poll, 3000);
+        poll(); // Fire immediately
+    }
+
+    cacheBtn.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if(!currentVideoId) return;
+        
+        const resStr = document.getElementById('lbl-quality').innerText;
+        const resMatch = resStr.match(/(\d+)p/);
+        const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
+        
+        if (isCurrentResCached) {
+            // Trigger direct file download locally
+            const title = document.getElementById('ui-title').innerText || 'Video';
+            const dlUrl = `/proxy/local?key=${currentVideoId}_${targetRes}&download=1&title=${encodeURIComponent(title)}`;
+            
+            const a = document.createElement('a');
+            a.href = dlUrl;
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+            return;
+        }
+        
+        cacheBtn.classList.add('active');
+        
+        window.appFetch('/api/cache/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ 
+                vid_id: currentVideoId, 
+                resolution: targetRes,
+                metadata: {
+                    title: document.getElementById('ui-title').innerText,
+                    uploader: document.getElementById('ui-channel-name').innerText,
+                    uploader_url: document.getElementById('ui-channel-link').href,
+                    channel_icon: document.getElementById('ui-channel-icon').src,
+                    duration: getValidDuration(mainVideo) || 0
+                }
+            })
+        }).then(() => {
+            startCachePolling(currentVideoId, targetRes);
+        }).catch(err => {
+            if (err.name !== 'AbortError') alert("Failed to start caching");
+            cacheBtn.classList.remove('active');
+        });
+    });
 
     function getValidDuration(vid) { return (vid && typeof vid.duration === 'number' && !isNaN(vid.duration) && isFinite(vid.duration)) ? vid.duration : 0; }
 
@@ -282,8 +406,12 @@
     }
 
     window.initializePlayer = function(data) {
+        currentVideoId = data.id;
         resolutionsList = data.resolutions;
         videoChapters = data.chapters || [];
+        
+        // Save raw audio URL locally to fetch cleanly if user transitions out of Cache mode
+        window.bestAudioUrl = data.best_audio ? getMediaProxyUrl(data.best_audio) : '';
         
         let targetRes = localStorage.getItem('prefRes') || 'auto';
         if (targetRes === 'auto') targetRes = window.screen.height * window.devicePixelRatio;
@@ -291,20 +419,32 @@
         
         menuData.quality.options = [];
         let bestMatch = null;
+        let highestCachedMatch = null;
 
         for (let r of resolutionsList) {
-            const lbl = `${r.height}p${r.fps > 30 ? ' ' + r.fps + 'fps' : ''} ${r.has_audio ? '(Combined)' : ''}`;
-            const proxyUrl = getMediaProxyUrl(r.url);
+            const isCached = r.is_cached || r.url.includes('/proxy/local');
+            const lbl = `${r.height}p${r.fps > 30 ? ' ' + r.fps + 'fps' : ''} ${r.has_audio && !isCached ? '(Combined)' : ''}`;
+            const proxyUrl = isCached ? r.url : getMediaProxyUrl(r.url);
             
             menuData.quality.options.push({ label: lbl, value: proxyUrl });
+            
+            // Track highest cached for auto-selection
+            if (isCached && (!highestCachedMatch || r.height > highestCachedMatch.height)) {
+                highestCachedMatch = { url: proxyUrl, label: lbl, has_audio: r.has_audio, height: r.height };
+            }
+            
+            // Track global preference as fallback
             if (!bestMatch && r.height <= targetRes) {
-                bestMatch = { url: proxyUrl, label: lbl, has_audio: r.has_audio };
+                bestMatch = { url: proxyUrl, label: lbl, has_audio: r.has_audio, height: r.height };
             }
         }
         
-        if (!bestMatch && resolutionsList.length > 0) {
+        // Override global preference if a cached version exists anywhere
+        if (highestCachedMatch) {
+            bestMatch = highestCachedMatch;
+        } else if (!bestMatch && resolutionsList.length > 0) {
             let r = resolutionsList[resolutionsList.length - 1];
-            bestMatch = { url: getMediaProxyUrl(r.url), label: `${r.height}p`, has_audio: r.has_audio };
+            bestMatch = { url: getMediaProxyUrl(r.url), label: `${r.height}p`, has_audio: r.has_audio, height: r.height };
         }
 
         if (resolutionsList.length > 0) {
@@ -316,11 +456,15 @@
             menuData.quality.current = bestMatch.url;
             document.getElementById('lbl-quality').innerText = bestMatch.label;
             mainVideo.src = bestMatch.url;
+            
+            // Initial poll matches bestMatch height
+            startCachePolling(currentVideoId, bestMatch.height);
         }
 
-        if (data.best_audio) {
-            audio.src = getMediaProxyUrl(data.best_audio);
+        if (window.bestAudioUrl && isDualAudio) {
+            audio.src = window.bestAudioUrl;
         } else {
+            audio.removeAttribute('src'); 
             isDualAudio = false; 
         }
 
@@ -483,7 +627,11 @@
     }
 
     function changeResolution(url, label) {
-        const resObj = resolutionsList.find(r => getMediaProxyUrl(r.url) === url);
+        const resMatch = label.match(/(\d+)p/);
+        const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
+        
+        const isCached = url.includes('/proxy/local');
+        const resObj = resolutionsList.find(r => (isCached ? r.url : getMediaProxyUrl(r.url)) === url);
         isDualAudio = resObj ? !resObj.has_audio : false;
         
         const currentTime = mainVideo.currentTime;
@@ -493,11 +641,19 @@
         
         videoContainer.classList.add('buffering');
         mainVideo.src = url;
+
+        // Restart caching poll for the newly selected resolution
+        progressCached.style.width = '0%';
+        cacheBtn.classList.remove('active');
+        cacheIconDefault.style.display = 'block';
+        cacheIconDone.style.display = 'none';
+        if(currentVideoId) startCachePolling(currentVideoId, targetRes);
         
         mainVideo.addEventListener('loadedmetadata', () => {
             if (isFinite(currentTime)) {
                 mainVideo.currentTime = currentTime; mainVideo.playbackRate = currentRate;
                 if (isDualAudio) {
+                    if (!audio.src) audio.src = window.bestAudioUrl;
                     audio.currentTime = currentTime; audio.muted = mainVideo.muted;
                     audio.volume = mainVideo.volume; audio.playbackRate = currentRate;
                 } else { audio.pause(); }
@@ -900,10 +1056,10 @@
     ccSubmenuBackBtn.addEventListener('click', (e) => { e.stopPropagation(); ccMenu.classList.remove('show-submenu'); setMenuHeight(ccMainPane, ccMenu); });
     ccOptionsBackBtn.addEventListener('click', (e) => { e.stopPropagation(); ccMenu.classList.remove('show-options'); setMenuHeight(ccMainPane, ccMenu); });
 
-    // Strict Player Teardown lifecycle triggered upon PJAX navigation away from the watch page
     window.playerCleanup = function() {
         if(inactivityTimeout) clearTimeout(inactivityTimeout);
         if(window.mediaSyncInterval) clearInterval(window.mediaSyncInterval);
+        if(cacheInterval) clearInterval(cacheInterval);
 
         document.removeEventListener('keydown', handleGlobalKeydown);
         document.removeEventListener('mousemove', handleGlobalMousemove);
@@ -912,7 +1068,6 @@
         
         if (resizeObs) resizeObs.disconnect();
 
-        // Hard un-mounting of media resources avoids Decoder Exhaustion Bugs
         if (mainVideo) {
             mainVideo.pause();
             mainVideo.removeAttribute('src');

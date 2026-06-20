@@ -1,7 +1,11 @@
 import hashlib
 import requests
+import os
+import re
 from flask import Blueprint, request, Response
 from urllib.parse import urlparse
+from storage import get_cache_manifest
+from config import CACHE_DIR
 
 proxy_bp = Blueprint('proxy', __name__)
 
@@ -44,6 +48,71 @@ def proxy_image():
     except Exception:
         return "Image proxy failed", 500
 
+@proxy_bp.route('/proxy/local')
+def proxy_local():
+    """Serves the merged, complete media file directly from our edge cache."""
+    key = request.args.get('key')
+    download_flag = request.args.get('download') == '1'
+    title_arg = request.args.get('title', 'Video')
+    
+    manifest = get_cache_manifest()
+    entry = manifest.get(key)
+    
+    if not entry or 'file_path' not in entry or not os.path.exists(entry['file_path']):
+        return "Not found in cache", 404
+        
+    file_path = entry['file_path']
+    file_size = os.path.getsize(file_path)
+    res = entry.get('resolution', '')
+    
+    # Sanitize title for filename
+    safe_title = "".join([c for c in title_arg if c.isalpha() or c.isdigit() or c == ' ']).rstrip()
+    filename = f"{safe_title}_{res}p.mp4".replace(' ', '_')
+    disposition = f'attachment; filename="{filename}"' if download_flag else 'inline'
+    
+    range_header = request.headers.get('Range', None)
+    
+    if range_header:
+        match = re.search(r'bytes=(\d+)-(\d*)', range_header)
+        if match:
+            start = int(match.group(1))
+            end_val = match.group(2)
+            end = int(end_val) if end_val else file_size - 1
+            length = end - start + 1
+            
+            def generate():
+                with open(file_path, 'rb') as f:
+                    f.seek(start)
+                    remaining = length
+                    while remaining > 0:
+                        chunk = f.read(min(65536, remaining))
+                        if not chunk: break
+                        remaining -= len(chunk)
+                        yield chunk
+                        
+            resp = Response(generate(), status=206)
+            resp.headers['Content-Range'] = f'bytes {start}-{end}/{file_size}'
+            resp.headers['Accept-Ranges'] = 'bytes'
+            resp.headers['Content-Length'] = str(length)
+            resp.headers['Content-Type'] = 'video/mp4'
+            resp.headers['Content-Disposition'] = disposition
+            if not download_flag:
+                resp.headers['Cache-Control'] = 'public, max-age=31536000'
+            return resp
+            
+    def generate_full():
+        with open(file_path, 'rb') as f:
+            while chunk := f.read(65536):
+                yield chunk
+                
+    resp = Response(generate_full(), status=200)
+    resp.headers['Content-Length'] = str(file_size)
+    resp.headers['Content-Type'] = 'video/mp4'
+    resp.headers['Content-Disposition'] = disposition
+    if not download_flag:
+        resp.headers['Cache-Control'] = 'public, max-age=31536000'
+    return resp
+
 @proxy_bp.route('/proxy/media')
 def proxy_media():
     url = request.args.get('url')
@@ -56,7 +125,6 @@ def proxy_media():
         
     try:
         r = SESSION.get(url, headers=headers, stream=True, timeout=(5, 15))
-        
         def generate():
             try:
                 for chunk in r.iter_content(chunk_size=81920):
@@ -66,14 +134,11 @@ def proxy_media():
                 
         forward_headers = {}
         for key in ['Content-Type', 'Content-Length', 'Content-Range', 'Accept-Ranges']:
-            if key in r.headers:
-                forward_headers[key] = r.headers[key]
+            if key in r.headers: forward_headers[key] = r.headers[key]
                 
         forward_headers['Cache-Control'] = 'public, max-age=31536000'
         return Response(generate(), status=r.status_code, headers=forward_headers)
-        
     except Exception as e:
-        print(f"Proxy streaming failed: {e}")
         return str(e), 500
 
 @proxy_bp.route('/proxy/subtitles')

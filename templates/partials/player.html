@@ -109,6 +109,7 @@
             </div>
             <div class="progress-track" id="progressTrack">
                 <div class="progress-loaded" id="progressLoaded"></div>
+                <div class="progress-cached" id="progressCached"></div>
                 <div class="progress-filled" id="progressBar"></div>
                 <div class="progress-thumb" id="progressThumb"></div>
             </div>
@@ -130,6 +131,10 @@
                 <div class="time-display"><span id="currentTime">0:00</span> / <span id="duration">0:00</span></div>
             </div>
             <div class="controls-right">
+                <button id="cacheBtn" title="Download to Edge Cache">
+                    <img src="/static/icons/download.svg" id="cacheIconDefault" class="control-icon" alt="Cache">
+                    <img src="/static/icons/cloud-check.svg" id="cacheIconDone" class="control-icon" style="display:none;" alt="Cached">
+                </button>
                 <button id="ccBtn" title="Subtitles/CC" style="display:none;">
                     <img src="/static/icons/cc-outline.svg" id="ccIconOutline" class="control-icon" alt="CC">
                     <img src="/static/icons/cc-filled.svg" id="ccIconFilled" class="control-icon" alt="CC On">
