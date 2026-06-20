@@ -1,11 +1,12 @@
 import json
 import os
 import threading
+from config import DATA_DIR
 
-SUBS_FILE = 'subscriptions.json'
-SETTINGS_FILE = 'settings.json'
-VIDEO_DATES_FILE = 'video_dates.json'
-HISTORY_FILE = 'history.json'
+SUBS_FILE = os.path.join(DATA_DIR, 'subscriptions.json')
+SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
+VIDEO_DATES_FILE = os.path.join(DATA_DIR, 'video_dates.json')
+HISTORY_FILE = os.path.join(DATA_DIR, 'history.json')
 
 FILE_LOCK = threading.Lock()
 

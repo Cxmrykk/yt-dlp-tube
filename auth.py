@@ -2,10 +2,11 @@ import os
 import secrets
 import time
 from flask import Blueprint, request, session, redirect, url_for, render_template, jsonify
+from config import DATA_DIR
 
 auth_bp = Blueprint('auth', __name__)
 
-AUTH_FILE = 'secret.key'
+AUTH_FILE = os.path.join(DATA_DIR, 'secret.key')
 APP_SECRET_TOKEN = None
 
 def init_auth():
