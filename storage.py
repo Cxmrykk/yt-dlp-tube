@@ -1,0 +1,94 @@
+import json
+import os
+import threading
+
+SUBS_FILE = 'subscriptions.json'
+SETTINGS_FILE = 'settings.json'
+VIDEO_DATES_FILE = 'video_dates.json'
+HISTORY_FILE = 'history.json'
+
+FILE_LOCK = threading.Lock()
+
+DEFAULT_SETTINGS = {
+    'background_interval_mins': 30,
+    'per_page': 15,
+    'desc_preview_height': 100,
+    'shortcut_pause': 'Space',
+    'shortcut_seek_fwd': 'ArrowRight',
+    'shortcut_seek_bwd': 'ArrowLeft',
+    'shortcut_mute': 'm',
+    'shortcut_cc': 'v',
+    'shortcut_chap_next': 'PageUp',
+    'shortcut_chap_prev': 'PageDown',
+    'cc_font': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
+    'cc_color': '#ffffff',
+    'cc_bg': '#000000',
+    'cc_bg_op': 0.6,
+    'cc_scale': 1.4,
+    'cc_v_offset': 10,
+    'cc_custom_fonts': [
+        {"name": "Sans-Serif", "value": "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif"},
+        {"name": "Serif", "value": "Georgia, 'Times New Roman', Times, serif"},
+        {"name": "Monospace", "value": "'Courier New', Courier, monospace"},
+        {"name": "Impact", "value": "Impact, Charcoal, sans-serif"},
+        {"name": "Comic Sans", "value": "'Comic Sans MS', cursive, sans-serif"}
+    ]
+}
+
+def get_settings():
+    with FILE_LOCK:
+        if os.path.exists(SETTINGS_FILE):
+            try:
+                with open(SETTINGS_FILE, 'r') as f:
+                    data = json.load(f)
+                    return {**DEFAULT_SETTINGS, **data}
+            except: pass
+        return DEFAULT_SETTINGS.copy()
+
+def save_settings(settings):
+    with FILE_LOCK:
+        tmp_file = SETTINGS_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(settings, f)
+        os.replace(tmp_file, SETTINGS_FILE)
+
+def get_subs():
+    with FILE_LOCK:
+        if os.path.exists(SUBS_FILE):
+            try:
+                with open(SUBS_FILE, 'r') as f: return json.load(f)
+            except: pass
+        return []
+
+def save_subs(subs):
+    with FILE_LOCK:
+        tmp_file = SUBS_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(subs, f)
+        os.replace(tmp_file, SUBS_FILE)
+
+def get_video_dates():
+    with FILE_LOCK:
+        if os.path.exists(VIDEO_DATES_FILE):
+            try:
+                with open(VIDEO_DATES_FILE, 'r') as f: return json.load(f)
+            except: pass
+        return {}
+
+def save_video_dates(dates):
+    with FILE_LOCK:
+        tmp_file = VIDEO_DATES_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(dates, f)
+        os.replace(tmp_file, VIDEO_DATES_FILE)
+
+def get_history():
+    with FILE_LOCK:
+        if os.path.exists(HISTORY_FILE):
+            try:
+                with open(HISTORY_FILE, 'r') as f: return json.load(f)
+            except: pass
+        return []
+
+def save_history(history):
+    with FILE_LOCK:
+        tmp_file = HISTORY_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(history, f)
+        os.replace(tmp_file, HISTORY_FILE)
