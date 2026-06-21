@@ -25,6 +25,8 @@ DEFAULT_SETTINGS = {
     'shortcut_cc': 'v',
     'shortcut_chap_next': 'PageUp',
     'shortcut_chap_prev': 'PageDown',
+    'shortcut_speed_up': 'ArrowUp',
+    'shortcut_speed_down': 'ArrowDown',
     'cc_font': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
     'cc_color': '#ffffff',
     'cc_bg': '#000000',

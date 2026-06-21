@@ -217,7 +217,8 @@
             const defaults = {
                 'inp_pause': 'Space', 'inp_seek_fwd': 'ArrowRight',
                 'inp_seek_bwd': 'ArrowLeft', 'inp_mute': 'm', 'inp_cc': 'v',
-                'inp_chap_next': 'PageUp', 'inp_chap_prev': 'PageDown'
+                'inp_chap_next': 'PageUp', 'inp_chap_prev': 'PageDown',
+                'inp_speed_up': 'ArrowUp', 'inp_speed_down': 'ArrowDown'
             };
 
             window.resetShortcuts = function() {
@@ -245,6 +246,8 @@
             ('Pause / Play', 'shortcut_pause', 'pause', app_settings.shortcut_pause | default('Space')),
             ('Seek Forward', 'shortcut_seek_fwd', 'seek_fwd', app_settings.shortcut_seek_fwd | default('ArrowRight')),
             ('Seek Backward', 'shortcut_seek_bwd', 'seek_bwd', app_settings.shortcut_seek_bwd | default('ArrowLeft')),
+            ('Increase Speed', 'shortcut_speed_up', 'speed_up', app_settings.shortcut_speed_up | default('ArrowUp')),
+            ('Decrease Speed', 'shortcut_speed_down', 'speed_down', app_settings.shortcut_speed_down | default('ArrowDown')),
             ('Mute / Unmute', 'shortcut_mute', 'mute', app_settings.shortcut_mute | default('m')),
             ('Toggle Subtitles (CC)', 'shortcut_cc', 'cc', app_settings.shortcut_cc | default('v')),
             ('Next Chapter', 'shortcut_chap_next', 'chap_next', app_settings.shortcut_chap_next | default('PageUp')),

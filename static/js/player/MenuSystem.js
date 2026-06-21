@@ -38,6 +38,24 @@ class MenuSystem {
                this.ui.cacheMenu.classList.contains('open');
     }
 
+    changeSpeed(direction) {
+        const data = this.menuData.speed;
+        let idx = data.options.findIndex(o => o.value === data.current);
+        if (idx === -1) idx = 3; // Default to Normal if weird state
+        idx += direction;
+        
+        // Clamp min/max limits
+        if (idx < 0) idx = 0;
+        if (idx >= data.options.length) idx = data.options.length - 1;
+        
+        const opt = data.options[idx];
+        data.current = opt.value;
+        data.onSelect(opt.value, opt.label);
+        
+        const overlayText = opt.label === 'Normal' ? '1x' : opt.label + 'x';
+        this.player.showOverlay(`<div style="font-weight:bold; font-size:1.2rem; color:white;">${overlayText}</div>`);
+    }
+
     openSettingsMenu() { 
         this.closeCcMenu(); 
         this.player.cache.closeCacheMenu();
@@ -96,7 +114,7 @@ class MenuSystem {
         };
         document.addEventListener('click', this.bodyMenuClick);
 
-        document.querySelectorAll('.settings-item:not(#downloadCacheBtn)').forEach(item => {
+        document.querySelectorAll('.settings-item:not(#downloadCacheBtn):not(#removeCacheBtn)').forEach(item => {
             if(!item.hasAttribute('data-menu')) return;
             item.addEventListener('click', (e) => {
                 e.stopPropagation(); 

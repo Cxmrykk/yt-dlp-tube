@@ -8,7 +8,7 @@ from storage import get_history, save_history, get_subs, save_subs, get_settings
 from youtube import (
     get_cached_icon, fetch_channel_info, purge_channel_from_feed, 
     get_flat_feed, fix_youtube_url, fetch_missing_icons, 
-    parse_chapters_from_desc, start_caching_media, inject_deno,
+    parse_chapters_from_desc, start_caching_media, remove_from_cache, inject_deno,
     COMMENTS_CACHE, COMMENTS_LOCK
 )
 from utils import format_views_str, time_ago_str
@@ -349,9 +349,6 @@ def api_cache_start():
     res = data.get('resolution')
     metadata = data.get('metadata', {})
     
-    # Verify the incoming resolution request from JS
-    print(f"[DEBUG - API] Cache request received. Video ID: {vid_id}, Resolution: {res}p")
-    
     if vid_id and res:
         start_caching_media(vid_id, res, metadata)
     return jsonify({"status": "started"})
@@ -369,3 +366,13 @@ def api_cache_status():
         return jsonify({"ratio": 0.0, "status": "none"})
         
     return jsonify({"ratio": entry.get('ratio', 0.0), "status": entry.get('status', 'downloading')})
+
+@api_bp.route('/api/cache/remove', methods=['POST'])
+def api_cache_remove():
+    data = request.get_json()
+    vid_id = data.get('vid_id')
+    res = data.get('resolution')
+    
+    if vid_id and res:
+        remove_from_cache(vid_id, res)
+    return jsonify({"status": "removed"})

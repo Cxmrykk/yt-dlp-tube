@@ -10,7 +10,9 @@
             mute: "{{ app_settings.shortcut_mute | default('m') }}",
             cc: "{{ app_settings.shortcut_cc | default('v') }}",
             chapNext: "{{ app_settings.shortcut_chap_next | default('PageUp') }}",
-            chapPrev: "{{ app_settings.shortcut_chap_prev | default('PageDown') }}"
+            chapPrev: "{{ app_settings.shortcut_chap_prev | default('PageDown') }}",
+            speedUp: "{{ app_settings.shortcut_speed_up | default('ArrowUp') }}",
+            speedDown: "{{ app_settings.shortcut_speed_down | default('ArrowDown') }}"
         },
         ccSettings: {
             font: {{ app_settings.cc_font | tojson }},

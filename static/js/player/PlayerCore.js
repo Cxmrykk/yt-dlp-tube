@@ -134,6 +134,9 @@ class PlayerCore {
         const resObj = this.state.resolutionsList.find(r => (isCached ? r.url : PlayerUtils.getMediaProxyUrl(r.url)) === url);
         this.state.isDualAudio = resObj ? !resObj.has_audio : false;
         
+        if (isCached) this.container.classList.add('is-cached');
+        else this.container.classList.remove('is-cached');
+        
         const currentTime = this.ui.mainVideo.currentTime;
         const isPaused = this.ui.mainVideo.paused;
         const currentRate = this.ui.mainVideo.playbackRate;
@@ -146,7 +149,10 @@ class PlayerCore {
         this.ui.cacheBtn.classList.remove('active');
         document.getElementById('cacheIconDefault').style.display = 'block';
         document.getElementById('cacheIconDone').style.display = 'none';
-        if(this.state.currentVideoId) this.cache.startCachePolling(this.state.currentVideoId, targetRes);
+        
+        const lowestResObj = this.state.resolutionsList.length ? this.state.resolutionsList[this.state.resolutionsList.length - 1] : null;
+        const lowestRes = lowestResObj ? lowestResObj.height : null;
+        if(this.state.currentVideoId) this.cache.startCachePolling(this.state.currentVideoId, targetRes, lowestRes);
         
         this.ui.mainVideo.addEventListener('loadedmetadata', () => {
             if (isFinite(currentTime)) {
@@ -203,6 +209,10 @@ class PlayerCore {
         let highestCachedMatch = null;
 
         for (let r of this.state.resolutionsList) {
+            // Backup the original fetched URL/audio states before any cache overrides
+            if (!r.original_url) r.original_url = r.url;
+            if (r.original_has_audio === undefined) r.original_has_audio = r.has_audio;
+            
             const isCached = r.is_cached || r.url.includes('/proxy/local');
             const lbl = `${r.height}p${r.fps > 30 ? ' ' + r.fps + 'fps' : ''} ${r.has_audio && !isCached ? '(Combined)' : ''}`;
             const proxyUrl = isCached ? r.url : PlayerUtils.getMediaProxyUrl(r.url);
@@ -225,18 +235,25 @@ class PlayerCore {
             bestMatch = { url: PlayerUtils.getMediaProxyUrl(r.url), label: `${r.height}p`, has_audio: r.has_audio, height: r.height };
         }
 
-        if (highestCachedMatch) {
+        const lowestResObj = this.state.resolutionsList.length > 0 ? this.state.resolutionsList[this.state.resolutionsList.length - 1] : null;
+        if (lowestResObj && (lowestResObj.is_cached || lowestResObj.url.includes('/proxy/local'))) {
+            this.ui.previewVideo.src = lowestResObj.url;
+        } else if (highestCachedMatch) {
             this.ui.previewVideo.src = highestCachedMatch.url;
-        } else if (this.state.resolutionsList.length > 0) {
-            this.ui.previewVideo.src = PlayerUtils.getMediaProxyUrl(this.state.resolutionsList[this.state.resolutionsList.length - 1].url);
+        } else if (lowestResObj) {
+            this.ui.previewVideo.src = PlayerUtils.getMediaProxyUrl(lowestResObj.url);
         }
 
         if (bestMatch) {
             this.state.isDualAudio = !bestMatch.has_audio;
             this.menus.menuData.quality.current = bestMatch.url;
             document.getElementById('lbl-quality').textContent = bestMatch.label;
+            
+            if (bestMatch.url.includes('/proxy/local')) this.container.classList.add('is-cached');
+            else this.container.classList.remove('is-cached');
+            
             this.ui.mainVideo.src = bestMatch.url;
-            this.cache.startCachePolling(this.state.currentVideoId, bestMatch.height);
+            this.cache.startCachePolling(this.state.currentVideoId, bestMatch.height, lowestResObj ? lowestResObj.height : null);
         }
 
         if (this.state.bestAudioUrl && this.state.isDualAudio) {

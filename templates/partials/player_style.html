@@ -100,6 +100,12 @@
         width: 14px; height: 14px; background: #f03; border-radius: 50%;
         pointer-events: none; transition: transform 0.15s cubic-bezier(0.4, 0, 0.2, 1); z-index: 6;
     }
+    
+    /* BLUE PROGRESS BAR OVERRIDES FOR CACHED VIDEOS */
+    .video-container.is-cached .progress-filled { background: #4a90e2; }
+    .video-container.is-cached .progress-thumb { background: #4a90e2; }
+    .video-container.is-cached .progress-cached { display: none; }
+
     .progress-area:hover .progress-thumb, .video-container.scrubbing .progress-thumb { transform: translate(-50%, -50%) scale(1); }
 
     .chapter-marker {
@@ -119,7 +125,10 @@
     .controls-container button:active { transform: scale(0.9); }
     .controls-container button.active-menu-btn { opacity: 1; transform: rotate(30deg); }
     
-    .controls-container button#ccBtn.active-menu-btn { transform: none; }
+    /* PREVENT ROTATION ON THESE ICONS */
+    .controls-container button#ccBtn.active-menu-btn,
+    .controls-container button#cacheBtn.active-menu-btn { transform: none; }
+    
     #cacheBtn.active img { filter: drop-shadow(0 0 4px #4aff4a); }
 
     .controls-container img.control-icon {

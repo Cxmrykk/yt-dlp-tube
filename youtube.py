@@ -184,6 +184,11 @@ def _download_task(vid_id, resolution, metadata):
     last_save = [time.time()]
 
     def progress_hook(d):
+        # Abort if the user manually cancelled the download
+        current_manifest = get_cache_manifest()
+        if cache_key not in current_manifest or current_manifest[cache_key].get('status') == 'cancelled':
+            raise ValueError("Download cancelled by user")
+
         if d['status'] == 'downloading':
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
             dl = d.get('downloaded_bytes', 0)
@@ -230,6 +235,11 @@ def _download_task(vid_id, resolution, metadata):
             # download=True blocks until merging is completely finished
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=True)
             
+            # Prevent updating a cancelled download back to complete
+            latest_manifest = get_cache_manifest()
+            if cache_key not in latest_manifest or latest_manifest[cache_key].get('status') == 'cancelled':
+                return
+
             if info:
                 filepath = None
                 
@@ -260,13 +270,41 @@ def _download_task(vid_id, resolution, metadata):
 
             save_cache_manifest(manifest)
 
+    except ValueError as e:
+        if str(e) == "Download cancelled by user":
+            print(f"[DEBUG] Download for {vid_id} gracefully aborted.")
+        else:
+            print(f"[DEBUG] Value error: {e}")
     except Exception as e:
         print(f"[DEBUG] Caching threw exception for {vid_id}: {e}")
-        manifest[cache_key]['status'] = 'error'
-        save_cache_manifest(manifest)
+        manifest = get_cache_manifest()
+        if cache_key in manifest and manifest[cache_key].get('status') != 'cancelled':
+            manifest[cache_key]['status'] = 'error'
+            save_cache_manifest(manifest)
 
 def start_caching_media(vid_id, resolution, metadata):
     threading.Thread(target=_download_task, args=(vid_id, resolution, metadata), daemon=True).start()
+
+def remove_from_cache(vid_id, resolution):
+    """
+    Cancels any active downloads for this target and safely purges all downloaded files.
+    """
+    manifest = get_cache_manifest()
+    cache_key = f"{vid_id}_{resolution}"
+    
+    if cache_key in manifest:
+        manifest[cache_key]['status'] = 'cancelled'
+        del manifest[cache_key]
+        save_cache_manifest(manifest)
+        print(f"[DEBUG] Marked cache key {cache_key} as cancelled/removed.")
+        
+    for f in glob.glob(os.path.join(CACHE_DIR, f"{cache_key}*")):
+        try:
+            if os.path.isfile(f):
+                os.remove(f)
+                print(f"[DEBUG] Purged file: {f}")
+        except Exception as e: 
+            print(f"[DEBUG] Error removing file {f}: {e}")
 
 def sweep_cache():
     manifest = get_cache_manifest()

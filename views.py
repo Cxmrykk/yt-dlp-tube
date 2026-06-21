@@ -202,6 +202,8 @@ def settings_page():
             app_settings['shortcut_cc'] = request.form.get('shortcut_cc', 'v')
             app_settings['shortcut_chap_next'] = request.form.get('shortcut_chap_next', 'PageUp')
             app_settings['shortcut_chap_prev'] = request.form.get('shortcut_chap_prev', 'PageDown')
+            app_settings['shortcut_speed_up'] = request.form.get('shortcut_speed_up', 'ArrowUp')
+            app_settings['shortcut_speed_down'] = request.form.get('shortcut_speed_down', 'ArrowDown')
             save_settings(app_settings)
 
         elif action == 'update_cc_settings':

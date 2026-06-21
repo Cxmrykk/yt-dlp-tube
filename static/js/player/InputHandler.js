@@ -53,6 +53,12 @@ class InputHandler {
         } else if (key && key === this.shortcuts.cc) {
             e.preventDefault(); 
             this.player.subtitles.toggleCc();
+        } else if (key && key === this.shortcuts.speedUp) {
+            e.preventDefault();
+            this.player.menus.changeSpeed(1);
+        } else if (key && key === this.shortcuts.speedDown) {
+            e.preventDefault();
+            this.player.menus.changeSpeed(-1);
         } else if (key && key === this.shortcuts.chapNext) {
             e.preventDefault();
             const chapters = this.player.state.videoChapters;
