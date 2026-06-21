@@ -100,14 +100,22 @@
 
     <script>
         // --- Core Application State & Fetch Wrapper ---
-        // Placing this in the head ensures it is defined before any sub-template tries to execute it during a hard page load.
         window.pageAbortController = new AbortController();
 
-        // 1. Centralized Safe Fetch
         window.appFetch = function(url, options = {}) {
             return fetch(url, { ...options, signal: window.pageAbortController.signal });
         };
     </script>
+
+    <!-- Load the Modular Player Scripts globally -->
+    <script src="/static/js/player/utils.js"></script>
+    <script src="/static/js/player/MediaSync.js"></script>
+    <script src="/static/js/player/ProgressControls.js"></script>
+    <script src="/static/js/player/Subtitles.js"></script>
+    <script src="/static/js/player/MenuSystem.js"></script>
+    <script src="/static/js/player/CacheManager.js"></script>
+    <script src="/static/js/player/InputHandler.js"></script>
+    <script src="/static/js/player/PlayerCore.js"></script>
 </head>
 <body>
     <div id="pjax-progress"></div>

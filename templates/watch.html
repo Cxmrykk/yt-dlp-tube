@@ -197,7 +197,8 @@
             let lastHistoryPing = 0;
             if (window.historyInterval) clearInterval(window.historyInterval);
             window.historyInterval = setInterval(() => {
-                if (window.mainVideo && !window.mainVideo.paused && !window.isScrubbing && window.mainVideo.readyState >= 3) {
+                const p = window.ytPlayer;
+                if (p && p.ui && p.ui.mainVideo && !p.ui.mainVideo.paused && !p.state.isScrubbing && p.ui.mainVideo.readyState >= 3) {
                     watchSessionTime++;
                     if (watchSessionTime - lastHistoryPing >= 10) {
                         lastHistoryPing = watchSessionTime;
@@ -213,7 +214,7 @@
                                 uploader_url: data.uploader_url,
                                 channel_icon: currentChannel.icon,
                                 thumbnail: th_url,
-                                duration: (window.mainVideo.duration && isFinite(window.mainVideo.duration)) ? window.mainVideo.duration : (data.duration || 0),
+                                duration: p.getValidDuration() || data.duration || 0,
                                 watch_time_increment: 10
                             })
                         }).catch(()=>{});
