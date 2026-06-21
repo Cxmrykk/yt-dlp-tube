@@ -87,8 +87,11 @@ def api_info():
     except Exception as e: return jsonify({"error": str(e)}), 500
     if not info: return jsonify({"error": "Video unavailable"}), 404
 
-    audio_formats = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec') != 'none']
-    video_formats = [f for f in info.get('formats', []) if f.get('vcodec') != 'none' and f.get('ext') in ['mp4', 'webm']]
+    # Require protocols to be standard progressive HTTP/HTTPS, excluding manifests (m3u8/dash)
+    valid_protocols = ['http', 'https']
+    audio_formats = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('protocol') in valid_protocols]
+    video_formats = [f for f in info.get('formats', []) if f.get('vcodec') != 'none' and f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in valid_protocols]
+    
     m4a_audio = [f for f in audio_formats if f.get('ext') == 'm4a']
     
     best_audio = sorted(m4a_audio, key=lambda x: x.get('abr', 0), reverse=True)[0] if m4a_audio else (sorted(audio_formats, key=lambda x: x.get('abr', 0), reverse=True)[0] if audio_formats else None)
