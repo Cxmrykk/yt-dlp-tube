@@ -309,7 +309,7 @@ def remove_from_cache(vid_id, resolution):
 def sweep_cache():
     manifest = get_cache_manifest()
     settings = get_settings()
-    ttl_seconds = settings.get('cache_ttl_hours', 1) * 3600
+    ttl_seconds = settings.get('cache_ttl_hours', 24) * 3600
     max_bytes = settings.get('cache_max_size_gb', 5) * 1024 * 1024 * 1024
     
     now = time.time()

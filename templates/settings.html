@@ -106,7 +106,7 @@
         <input type="number" name="cache_max_size_gb" value="{{ app_settings.cache_max_size_gb | default(5) }}" min="1" max="100" required>
         
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Cache Time-To-Live (Hours):</label>
-        <input type="number" name="cache_ttl_hours" value="{{ app_settings.cache_ttl_hours | default(1) }}" min="1" max="168" required>
+        <input type="number" name="cache_ttl_hours" value="{{ app_settings.cache_ttl_hours | default(24) }}" min="1" max="168" required>
 
         <button type="submit" class="btn btn-danger">Save Cache Settings</button>
     </form>

@@ -5,7 +5,7 @@ import threading
 from urllib.parse import urlparse
 from flask import Blueprint, render_template, request, redirect, url_for, session, Response
 
-from storage import get_history, save_history, get_subs, save_subs, get_settings, save_settings, save_video_dates
+from storage import get_history, save_history, get_subs, save_subs, get_settings, save_settings, save_video_dates, get_cache_manifest
 from youtube import feed_cache, fetch_channel_info, purge_channel_from_feed, update_feed_now
 
 views_bp = Blueprint('views', __name__)
@@ -20,7 +20,11 @@ def feed():
 def history_page():
     history = get_history()
     history.sort(key=lambda x: x.get('last_viewed', 0), reverse=True)
-    return render_template('history.html', history=history)
+    
+    manifest = get_cache_manifest()
+    cached_vids = {v['vid_id'] for v in manifest.values() if v.get('status') == 'complete' and 'vid_id' in v}
+    
+    return render_template('history.html', history=history, cached_vids=cached_vids)
 
 @views_bp.route('/history/export')
 def export_history():
@@ -190,7 +194,7 @@ def settings_page():
         elif action == 'update_cache_settings':
             try:
                 app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 5))
-                app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 1))
+                app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 24))
                 save_settings(app_settings)
             except ValueError: pass
                 
