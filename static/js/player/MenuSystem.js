@@ -107,7 +107,6 @@ class MenuSystem {
     
     closeSbMenu() {
         if (!this.ui.sbMenu) return;
-        this.sbTempStart = null;
         this.ui.sbMenu.classList.remove('open');
         this.ui.sbBtn.classList.remove('active-menu-btn');
         if (!this.isAnyMenuOpen()) this.player.container.classList.remove('menu-open');
@@ -133,6 +132,7 @@ class MenuSystem {
         `;
         toggleDiv.addEventListener('click', (e) => {
             e.stopPropagation();
+            this.sbTempStart = null; // Clear active state if toggled off
             sb.toggle(!sb.sessionEnabled);
             this.renderSbMenu();
         });
@@ -212,7 +212,7 @@ class MenuSystem {
         document.getElementById('sbSubmitBackBtn').onclick = (e) => {
             e.stopPropagation();
             this.ui.sbMenu.classList.remove('show-submit');
-            this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
+            this.renderSbMenu(); // Re-render the main pane to reset to "Start Segment"
         };
         
         document.getElementById('sbSubmitStartTxt').textContent = PlayerUtils.formatTime(startVal);
@@ -230,7 +230,7 @@ class MenuSystem {
                 btn.textContent = "Submitted!";
                 setTimeout(() => {
                     this.ui.sbMenu.classList.remove('show-submit');
-                    this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
+                    this.renderSbMenu();
                     btn.textContent = "Submit to API";
                     btn.disabled = false;
                 }, 1500);
