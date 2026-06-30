@@ -24,6 +24,14 @@ class InputHandler {
         let key = e.key === ' ' ? 'Space' : e.key;
         const mainVideo = this.player.ui.mainVideo;
 
+        if (key === 'Enter') {
+            if (this.player.sponsorBlock && this.player.sponsorBlock.activeSegment && this.player.sponsorBlock.sessionEnabled) {
+                e.preventDefault();
+                this.player.sponsorBlock.skipSegment(this.player.sponsorBlock.activeSegment);
+                return;
+            }
+        }
+
         if (key && key === this.shortcuts.pause) {
             e.preventDefault(); 
             this.player.togglePlay(); 

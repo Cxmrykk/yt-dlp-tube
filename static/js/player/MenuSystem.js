@@ -22,8 +22,26 @@ class MenuSystem {
                 options: [], 
                 current: "", 
                 onSelect: (val, label) => this.player.changeResolution(val, label) 
+            },
+            sponsorblock: {
+                title: "SponsorBlock",
+                options: [
+                    { label: "Enabled", value: true },
+                    { label: "Disabled", value: false }
+                ],
+                current: window.APP_CONFIG.sbSettings && window.APP_CONFIG.sbSettings.enabled,
+                onSelect: (val, label) => {
+                    if (this.player.sponsorBlock) this.player.sponsorBlock.toggle(val);
+                    document.getElementById('lbl-sb').textContent = label;
+                }
             }
         };
+
+        // Initialize label text values early
+        const lblSb = document.getElementById('lbl-sb');
+        if (lblSb) {
+            lblSb.textContent = (window.APP_CONFIG.sbSettings && window.APP_CONFIG.sbSettings.enabled) ? "Enabled" : "Disabled";
+        }
 
         this.bindEvents();
     }

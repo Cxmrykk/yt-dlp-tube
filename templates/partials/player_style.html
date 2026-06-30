@@ -29,6 +29,7 @@
         display: flex; align-items: center; justify-content: center;
         opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s;
         z-index: 15;
+        white-space: nowrap; padding: 0 15px;
     }
     .shortcut-overlay.show { opacity: 1; transform: translate(-50%, -50%) scale(1.2); transition: transform 0.1s; }
     .shortcut-overlay img.overlay-icon { width: 40px; height: 40px; }
@@ -89,11 +90,19 @@
         border-radius: 2px; pointer-events: none; transition: width 0.3s;
         z-index: 2;
     }
+    
+    .progress-sb {
+        position: absolute; top: 0; left: 0; height: 100%; width: 100%;
+        pointer-events: none; z-index: 3;
+    }
+    .sb-marker {
+        position: absolute; top: 0; height: 100%; opacity: 0.7;
+    }
 
     .progress-filled {
         position: absolute; top: 0; left: 0; height: 100%; width: 0%;
         background: #f03; border-radius: 2px; pointer-events: none;
-        z-index: 3;
+        z-index: 4;
     }
     .progress-thumb {
         position: absolute; top: 50%; left: 0%; transform: translate(-50%, -50%) scale(0);
@@ -112,6 +121,16 @@
         position: absolute; top: 0; bottom: 0; width: 2px;
         background: rgba(0,0,0,0.6); z-index: 5; pointer-events: none;
     }
+
+    .sb-skip-container {
+        position: absolute; bottom: 70px; right: 20px; z-index: 25;
+    }
+    .sb-skip-btn {
+        background: rgba(0, 0, 0, 0.75); color: white; border: 1px solid rgba(255,255,255,0.2); border-radius: 20px;
+        padding: 8px 16px; font-weight: bold; cursor: pointer; display: flex; align-items: center; gap: 8px;
+        transition: transform 0.2s, background 0.2s; backdrop-filter: blur(4px); -webkit-backdrop-filter: blur(4px);
+    }
+    .sb-skip-btn:hover { background: rgba(0, 0, 0, 0.9); transform: scale(1.05); }
 
     .controls-row { display: flex; justify-content: space-between; align-items: center; }
     .controls-left, .controls-right { display: flex; align-items: center; gap: 15px; }

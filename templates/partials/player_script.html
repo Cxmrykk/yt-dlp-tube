@@ -21,6 +21,11 @@
             bg_op: parseFloat({{ app_settings.cc_bg_op | tojson }}),
             scale: parseFloat({{ app_settings.cc_scale | tojson }}),
             v_offset: parseFloat({{ app_settings.cc_v_offset | tojson }})
+        },
+        sbSettings: {
+            enabled: {{ 'true' if app_settings.sb_enabled else 'false' }},
+            action: "{{ app_settings.sb_action }}",
+            categories: {{ app_settings.sb_categories | default([]) | tojson | safe }}
         }
     };
 

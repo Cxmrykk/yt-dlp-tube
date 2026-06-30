@@ -49,6 +49,7 @@ class PlayerCore {
         this.sync = new MediaSync(this);
         this.progress = new ProgressControls(this);
         this.subtitles = new Subtitles(this);
+        this.sponsorBlock = new SponsorBlock(this);
         this.menus = new MenuSystem(this);
         this.cache = new CacheManager(this);
         this.input = new InputHandler(this);
@@ -200,6 +201,9 @@ class PlayerCore {
         this.state.videoChapters = data.chapters || [];
         this.state.bestAudioUrl = data.best_audio ? PlayerUtils.getMediaProxyUrl(data.best_audio) : '';
         
+        // Trigger SponsorBlock load logic
+        this.sponsorBlock.load(data.id);
+        
         let targetRes = localStorage.getItem('prefRes') || 'auto';
         if (targetRes === 'auto') targetRes = window.screen.height * window.devicePixelRatio;
         else targetRes = parseInt(targetRes, 10);
@@ -295,6 +299,7 @@ class PlayerCore {
         this.sync.destroy();
         this.progress.destroy();
         this.subtitles.destroy();
+        this.sponsorBlock.destroy();
         this.menus.destroy();
         this.cache.destroy();
         this.input.destroy();

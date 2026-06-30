@@ -191,6 +191,12 @@ def settings_page():
                 save_settings(app_settings)
             except ValueError: pass
 
+        elif action == 'update_sb_settings':
+            app_settings['sb_enabled'] = request.form.get('sb_enabled') == 'on'
+            app_settings['sb_action'] = request.form.get('sb_action', 'auto_skip')
+            app_settings['sb_categories'] = request.form.getlist('sb_categories')
+            save_settings(app_settings)
+
         elif action == 'update_cache_settings':
             try:
                 app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 5))

@@ -108,6 +108,13 @@
                     </div>
                     <div class="settings-value"><span id="lbl-quality">Loading...</span> <img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
                 </div>
+                <div class="settings-item" data-menu="sponsorblock">
+                    <div class="settings-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="20px" height="20px"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                        <span>SponsorBlock</span>
+                    </div>
+                    <div class="settings-value"><span id="lbl-sb">Loading...</span> <img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                </div>
             </div>
             <div class="settings-pane" id="subPane">
                 <div class="submenu-header" id="submenuBackBtn">
@@ -117,6 +124,13 @@
                 <div id="submenuContent"></div>
             </div>
         </div>
+    </div>
+
+    <div class="sb-skip-container" id="sbSkipContainer" style="display: none;">
+        <button class="sb-skip-btn" id="sbSkipBtn">
+            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="18px" height="18px"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+            Skip Segment (Enter)
+        </button>
     </div>
 
     <div class="controls-container">
@@ -129,6 +143,7 @@
             <div class="progress-track" id="progressTrack">
                 <div class="progress-loaded" id="progressLoaded"></div>
                 <div class="progress-cached" id="progressCached"></div>
+                <div class="progress-sb" id="progressSb"></div>
                 <div class="progress-filled" id="progressBar"></div>
                 <div class="progress-thumb" id="progressThumb"></div>
             </div>

@@ -39,7 +39,10 @@ DEFAULT_SETTINGS = {
         {"name": "Monospace", "value": "'Courier New', Courier, monospace"},
         {"name": "Impact", "value": "Impact, Charcoal, sans-serif"},
         {"name": "Comic Sans", "value": "'Comic Sans MS', cursive, sans-serif"}
-    ]
+    ],
+    'sb_enabled': True,
+    'sb_action': 'auto_skip',
+    'sb_categories': ['sponsor', 'intro', 'outro', 'interaction', 'selfpromo', 'music_offtopic']
 }
 
 def get_settings():
