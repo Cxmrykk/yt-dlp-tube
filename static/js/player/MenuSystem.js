@@ -2,6 +2,7 @@ class MenuSystem {
     constructor(player) {
         this.player = player;
         this.ui = player.ui;
+        this.sbTempStart = null;
         this.menuData = {
             speed: {
                 title: "Playback speed",
@@ -106,6 +107,7 @@ class MenuSystem {
     
     closeSbMenu() {
         if (!this.ui.sbMenu) return;
+        this.sbTempStart = null;
         this.ui.sbMenu.classList.remove('open');
         this.ui.sbBtn.classList.remove('active-menu-btn');
         if (!this.isAnyMenuOpen()) this.player.container.classList.remove('menu-open');
@@ -141,19 +143,37 @@ class MenuSystem {
             return;
         }
 
+        let submitText = this.sbTempStart !== null ? "End Segment" : "Start Segment";
+
         const submitDiv = document.createElement('div');
         submitDiv.className = 'settings-item';
         submitDiv.innerHTML = `
             <div class="settings-label">
-                <span style="margin-left: 32px;">Submit Segment</span>
+                <span style="margin-left: 32px;">${submitText}</span>
             </div>
             <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
         `;
         submitDiv.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.ui.sbMenu.classList.add('show-submit');
-            this.setMenuHeight(document.getElementById('sbSubmitPane'), this.ui.sbMenu);
-            this.renderSbSubmitMenu();
+            
+            if (this.sbTempStart === null) {
+                this.sbTempStart = this.player.ui.mainVideo.currentTime;
+                this.renderSbMenu();
+            } else {
+                const endVal = this.player.ui.mainVideo.currentTime;
+                const startVal = this.sbTempStart;
+                this.sbTempStart = null; 
+
+                if (endVal <= startVal) {
+                    alert("End time must be greater than start time.");
+                    this.renderSbMenu();
+                    return;
+                }
+
+                this.ui.sbMenu.classList.add('show-submit');
+                this.setMenuHeight(document.getElementById('sbSubmitPane'), this.ui.sbMenu);
+                this.renderSbSubmitMenu(startVal, endVal);
+            }
         });
         pane.appendChild(submitDiv);
 
@@ -188,33 +208,18 @@ class MenuSystem {
         this.setMenuHeight(pane, this.ui.sbMenu);
     }
     
-    renderSbSubmitMenu() {
+    renderSbSubmitMenu(startVal, endVal) {
         document.getElementById('sbSubmitBackBtn').onclick = (e) => {
             e.stopPropagation();
             this.ui.sbMenu.classList.remove('show-submit');
             this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
         };
         
-        let startVal = 0, endVal = 0;
-        
-        document.getElementById('sbSetStartBtn').onclick = (e) => {
-            e.stopPropagation();
-            startVal = this.player.ui.mainVideo.currentTime;
-            document.getElementById('sbSubmitStartTxt').textContent = PlayerUtils.formatTime(startVal);
-        };
-        
-        document.getElementById('sbSetEndBtn').onclick = (e) => {
-            e.stopPropagation();
-            endVal = this.player.ui.mainVideo.currentTime;
-            document.getElementById('sbSubmitEndTxt').textContent = PlayerUtils.formatTime(endVal);
-        };
+        document.getElementById('sbSubmitStartTxt').textContent = PlayerUtils.formatTime(startVal);
+        document.getElementById('sbSubmitEndTxt').textContent = PlayerUtils.formatTime(endVal);
         
         document.getElementById('sbSubmitFinalBtn').onclick = async (e) => {
             e.stopPropagation();
-            if (endVal <= startVal) {
-                alert("End time must be greater than start time.");
-                return;
-            }
             const cat = document.getElementById('sbSubmitCategory').value;
             const btn = document.getElementById('sbSubmitFinalBtn');
             btn.textContent = "Submitting...";
@@ -226,6 +231,8 @@ class MenuSystem {
                 setTimeout(() => {
                     this.ui.sbMenu.classList.remove('show-submit');
                     this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
+                    btn.textContent = "Submit to API";
+                    btn.disabled = false;
                 }, 1500);
             } else {
                 btn.textContent = "Failed. Try Again.";

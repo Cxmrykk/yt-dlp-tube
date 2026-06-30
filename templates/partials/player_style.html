@@ -28,8 +28,8 @@
         background: rgba(0,0,0,0.6); border-radius: 50%; width: 70px; height: 70px;
         display: flex; align-items: center; justify-content: center;
         opacity: 0; pointer-events: none; transition: opacity 0.3s, transform 0.3s;
-        z-index: 15;
-        white-space: nowrap; padding: 0 15px;
+        z-index: 15; text-align: center;
+        padding: 5px; box-sizing: border-box;
     }
     .shortcut-overlay.show { opacity: 1; transform: translate(-50%, -50%) scale(1.2); transition: transform 0.1s; }
     .shortcut-overlay img.overlay-icon { width: 40px; height: 40px; }
@@ -145,17 +145,19 @@
     .controls-container button:active { transform: scale(0.9); }
     .controls-container button.active-menu-btn { opacity: 1; transform: rotate(30deg); }
     
-    /* PREVENT ROTATION ON THESE ICONS */
+    /* PREVENT ROTATION ON THESE ICONS (Only settings gear rotates) */
     .controls-container button#ccBtn.active-menu-btn,
     .controls-container button#cacheBtn.active-menu-btn,
     .controls-container button#sbBtn.active-menu-btn { transform: none; }
     
     #cacheBtn.active img { filter: drop-shadow(0 0 4px #4aff4a); }
-    #sbBtn.active-menu-btn svg { filter: drop-shadow(0 0 4px #4aff4a); fill: #4aff4a; }
 
     .controls-container img.control-icon {
         width: 28px; height: 28px; filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); transition: transform 0.3s ease;
         pointer-events: none;
+    }
+    .controls-container svg.control-icon {
+        filter: drop-shadow(0 1px 2px rgba(0,0,0,0.5)); pointer-events: none;
     }
 
     .time-display { color: #eee; font-size: 13px; user-select: none; font-variant-numeric: tabular-nums; }

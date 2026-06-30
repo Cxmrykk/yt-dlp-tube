@@ -88,7 +88,7 @@ class PlayerCore {
         void overlay.offsetWidth; 
         overlay.classList.add('show');
         clearTimeout(overlay.timeout); 
-        overlay.timeout = setTimeout(() => overlay.classList.remove('show'), 400);
+        overlay.timeout = setTimeout(() => overlay.classList.remove('show'), 250);
     }
 
     updateVolumeIcons() {

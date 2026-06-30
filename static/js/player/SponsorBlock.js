@@ -137,7 +137,7 @@ class SponsorBlock {
                     this.player.ui.mainVideo.muted = true;
                     this.player.updateVolumeIcons();
                     const catName = active.category.charAt(0).toUpperCase() + active.category.slice(1);
-                    this.player.showOverlay(`<div style="font-weight:bold; font-size:1.1rem; color:white; border-radius: 8px;">Muting ${catName}</div>`);
+                    this.player.showOverlay(`<div style="font-weight:bold; font-size:0.85rem; color:white; line-height:1.2;">Muting<br>${catName}</div>`);
                 }
                 this.activeSegment = active;
             } else {
@@ -171,7 +171,7 @@ class SponsorBlock {
         }
         
         const catName = seg.category.charAt(0).toUpperCase() + seg.category.slice(1);
-        this.player.showOverlay(`<div style="font-weight:bold; font-size:1.1rem; color:white; border-radius: 8px;">Skipped ${catName}</div>`);
+        this.player.showOverlay(`<div style="font-weight:bold; font-size:0.85rem; color:white; line-height:1.2;">Skipped<br>${catName}</div>`);
         this.hideSkipButton();
         this.reportView(seg.UUID);
     }
