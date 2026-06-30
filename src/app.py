@@ -1,7 +1,14 @@
 import os
+import sys
 import threading
 from datetime import timedelta
 from flask import Flask
+
+# Resolve the 'src' directory path and add it to sys.path
+# This preserves the original module imports without modifications
+src_dir = os.path.dirname(os.path.abspath(__file__))
+if src_dir not in sys.path:
+    sys.path.insert(0, src_dir)
 
 # Import sub-modules and blueprints
 from auth import auth_bp, init_auth
@@ -11,8 +18,15 @@ from views import views_bp
 from filters import register_filters
 from youtube import bg_worker_loop
 
-# Initialize Flask App
-app = Flask(__name__)
+# Define root directory to find templates and static assets
+ROOT_DIR = os.path.dirname(src_dir)
+
+# Initialize Flask App with custom folder paths pointing to the project root
+app = Flask(
+    __name__,
+    template_folder=os.path.join(ROOT_DIR, 'templates'),
+    static_folder=os.path.join(ROOT_DIR, 'static')
+)
 app.secret_key = init_auth()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
 
