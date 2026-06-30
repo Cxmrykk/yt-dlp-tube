@@ -32,6 +32,8 @@ class PlayerCore {
             settingsMenu: document.getElementById('settingsMenu'),
             cacheBtn: document.getElementById('cacheBtn'),
             cacheMenu: document.getElementById('cacheMenu'),
+            sbBtn: document.getElementById('sbBtn'),
+            sbMenu: document.getElementById('sbMenu'),
         };
 
         this.state = {
@@ -201,7 +203,6 @@ class PlayerCore {
         this.state.videoChapters = data.chapters || [];
         this.state.bestAudioUrl = data.best_audio ? PlayerUtils.getMediaProxyUrl(data.best_audio) : '';
         
-        // Trigger SponsorBlock load logic
         this.sponsorBlock.load(data.id);
         
         let targetRes = localStorage.getItem('prefRes') || 'auto';
@@ -213,7 +214,6 @@ class PlayerCore {
         let highestCachedMatch = null;
 
         for (let r of this.state.resolutionsList) {
-            // Backup the original fetched URL/audio states before any cache overrides
             if (!r.original_url) r.original_url = r.url;
             if (r.original_has_audio === undefined) r.original_has_audio = r.has_audio;
             

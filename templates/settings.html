@@ -25,26 +25,37 @@
         </label>
         
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Action Type:</label>
-        <select name="sb_action">
+        <select name="sb_action" style="margin-bottom: 20px;">
             <option value="auto_skip" {% if app_settings.sb_action == 'auto_skip' %}selected{% endif %}>Auto-Skip Segments</option>
             <option value="manual_skip" {% if app_settings.sb_action == 'manual_skip' %}selected{% endif %}>Show Skip Button (Manual)</option>
         </select>
         
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted); margin-top: 15px;">Categories to Target:</label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 15px;">
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Categories to Target:</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 25px;">
             {% set cats = [
-                ('sponsor', 'Sponsor'),
-                ('intro', 'Intro/Animation'),
-                ('outro', 'Outro/Credits'),
-                ('interaction', 'Interaction Reminder'),
-                ('selfpromo', 'Unpaid/Self Promo'),
-                ('music_offtopic', 'Non-Music/Off-Topic'),
-                ('filler', 'Filler Tangent')
+                ('sponsor', 'Sponsor'), ('intro', 'Intro/Animation'), ('outro', 'Outro/Credits'),
+                ('interaction', 'Interaction Reminder'), ('selfpromo', 'Unpaid/Self Promo'),
+                ('music_offtopic', 'Non-Music/Off-Topic'), ('filler', 'Filler Tangent')
             ] %}
             {% for c_val, c_name in cats %}
             <label style="display: flex; align-items: center; gap: 8px; color: white; font-size: 0.95rem; cursor: pointer;">
                 <input type="checkbox" name="sb_categories" value="{{ c_val }}" {% if c_val in app_settings.sb_categories %}checked{% endif %} style="width:auto; margin:0;"> 
                 {{ c_name }}
+            </label>
+            {% endfor %}
+        </div>
+        
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Timeline Colors:</label>
+        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; background: #222; padding: 15px; border-radius: 8px;">
+            {% set cat_colors = [
+                ('sponsor', 'Sponsor'), ('intro', 'Intro / Animation'), ('outro', 'Outro / Credits'),
+                ('interaction', 'Interaction'), ('selfpromo', 'Self Promo'), ('music_offtopic', 'Off-topic'),
+                ('preview', 'Preview / Recap'), ('poi_highlight', 'Highlight'), ('filler', 'Filler Tangent'), ('exclusive_access', 'Exclusive Access')
+            ] %}
+            {% for c_val, c_name in cat_colors %}
+            <label style="display: flex; align-items: center; justify-content: space-between; color: white; font-size: 0.90rem;">
+                {{ c_name }}
+                <input type="color" name="sb_color_{{ c_val }}" value="{{ app_settings.sb_colors.get(c_val, '#ffffff') }}" style="width: 50px; height: 30px; padding: 2px; border-radius: 4px; cursor: pointer; border: 1px solid #444; background: #111; margin-bottom: 0;">
             </label>
             {% endfor %}
         </div>

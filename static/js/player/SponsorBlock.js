@@ -1,14 +1,15 @@
 class SponsorBlock {
     constructor(player) {
         this.player = player;
-        this.config = window.APP_CONFIG.sbSettings || { enabled: false, action: 'auto_skip', categories: [] };
+        this.config = window.APP_CONFIG.sbSettings || { enabled: false, action: 'auto_skip', categories: [], colors: {}, userID: '' };
         
-        // Use a session-level toggle overridable via the menu
         this.sessionEnabled = this.config.enabled;
         
         this.segments = [];
         this.skippedUUIDs = new Set();
         this.activeSegment = null;
+        this.lastPassedSegment = null; 
+        this.isMutingSegment = false;
         
         this.ui = {
             container: document.getElementById('progressSb'),
@@ -16,25 +17,15 @@ class SponsorBlock {
             skipBtn: document.getElementById('sbSkipBtn')
         };
         
-        // Standard SponsorBlock hex mappings
-        this.colors = {
-            sponsor: '#00d400',
-            intro: '#00ffff',
-            outro: '#0202ed',
-            interaction: '#cc00ff',
-            selfpromo: '#ffff00',
-            music_offtopic: '#ff9900',
-            preview: '#008fd6',
-            poi_highlight: '#ff1684',
-            filler: '#7300FF',
-            exclusive_access: '#008a5c'
-        };
+        this.colors = this.config.colors || {};
+        if (!this.colors.sponsor) this.colors.sponsor = '#00d400';
 
         this.bindEvents();
     }
 
     bindEvents() {
         this.player.ui.mainVideo.addEventListener('loadedmetadata', () => this.drawMarkers());
+        this.player.ui.mainVideo.addEventListener('durationchange', () => this.drawMarkers());
         this.player.ui.mainVideo.addEventListener('timeupdate', () => this.checkSegments());
         
         this.ui.skipBtn.addEventListener('click', (e) => {
@@ -46,23 +37,28 @@ class SponsorBlock {
     load(videoId) {
         this.segments = [];
         this.skippedUUIDs.clear();
+        this.activeSegment = null;
+        this.lastPassedSegment = null;
+        this.isMutingSegment = false;
         this.ui.container.innerHTML = '';
         this.hideSkipButton();
         
         if (!this.sessionEnabled || !this.config.categories || this.config.categories.length === 0) return;
         
         const params = new URLSearchParams({ videoID: videoId });
-        this.config.categories.forEach(c => params.append('categories', c));
+        // The SponsorBlock API requires repeated singular keys for arrays
+        this.config.categories.forEach(c => params.append('category', c));
+        params.append('actionType', 'skip');
+        params.append('actionType', 'mute');
         
         fetch(`https://sponsor.ajay.app/api/skipSegments?${params.toString()}`)
             .then(r => {
-                if (r.status === 404) return []; // No segments found
+                if (r.status === 404) return []; 
                 if (!r.ok) throw new Error("SB API Failed");
                 return r.json();
             })
             .then(data => {
                 this.segments = data || [];
-                // If duration is already valid, draw immediately.
                 if (this.player.getValidDuration() > 0) this.drawMarkers();
             })
             .catch(e => console.warn('SponsorBlock error:', e));
@@ -73,8 +69,14 @@ class SponsorBlock {
         if (!isEnabled) {
             this.hideSkipButton();
             this.ui.container.innerHTML = '';
+            if (this.isMutingSegment) {
+                this.isMutingSegment = false;
+                if (this.player.ui.volumeSlider.value !== '0') {
+                    this.player.ui.mainVideo.muted = false;
+                    this.player.updateVolumeIcons();
+                }
+            }
         } else if (this.segments.length === 0 && this.player.state.currentVideoId) {
-            // Re-fetch if they turned it back on and we haven't loaded them yet
             this.load(this.player.state.currentVideoId);
         } else {
             this.drawMarkers();
@@ -106,6 +108,13 @@ class SponsorBlock {
         if (!this.sessionEnabled || this.player.state.isScrubbing || this.segments.length === 0) {
             this.hideSkipButton();
             this.activeSegment = null;
+            if (this.isMutingSegment) {
+                this.isMutingSegment = false;
+                if (this.player.ui.volumeSlider.value !== '0') {
+                    this.player.ui.mainVideo.muted = false;
+                    this.player.updateVolumeIcons();
+                }
+            }
             return;
         }
 
@@ -120,17 +129,37 @@ class SponsorBlock {
         }
 
         if (active) {
-            if (this.config.action === 'auto_skip') {
-                if (!this.skippedUUIDs.has(active.UUID)) {
-                    this.skipSegment(active);
+            this.lastPassedSegment = active;
+            
+            if (active.actionType === 'mute') {
+                if (!this.isMutingSegment) {
+                    this.isMutingSegment = true;
+                    this.player.ui.mainVideo.muted = true;
+                    this.player.updateVolumeIcons();
+                    const catName = active.category.charAt(0).toUpperCase() + active.category.slice(1);
+                    this.player.showOverlay(`<div style="font-weight:bold; font-size:1.1rem; color:white; border-radius: 8px;">Muting ${catName}</div>`);
                 }
-            } else {
                 this.activeSegment = active;
-                this.showSkipButton(active);
+            } else {
+                if (this.config.action === 'auto_skip') {
+                    if (!this.skippedUUIDs.has(active.UUID)) {
+                        this.skipSegment(active);
+                    }
+                } else {
+                    this.activeSegment = active;
+                    this.showSkipButton(active);
+                }
             }
         } else {
             this.activeSegment = null;
             this.hideSkipButton();
+            if (this.isMutingSegment) {
+                this.isMutingSegment = false;
+                if (this.player.ui.volumeSlider.value !== '0') {
+                    this.player.ui.mainVideo.muted = false;
+                    this.player.updateVolumeIcons();
+                }
+            }
         }
     }
 
@@ -144,6 +173,37 @@ class SponsorBlock {
         const catName = seg.category.charAt(0).toUpperCase() + seg.category.slice(1);
         this.player.showOverlay(`<div style="font-weight:bold; font-size:1.1rem; color:white; border-radius: 8px;">Skipped ${catName}</div>`);
         this.hideSkipButton();
+        this.reportView(seg.UUID);
+    }
+    
+    async reportView(uuid) {
+        try { await fetch(`https://sponsor.ajay.app/api/viewedVideoSponsorTime?UUID=${uuid}`, { method: 'POST' }); } catch(e){}
+    }
+    
+    async vote(uuid, isUpvote) {
+        if (!this.config.userID) return false;
+        const type = isUpvote ? 1 : 0;
+        const url = `https://sponsor.ajay.app/api/voteOnSponsorTime?UUID=${uuid}&userID=${this.config.userID}&type=${type}`;
+        try { 
+            await fetch(url, { method: 'POST' }); 
+            return true;
+        } catch(e) { return false; }
+    }
+    
+    async submitSegment(start, end, category) {
+        if (!this.config.userID) return false;
+        const body = {
+            videoID: this.player.state.currentVideoId,
+            userID: this.config.userID,
+            userAgent: "ytdlptube/1.0",
+            segments: [{ segment: [start, end], category: category, actionType: "skip" }]
+        };
+        try { 
+            const r = await fetch('https://sponsor.ajay.app/api/skipSegments', {
+                method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(body)
+            });
+            return r.ok;
+        } catch(e) { return false; }
     }
 
     showSkipButton(seg) {

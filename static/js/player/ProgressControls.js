@@ -100,6 +100,7 @@ class ProgressControls {
         
         this.ui.hoverTime.textContent = PlayerUtils.formatTime(hoverTime);
         
+        let chapText = '';
         const chapters = this.player.state.videoChapters;
         if (chapters && chapters.length > 0) {
             let currentCh = chapters[0];
@@ -107,10 +108,19 @@ class ProgressControls {
                 if (hoverTime >= chapters[i].start_time) currentCh = chapters[i];
                 else break;
             }
-            this.ui.hoverChapter.textContent = currentCh.title;
-        } else {
-            this.ui.hoverChapter.textContent = '';
+            chapText = currentCh.title;
         }
+
+        const sb = this.player.sponsorBlock;
+        if (sb && sb.sessionEnabled && sb.segments.length > 0) {
+            const seg = sb.segments.find(s => hoverTime >= s.segment[0] && hoverTime < s.segment[1]);
+            if (seg) {
+                const catName = seg.category.charAt(0).toUpperCase() + seg.category.slice(1);
+                if (chapText) chapText += ` (${catName})`;
+                else chapText = catName;
+            }
+        }
+        this.ui.hoverChapter.textContent = chapText;
 
         const tooltipWidth = 200;
         let pixelPos = percent * rect.width;

@@ -29,6 +29,44 @@
         </div>
     </div>
 
+    <!-- SponsorBlock Menu -->
+    <div class="settings-menu sb-menu-popup" id="sbMenu">
+        <div class="settings-panes-wrapper" id="sbWrapper">
+            <div class="settings-pane" id="sbMainPane"></div>
+            <div class="settings-pane" id="sbSubmitPane">
+                <div class="submenu-header" id="sbSubmitBackBtn">
+                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <span>Submit Segment</span>
+                </div>
+                <div id="sbSubmitContent" style="padding: 10px 15px;">
+                    <div style="display: flex; flex-direction: column; gap: 10px;">
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size:13.5px;">Start: <span id="sbSubmitStartTxt" style="font-weight:bold;">0:00</span></span>
+                            <button id="sbSetStartBtn" class="btn" style="padding: 4px 8px; font-size: 12px; border-radius:4px;">Set Current</button>
+                        </div>
+                        <div style="display: flex; justify-content: space-between; align-items: center;">
+                            <span style="font-size:13.5px;">End: <span id="sbSubmitEndTxt" style="font-weight:bold;">0:00</span></span>
+                            <button id="sbSetEndBtn" class="btn" style="padding: 4px 8px; font-size: 12px; border-radius:4px;">Set Current</button>
+                        </div>
+                        <select id="sbSubmitCategory" style="background: #222; color: #fff; border: 1px solid #444; border-radius: 4px; padding: 6px; width: 100%; font-size:13.5px; outline:none; margin-top: 5px;">
+                            <option value="sponsor">Sponsor</option>
+                            <option value="intro">Intro / Animation</option>
+                            <option value="outro">Outro / Credits</option>
+                            <option value="interaction">Interaction Reminder</option>
+                            <option value="selfpromo">Self Promo</option>
+                            <option value="music_offtopic">Non-Music / Off-topic</option>
+                            <option value="preview">Preview</option>
+                            <option value="poi_highlight">Highlight</option>
+                            <option value="filler">Filler Tangent</option>
+                        </select>
+                        <button id="sbSubmitFinalBtn" class="btn btn-danger" style="width: 100%; margin-top: 5px; justify-content:center;">Submit to API</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- CC Menu -->
     <div class="settings-menu cc-menu-popup" id="ccMenu">
         <div class="settings-panes-wrapper" id="ccWrapper">
             <div class="settings-pane" id="ccMainPane"></div>
@@ -91,6 +129,7 @@
         </div>
     </div>
 
+    <!-- Main Settings Menu -->
     <div class="settings-menu" id="settingsMenu">
         <div class="settings-panes-wrapper" id="settingsWrapper">
             <div class="settings-pane" id="mainPane">
@@ -107,13 +146,6 @@
                         <span>Quality</span>
                     </div>
                     <div class="settings-value"><span id="lbl-quality">Loading...</span> <img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
-                </div>
-                <div class="settings-item" data-menu="sponsorblock">
-                    <div class="settings-label">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="20px" height="20px"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
-                        <span>SponsorBlock</span>
-                    </div>
-                    <div class="settings-value"><span id="lbl-sb">Loading...</span> <img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
                 </div>
             </div>
             <div class="settings-pane" id="subPane">
@@ -168,6 +200,9 @@
                 <button id="cacheBtn" title="Download to Edge Cache">
                     <img src="/static/icons/download.svg" id="cacheIconDefault" class="control-icon" alt="Cache">
                     <img src="/static/icons/cloud-check.svg" id="cacheIconDone" class="control-icon" style="display:none;" alt="Cached">
+                </button>
+                <button id="sbBtn" title="SponsorBlock">
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" class="control-icon" style="width: 26px; height: 26px;"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
                 </button>
                 <button id="ccBtn" title="Subtitles/CC" style="display:none;">
                     <img src="/static/icons/cc-outline.svg" id="ccIconOutline" class="control-icon" alt="CC">

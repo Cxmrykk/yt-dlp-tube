@@ -1,7 +1,5 @@
 <script>
 (function() {
-    // 1. Inject server-side Jinja settings cleanly into a global config object
-    // This runs on every video load, ensuring fresh settings if updated via PJAX
     window.APP_CONFIG = {
         shortcuts: {
             pause: "{{ app_settings.shortcut_pause | default('Space') }}",
@@ -25,11 +23,12 @@
         sbSettings: {
             enabled: {{ 'true' if app_settings.sb_enabled else 'false' }},
             action: "{{ app_settings.sb_action }}",
-            categories: {{ app_settings.sb_categories | default([]) | tojson | safe }}
+            categories: {{ app_settings.sb_categories | default([]) | tojson | safe }},
+            colors: {{ app_settings.sb_colors | default({}) | tojson | safe }},
+            userID: "{{ app_settings.sb_userid }}"
         }
     };
 
-    // 2. Instantiate the player class
     const container = document.getElementById('videoContainer');
     if (container && typeof PlayerCore !== 'undefined') {
         window.ytPlayer = new PlayerCore(container);
@@ -37,7 +36,6 @@
         console.error("PlayerCore class not found. Ensure JS files are loaded in base.html.");
     }
     
-    // 3. Hooks called by watch.html API fetch resolution
     window.initializePlayer = function(data) {
         if (window.ytPlayer) window.ytPlayer.loadVideoData(data);
     };
@@ -49,7 +47,6 @@
         }
     };
     
-    // Optional setting compatibility called by resize observer or settings form
     window.updateCcStyles = function() {
         if (window.ytPlayer) window.ytPlayer.subtitles.updateCcStyles();
     };

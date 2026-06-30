@@ -22,26 +22,8 @@ class MenuSystem {
                 options: [], 
                 current: "", 
                 onSelect: (val, label) => this.player.changeResolution(val, label) 
-            },
-            sponsorblock: {
-                title: "SponsorBlock",
-                options: [
-                    { label: "Enabled", value: true },
-                    { label: "Disabled", value: false }
-                ],
-                current: window.APP_CONFIG.sbSettings && window.APP_CONFIG.sbSettings.enabled,
-                onSelect: (val, label) => {
-                    if (this.player.sponsorBlock) this.player.sponsorBlock.toggle(val);
-                    document.getElementById('lbl-sb').textContent = label;
-                }
             }
         };
-
-        // Initialize label text values early
-        const lblSb = document.getElementById('lbl-sb');
-        if (lblSb) {
-            lblSb.textContent = (window.APP_CONFIG.sbSettings && window.APP_CONFIG.sbSettings.enabled) ? "Enabled" : "Disabled";
-        }
 
         this.bindEvents();
     }
@@ -53,16 +35,16 @@ class MenuSystem {
     isAnyMenuOpen() {
         return this.ui.settingsMenu.classList.contains('open') || 
                this.ui.ccMenu.classList.contains('open') || 
-               this.ui.cacheMenu.classList.contains('open');
+               this.ui.cacheMenu.classList.contains('open') ||
+               (this.ui.sbMenu && this.ui.sbMenu.classList.contains('open'));
     }
 
     changeSpeed(direction) {
         const data = this.menuData.speed;
         let idx = data.options.findIndex(o => o.value === data.current);
-        if (idx === -1) idx = 3; // Default to Normal if weird state
+        if (idx === -1) idx = 3; 
         idx += direction;
         
-        // Clamp min/max limits
         if (idx < 0) idx = 0;
         if (idx >= data.options.length) idx = data.options.length - 1;
         
@@ -77,6 +59,7 @@ class MenuSystem {
     openSettingsMenu() { 
         this.closeCcMenu(); 
         this.player.cache.closeCacheMenu();
+        this.closeSbMenu();
         this.ui.settingsMenu.classList.add('open'); 
         this.ui.settingsBtn.classList.add('active-menu-btn'); 
         this.player.container.classList.add('menu-open'); 
@@ -86,9 +69,7 @@ class MenuSystem {
     closeSettingsMenu() {
         this.ui.settingsMenu.classList.remove('open'); 
         this.ui.settingsBtn.classList.remove('active-menu-btn'); 
-        if(!this.ui.ccMenu.classList.contains('open') && !this.ui.cacheMenu.classList.contains('open')) {
-            this.player.container.classList.remove('menu-open');
-        }
+        if(!this.isAnyMenuOpen()) this.player.container.classList.remove('menu-open');
         setTimeout(() => { 
             this.ui.settingsMenu.classList.remove('show-submenu'); 
             this.setMenuHeight(document.getElementById('mainPane'), this.ui.settingsMenu); 
@@ -98,6 +79,7 @@ class MenuSystem {
     openCcMenu() {
         this.closeSettingsMenu(); 
         this.player.cache.closeCacheMenu();
+        this.closeSbMenu();
         this.ui.ccMenu.classList.add('open');
         this.player.container.classList.add('menu-open');
         this.setMenuHeight(document.getElementById('ccMainPane'), this.ui.ccMenu);
@@ -105,13 +87,154 @@ class MenuSystem {
 
     closeCcMenu() {
         this.ui.ccMenu.classList.remove('open');
-        if(!this.ui.settingsMenu.classList.contains('open') && !this.ui.cacheMenu.classList.contains('open')) {
-            this.player.container.classList.remove('menu-open');
-        }
+        if(!this.isAnyMenuOpen()) this.player.container.classList.remove('menu-open');
         setTimeout(() => { 
             this.ui.ccMenu.classList.remove('show-submenu', 'show-options'); 
             this.setMenuHeight(document.getElementById('ccMainPane'), this.ui.ccMenu); 
         }, 300);
+    }
+    
+    openSbMenu() {
+        this.closeSettingsMenu(); 
+        this.closeCcMenu(); 
+        this.player.cache.closeCacheMenu();
+        this.ui.sbMenu.classList.add('open');
+        this.ui.sbBtn.classList.add('active-menu-btn');
+        this.player.container.classList.add('menu-open');
+        this.renderSbMenu();
+    }
+    
+    closeSbMenu() {
+        if (!this.ui.sbMenu) return;
+        this.ui.sbMenu.classList.remove('open');
+        this.ui.sbBtn.classList.remove('active-menu-btn');
+        if (!this.isAnyMenuOpen()) this.player.container.classList.remove('menu-open');
+        setTimeout(() => {
+            this.ui.sbMenu.classList.remove('show-submit');
+            this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
+        }, 300);
+    }
+    
+    renderSbMenu() {
+        const sb = this.player.sponsorBlock;
+        const pane = document.getElementById('sbMainPane');
+        pane.innerHTML = '';
+        
+        const toggleDiv = document.createElement('div');
+        toggleDiv.className = 'settings-item';
+        toggleDiv.innerHTML = `
+            <div class="settings-label">
+                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="20px" height="20px"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                <span>SponsorBlock</span>
+            </div>
+            <div class="settings-value">${sb.sessionEnabled ? 'Enabled' : 'Disabled'}</div>
+        `;
+        toggleDiv.addEventListener('click', (e) => {
+            e.stopPropagation();
+            sb.toggle(!sb.sessionEnabled);
+            this.renderSbMenu();
+        });
+        pane.appendChild(toggleDiv);
+
+        if (!sb.sessionEnabled) {
+            this.setMenuHeight(pane, this.ui.sbMenu);
+            return;
+        }
+
+        const submitDiv = document.createElement('div');
+        submitDiv.className = 'settings-item';
+        submitDiv.innerHTML = `
+            <div class="settings-label">
+                <span style="margin-left: 32px;">Submit Segment</span>
+            </div>
+            <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+        `;
+        submitDiv.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.ui.sbMenu.classList.add('show-submit');
+            this.setMenuHeight(document.getElementById('sbSubmitPane'), this.ui.sbMenu);
+            this.renderSbSubmitMenu();
+        });
+        pane.appendChild(submitDiv);
+
+        const activeSeg = sb.activeSegment || sb.lastPassedSegment;
+        if (activeSeg) {
+            const catName = activeSeg.category.charAt(0).toUpperCase() + activeSeg.category.slice(1);
+            
+            const infoDiv = document.createElement('div');
+            infoDiv.style.padding = '15px';
+            infoDiv.style.borderTop = '1px solid rgba(255,255,255,0.1)';
+            
+            infoDiv.innerHTML = `
+                <div style="font-weight: bold; margin-bottom: 8px; color: ${sb.colors[activeSeg.category] || '#fff'};">Segment: ${catName}</div>
+                <div style="display: flex; gap: 10px;">
+                    <button class="btn sb-vote-btn" data-vote="1" style="flex:1; padding:6px; font-size:12px;">👍 Upvote</button>
+                    <button class="btn sb-vote-btn" data-vote="0" style="flex:1; padding:6px; font-size:12px;">👎 Downvote</button>
+                </div>
+            `;
+            pane.appendChild(infoDiv);
+            
+            infoDiv.querySelectorAll('.sb-vote-btn').forEach(btn => {
+                btn.addEventListener('click', (e) => {
+                    e.stopPropagation();
+                    sb.vote(activeSeg.UUID, btn.dataset.vote === "1");
+                    btn.innerText = "Voted!";
+                    btn.disabled = true;
+                    btn.style.opacity = '0.5';
+                });
+            });
+        }
+        
+        this.setMenuHeight(pane, this.ui.sbMenu);
+    }
+    
+    renderSbSubmitMenu() {
+        document.getElementById('sbSubmitBackBtn').onclick = (e) => {
+            e.stopPropagation();
+            this.ui.sbMenu.classList.remove('show-submit');
+            this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
+        };
+        
+        let startVal = 0, endVal = 0;
+        
+        document.getElementById('sbSetStartBtn').onclick = (e) => {
+            e.stopPropagation();
+            startVal = this.player.ui.mainVideo.currentTime;
+            document.getElementById('sbSubmitStartTxt').textContent = PlayerUtils.formatTime(startVal);
+        };
+        
+        document.getElementById('sbSetEndBtn').onclick = (e) => {
+            e.stopPropagation();
+            endVal = this.player.ui.mainVideo.currentTime;
+            document.getElementById('sbSubmitEndTxt').textContent = PlayerUtils.formatTime(endVal);
+        };
+        
+        document.getElementById('sbSubmitFinalBtn').onclick = async (e) => {
+            e.stopPropagation();
+            if (endVal <= startVal) {
+                alert("End time must be greater than start time.");
+                return;
+            }
+            const cat = document.getElementById('sbSubmitCategory').value;
+            const btn = document.getElementById('sbSubmitFinalBtn');
+            btn.textContent = "Submitting...";
+            btn.disabled = true;
+            
+            const success = await this.player.sponsorBlock.submitSegment(startVal, endVal, cat);
+            if (success) {
+                btn.textContent = "Submitted!";
+                setTimeout(() => {
+                    this.ui.sbMenu.classList.remove('show-submit');
+                    this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
+                }, 1500);
+            } else {
+                btn.textContent = "Failed. Try Again.";
+                setTimeout(() => {
+                    btn.textContent = "Submit to API";
+                    btn.disabled = false;
+                }, 2000);
+            }
+        };
     }
 
     bindEvents() {
@@ -125,10 +248,18 @@ class MenuSystem {
             if (this.ui.ccMenu.classList.contains('open')) this.closeCcMenu(); 
             else this.openCcMenu(); 
         });
+        if (this.ui.sbBtn) {
+            this.ui.sbBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                if (this.ui.sbMenu.classList.contains('open')) this.closeSbMenu();
+                else this.openSbMenu();
+            });
+        }
 
         this.bodyMenuClick = (e) => { 
             if (!this.ui.settingsMenu.contains(e.target) && !this.ui.settingsBtn.contains(e.target)) this.closeSettingsMenu(); 
             if (!this.ui.ccMenu.contains(e.target) && !this.ui.ccBtn.contains(e.target)) this.closeCcMenu();
+            if (this.ui.sbMenu && !this.ui.sbMenu.contains(e.target) && !this.ui.sbBtn.contains(e.target)) this.closeSbMenu();
         };
         document.addEventListener('click', this.bodyMenuClick);
 
@@ -182,7 +313,6 @@ class MenuSystem {
             this.setMenuHeight(document.getElementById('ccMainPane'), this.ui.ccMenu); 
         });
 
-        // Volume Controls
         this.ui.muteBtn.addEventListener('click', () => this.player.toggleMute());
         this.ui.volumeSlider.addEventListener('input', (e) => {
             this.ui.mainVideo.volume = e.target.value; 
@@ -192,7 +322,6 @@ class MenuSystem {
             this.player.updateVolumeIcons();
         });
 
-        // Fullscreen Controls
         this.ui.fullscreenBtn.addEventListener('click', () => {
             if (!document.fullscreenElement && !document.webkitFullscreenElement) {
                 if (this.player.container.requestFullscreen) this.player.container.requestFullscreen();

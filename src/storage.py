@@ -1,6 +1,7 @@
 import json
 import os
 import threading
+import secrets
 from config import DATA_DIR
 
 SUBS_FILE = os.path.join(DATA_DIR, 'subscriptions.json')
@@ -42,18 +43,47 @@ DEFAULT_SETTINGS = {
     ],
     'sb_enabled': True,
     'sb_action': 'auto_skip',
-    'sb_categories': ['sponsor', 'intro', 'outro', 'interaction', 'selfpromo', 'music_offtopic']
+    'sb_categories': ['sponsor', 'intro', 'outro', 'interaction', 'selfpromo', 'music_offtopic'],
+    'sb_colors': {
+        'sponsor': '#00d400',
+        'intro': '#00ffff',
+        'outro': '#0202ed',
+        'interaction': '#cc00ff',
+        'selfpromo': '#ffff00',
+        'music_offtopic': '#ff9900',
+        'preview': '#008fd6',
+        'poi_highlight': '#ff1684',
+        'filler': '#7300FF',
+        'exclusive_access': '#008a5c'
+    }
 }
 
 def get_settings():
     with FILE_LOCK:
+        data = DEFAULT_SETTINGS.copy()
         if os.path.exists(SETTINGS_FILE):
             try:
                 with open(SETTINGS_FILE, 'r') as f:
-                    data = json.load(f)
-                    return {**DEFAULT_SETTINGS, **data}
+                    file_data = json.load(f)
+                    for k, v in file_data.items():
+                        data[k] = v
             except: pass
-        return DEFAULT_SETTINGS.copy()
+            
+        needs_save = False
+        if 'sb_userid' not in data:
+            data['sb_userid'] = secrets.token_hex(16)
+            needs_save = True
+            
+        if 'sb_colors' not in data or not isinstance(data['sb_colors'], dict):
+            data['sb_colors'] = DEFAULT_SETTINGS['sb_colors'].copy()
+            needs_save = True
+            
+        if needs_save:
+            tmp_file = SETTINGS_FILE + '.tmp'
+            with open(tmp_file, 'w') as f: json.dump(data, f)
+            os.replace(tmp_file, SETTINGS_FILE)
+            
+        return data
 
 def save_settings(settings):
     with FILE_LOCK:

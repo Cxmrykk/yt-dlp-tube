@@ -195,6 +195,16 @@ def settings_page():
             app_settings['sb_enabled'] = request.form.get('sb_enabled') == 'on'
             app_settings['sb_action'] = request.form.get('sb_action', 'auto_skip')
             app_settings['sb_categories'] = request.form.getlist('sb_categories')
+            
+            from storage import DEFAULT_SETTINGS
+            if 'sb_colors' not in app_settings:
+                app_settings['sb_colors'] = DEFAULT_SETTINGS['sb_colors'].copy()
+                
+            for k in DEFAULT_SETTINGS['sb_colors'].keys():
+                col = request.form.get(f'sb_color_{k}')
+                if col:
+                    app_settings['sb_colors'][k] = col
+                    
             save_settings(app_settings)
 
         elif action == 'update_cache_settings':
