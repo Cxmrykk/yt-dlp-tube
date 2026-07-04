@@ -110,8 +110,9 @@ class MenuSystem {
         this.ui.sbMenu.classList.remove('open');
         this.ui.sbBtn.classList.remove('active-menu-btn');
         if (!this.isAnyMenuOpen()) this.player.container.classList.remove('menu-open');
+        this.player.sponsorBlock.clearHighlight(); // Ensure highlight drops
         setTimeout(() => {
-            this.ui.sbMenu.classList.remove('show-submit');
+            this.ui.sbMenu.classList.remove('show-submit', 'show-rate');
             this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
         }, 300);
     }
@@ -132,7 +133,7 @@ class MenuSystem {
         `;
         toggleDiv.addEventListener('click', (e) => {
             e.stopPropagation();
-            this.sbTempStart = null; // Clear active state if toggled off
+            this.sbTempStart = null; 
             sb.toggle(!sb.sessionEnabled);
             this.renderSbMenu();
         });
@@ -179,40 +180,82 @@ class MenuSystem {
 
         const activeSeg = sb.activeSegment || sb.lastPassedSegment;
         if (activeSeg) {
-            const catName = activeSeg.category.charAt(0).toUpperCase() + activeSeg.category.slice(1);
-            
-            const infoDiv = document.createElement('div');
-            infoDiv.style.padding = '15px';
-            infoDiv.style.borderTop = '1px solid rgba(255,255,255,0.1)';
-            
-            infoDiv.innerHTML = `
-                <div style="font-weight: bold; margin-bottom: 8px; color: ${sb.colors[activeSeg.category] || '#fff'};">Segment: ${catName}</div>
-                <div style="display: flex; gap: 10px;">
-                    <button class="btn sb-vote-btn" data-vote="1" style="flex:1; padding:6px; font-size:12px;">👍 Upvote</button>
-                    <button class="btn sb-vote-btn" data-vote="0" style="flex:1; padding:6px; font-size:12px;">👎 Downvote</button>
+            const rateDiv = document.createElement('div');
+            rateDiv.className = 'settings-item';
+            rateDiv.innerHTML = `
+                <div class="settings-label">
+                    <span style="margin-left: 32px;">Rate Segment</span>
                 </div>
+                <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
             `;
-            pane.appendChild(infoDiv);
-            
-            infoDiv.querySelectorAll('.sb-vote-btn').forEach(btn => {
-                btn.addEventListener('click', (e) => {
-                    e.stopPropagation();
-                    sb.vote(activeSeg.UUID, btn.dataset.vote === "1");
-                    btn.innerText = "Voted!";
-                    btn.disabled = true;
-                    btn.style.opacity = '0.5';
-                });
+            rateDiv.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.ui.sbMenu.classList.add('show-rate');
+                // Build DOM inside pane first so measuring its height works immediately
+                this.renderSbRateMenu(activeSeg);
+                // Then apply the newly generated height
+                this.setMenuHeight(document.getElementById('sbRatePane'), this.ui.sbMenu);
+                sb.highlightSegment(activeSeg.UUID, true);
             });
+            pane.appendChild(rateDiv);
         }
         
         this.setMenuHeight(pane, this.ui.sbMenu);
+    }
+    
+    renderSbRateMenu(activeSeg) {
+        const sb = this.player.sponsorBlock;
+        const content = document.getElementById('sbRateContent');
+        content.innerHTML = '';
+        
+        const catName = activeSeg.category.charAt(0).toUpperCase() + activeSeg.category.slice(1);
+        
+        const headerInfo = document.createElement('div');
+        headerInfo.style.padding = '10px 16px 5px 16px';
+        headerInfo.style.fontSize = '13.5px';
+        headerInfo.style.color = '#ccc';
+        headerInfo.innerHTML = `Category: <span style="font-weight:bold; color:${sb.colors[activeSeg.category] || '#fff'};">${catName}</span>`;
+        content.appendChild(headerInfo);
+
+        const createVoteBtn = (isUpvote) => {
+            const btn = document.createElement('div');
+            btn.className = 'settings-item';
+            const svg = isUpvote 
+                ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#fff" width="20px" height="20px"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>`
+                : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#fff" width="20px" height="20px"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>`;
+            
+            btn.innerHTML = `
+                <div class="settings-label">
+                    ${svg}
+                    <span>${isUpvote ? 'Upvote' : 'Downvote'}</span>
+                </div>
+            `;
+            btn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                sb.vote(activeSeg.UUID, isUpvote);
+                btn.querySelector('span').innerText = 'Voted!';
+                btn.style.opacity = '0.5';
+                btn.style.pointerEvents = 'none';
+            });
+            return btn;
+        };
+
+        content.appendChild(createVoteBtn(true));
+        content.appendChild(createVoteBtn(false));
+
+        document.getElementById('sbRateBackBtn').onclick = (e) => {
+            e.stopPropagation();
+            this.ui.sbMenu.classList.remove('show-rate');
+            sb.highlightSegment(activeSeg.UUID, false);
+            this.renderSbMenu();
+        };
     }
     
     renderSbSubmitMenu(startVal, endVal) {
         document.getElementById('sbSubmitBackBtn').onclick = (e) => {
             e.stopPropagation();
             this.ui.sbMenu.classList.remove('show-submit');
-            this.renderSbMenu(); // Re-render the main pane to reset to "Start Segment"
+            this.renderSbMenu(); 
         };
         
         document.getElementById('sbSubmitStartTxt').textContent = PlayerUtils.formatTime(startVal);

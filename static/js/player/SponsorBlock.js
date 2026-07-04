@@ -46,7 +46,6 @@ class SponsorBlock {
         if (!this.sessionEnabled || !this.config.categories || this.config.categories.length === 0) return;
         
         const params = new URLSearchParams({ videoID: videoId });
-        // The SponsorBlock API requires repeated singular keys for arrays
         this.config.categories.forEach(c => params.append('category', c));
         params.append('actionType', 'skip');
         params.append('actionType', 'mute');
@@ -97,11 +96,24 @@ class SponsorBlock {
             
             const marker = document.createElement('div');
             marker.className = 'sb-marker';
+            marker.dataset.uuid = seg.UUID; // Track UUID for glow effect
             marker.style.left = `${(start / dur) * 100}%`;
             marker.style.width = `${((end - start) / dur) * 100}%`;
             marker.style.backgroundColor = this.colors[seg.category.toLowerCase()] || '#ffffff';
             this.ui.container.appendChild(marker);
         });
+    }
+    
+    highlightSegment(uuid, state) {
+        this.clearHighlight();
+        if (state) {
+            const marker = this.ui.container.querySelector(`.sb-marker[data-uuid="${uuid}"]`);
+            if (marker) marker.classList.add('glow-active');
+        }
+    }
+
+    clearHighlight() {
+        this.ui.container.querySelectorAll('.sb-marker.glow-active').forEach(m => m.classList.remove('glow-active'));
     }
 
     checkSegments() {
