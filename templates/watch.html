@@ -54,33 +54,35 @@
         
         {% include 'partials/player.html' %}
         
-        <h1 class="video-title" id="ui-title">Loading title...</h1>
+        <h1 class="video-title skeleton-box skel-line" id="ui-title" style="width: 75%; height: 2rem;"></h1>
         
         <div class="channel-header">
             <div class="channel-left">
                 <a href="#" id="ui-channel-link">
-                    <img id="ui-channel-icon" src="data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=">
+                    <div id="ui-channel-icon" class="skeleton-box skel-circle" style="width: 44px; height: 44px;"></div>
                 </a>
-                <div style="display: flex; flex-direction: column;">
-                    <a href="#" id="ui-channel-name" style="color: white; text-decoration: none; font-weight: bold; font-size: 1.1rem; line-height: 1.2;">
-                        Loading...
-                    </a>
-                    <span id="ui-channel-subs" style="color: var(--text-muted); font-size: 0.85rem;"></span>
+                <div style="display: flex; flex-direction: column; gap: 4px; margin-top: 2px;">
+                    <a href="#" id="ui-channel-name" class="skeleton-box skel-line" style="width: 140px; margin: 0; display: block;"></a>
+                    <span id="ui-channel-subs" class="skeleton-box skel-line" style="width: 90px; margin: 0; height: 0.9rem;"></span>
                 </div>
                 <button class="btn" id="ui-sub-btn" onclick="window.toggleSubscribe()" style="display:none; margin-left: 10px;">Subscribe</button>
             </div>
-            <div id="ui-video-stats" style="color: var(--text-muted); font-size: 0.95rem; font-weight: 500; background: #222; padding: 6px 12px; border-radius: 8px;"></div>
+            <div id="ui-video-stats" class="skeleton-box" style="width: 180px; height: 28px; border-radius: 8px;"></div>
         </div>
 
         <div class="desc-box" id="descBox">
             <div class="desc-fade" id="descFade" style="max-height: {{ app_settings.desc_preview_height | default(100) }}px;">
-                <div style="font-weight: bold; margin-bottom: 8px; color: white;">Description</div>
-                <div id="ui-desc" style="white-space: pre-wrap;">Loading description...</div>
+                <div id="ui-desc-label" style="font-weight: bold; margin-bottom: 8px; color: white; display: none;">Description</div>
+                <div id="ui-desc" style="white-space: pre-wrap;">
+                    <div class="skeleton-box skel-line"></div>
+                    <div class="skeleton-box skel-line"></div>
+                    <div class="skeleton-box skel-line short"></div>
+                </div>
             </div>
         </div>
         
         <div class="comments-section" style="flex-shrink: 0;" id="comments-scroll">
-            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 15px;">
+            <div id="ui-comments-header" style="display: none; justify-content: space-between; align-items: center; margin-bottom: 15px;">
                 <h3 style="margin: 0;">Comments</h3>
                 <select id="comment-sort" onchange="window.changeCommentSort()" style="background: #333; color: white; border: none; padding: 6px 12px; border-radius: 20px; font-weight: bold; outline: none; cursor: pointer; font-size: 0.85rem;">
                     <option value="top">Top Comments</option>
@@ -88,14 +90,30 @@
                 </select>
             </div>
             <div id="comments-container"></div>
-            <div id="comments-loader" style="color: var(--text-muted); font-weight: bold; padding: 10px 0;">Waiting for video data...</div>
+            <!-- Persistent Comments Sentinel -->
+            <div id="comments-sentinel" style="display: flex; gap: 12px; margin-bottom: 20px; opacity: 0; pointer-events: none; transition: opacity 0.3s ease;">
+                <div class="skeleton-box skel-circle" style="width: 40px; height: 40px; flex-shrink: 0;"></div>
+                <div class="skel-col">
+                    <div class="skel-line skeleton-box" style="width: 30%; height: 0.9rem;"></div>
+                    <div class="skel-line skeleton-box" style="margin-top: 4px;"></div>
+                    <div class="skel-line skeleton-box short"></div>
+                </div>
+            </div>
         </div>
     </div>
 
     <div class="suggested-list" id="suggested-scroll">
-        <h3 style="margin-top: 0; flex-shrink: 0;">Up Next</h3>
-        <div id="suggested-grid" style="display: flex; flex-direction: column; gap: 15px;"></div>
-        <div id="suggested-loader" style="text-align: center; padding: 10px; color: var(--text-muted); font-weight: bold;">Waiting for video data...</div>
+        <h3 id="ui-upnext-header" style="margin-top: 0; flex-shrink: 0; display: none;">Up Next</h3>
+        <div id="suggested-grid" style="display: flex; flex-direction: column; gap: 15px;">
+            <!-- Persistent Suggested Videos Sentinel -->
+            <div class="s-card" id="suggested-sentinel" style="opacity: 0; pointer-events: none; transition: opacity 0.3s ease;">
+                <div class="s-thumb skeleton-box"></div>
+                <div class="s-info skel-col">
+                    <div class="skel-line skeleton-box title" style="height: 1.2rem;"></div>
+                    <div class="skel-line skeleton-box short" style="height: 0.9rem;"></div>
+                </div>
+            </div>
+        </div>
     </div>
 </div>
 
@@ -138,26 +156,58 @@
     }
 
     let suggestedPage = 0; let suggestedLoading = false; let suggestedQuery = ""; let currentVideoId = "";
+    const suggestedSentinel = document.getElementById('suggested-sentinel');
+    const commentsSentinel = document.getElementById('comments-sentinel');
 
     window.appFetch(`/api/info?url=${encodeURIComponent(videoUrl)}`)
         .then(r => r.json())
         .then(data => {
             if(data.error) {
-                document.getElementById('video-skeleton').innerText = "Error: " + data.error;
+                const skel = document.getElementById('video-skeleton');
+                skel.innerText = "Error: " + data.error;
+                skel.style.alignItems = "center";
+                skel.style.justifyContent = "center";
                 return;
             }
 
-            document.getElementById('ui-title').innerText = data.title;
-            document.getElementById('ui-channel-name').innerText = data.uploader;
-            document.getElementById('ui-channel-name').href = getRelativeYtUrl(data.uploader_url);
+            document.getElementById('ui-desc-label').style.display = 'block';
+            document.getElementById('ui-comments-header').style.display = 'flex';
+            document.getElementById('ui-upnext-header').style.display = 'block';
+
+            const titleEl = document.getElementById('ui-title');
+            titleEl.innerText = data.title;
+            titleEl.classList.remove('skeleton-box', 'skel-line');
+            titleEl.style.width = 'auto';
+            titleEl.style.height = 'auto';
+
+            const nameEl = document.getElementById('ui-channel-name');
+            nameEl.innerText = data.uploader;
+            nameEl.classList.remove('skeleton-box', 'skel-line');
+            nameEl.style.width = 'auto';
+            nameEl.style.color = 'white';
+            nameEl.style.textDecoration = 'none';
+            nameEl.style.fontWeight = 'bold';
+            nameEl.style.fontSize = '1.1rem';
+            nameEl.style.lineHeight = '1.2';
+            nameEl.href = getRelativeYtUrl(data.uploader_url);
+            
             document.getElementById('ui-channel-link').href = getRelativeYtUrl(data.uploader_url);
             
+            const subsEl = document.getElementById('ui-channel-subs');
             if (data.subscriber_count) {
-                document.getElementById('ui-channel-subs').innerText = data.subscriber_count + ' subscribers';
+                subsEl.innerText = data.subscriber_count + ' subscribers';
+                subsEl.classList.remove('skeleton-box', 'skel-line');
+                subsEl.style.width = 'auto';
+                subsEl.style.height = 'auto';
+                subsEl.style.color = 'var(--text-muted)';
+                subsEl.style.fontSize = '0.85rem';
+            } else {
+                subsEl.style.display = 'none';
             }
             
             const rawFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.uploader)}&background=333&color=fff`;
-            document.getElementById('ui-channel-icon').src = getImgProxyUrl(data.channel_icon || rawFallback);
+            const iconWrap = document.getElementById('ui-channel-link');
+            iconWrap.innerHTML = `<img id="ui-channel-icon" src="${getImgProxyUrl(data.channel_icon || rawFallback)}" style="width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #333;">`;
             currentChannel = { url: data.uploader_url, name: data.uploader, icon: data.channel_icon || rawFallback };
             
             updateSubButton(data.is_subbed);
@@ -176,7 +226,17 @@
             let stats = [];
             if(data.view_count) stats.push(`${data.view_count} views`);
             if(data.time_ago) stats.push(data.time_ago);
-            document.getElementById('ui-video-stats').innerText = stats.join(' • ');
+            
+            const statsEl = document.getElementById('ui-video-stats');
+            statsEl.innerText = stats.join(' • ');
+            statsEl.classList.remove('skeleton-box');
+            statsEl.style.width = 'auto';
+            statsEl.style.height = 'auto';
+            statsEl.style.color = 'var(--text-muted)';
+            statsEl.style.fontSize = '0.95rem';
+            statsEl.style.fontWeight = '500';
+            statsEl.style.background = '#222';
+            statsEl.style.padding = '6px 12px';
 
             document.getElementById('ui-desc').innerText = data.description || "No description provided.";
             initDescription();
@@ -186,10 +246,9 @@
             suggestedQuery = data.search_query || data.id;
             currentVideoId = data.id;
             
-            suggObserver.observe(document.getElementById('suggested-loader'));
-            commentsObserver.observe(document.getElementById('comments-loader'));
+            suggObserver.observe(suggestedSentinel);
+            commentsObserver.observe(commentsSentinel);
 
-            // Preload comments and suggested immediately instead of waiting for scroll
             if (!suggestedLoading) loadSuggestedVideos();
             if (!commentsLoading && !commentsFinished) loadComments();
 
@@ -224,7 +283,10 @@
         })
         .catch(err => {
             if (err.name === 'AbortError') return;
-            document.getElementById('video-skeleton').innerText = "Failed to fetch video data.";
+            const skel = document.getElementById('video-skeleton');
+            skel.innerText = "Failed to fetch video data.";
+            skel.style.alignItems = "center";
+            skel.style.justifyContent = "center";
         });
 
     function updateSubButton(isSubbed) {
@@ -269,35 +331,49 @@
     function loadSuggestedVideos() {
         if (!suggestedQuery) return;
         suggestedLoading = true; suggestedPage++;
-        document.getElementById('suggested-loader').innerText = 'Loading suggested...';
+        
+        suggestedSentinel.style.opacity = '1';
         
         window.appFetch(`/api/videos?type=suggested&query=${encodeURIComponent(suggestedQuery)}&page=${suggestedPage}&current_id=${encodeURIComponent(currentVideoId)}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
-                    document.getElementById('suggested-grid').insertAdjacentHTML('beforeend', html);
+                    suggestedSentinel.insertAdjacentHTML('beforebegin', html);
+                    suggestedSentinel.style.opacity = '0';
+                    
+                    const newCardsCount = document.getElementById('suggested-grid').querySelectorAll('.unrevealed').length;
+                    const unlockDelay = (newCardsCount * 80) + 400;
+                    
                     revealStaggeredSuggested();
-                    suggestedLoading = false;
-                    document.getElementById('suggested-loader').innerText = 'Scroll for more';
+                    
                     setTimeout(() => {
-                        if (!suggestedLoading && !window.pageAbortController.signal.aborted) {
-                            const loader = document.getElementById('suggested-loader');
-                            const scrollArea = document.getElementById('suggested-scroll');
-                            if (loader.getBoundingClientRect().top <= scrollArea.getBoundingClientRect().bottom + 200) loadSuggestedVideos();
+                        if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
+                        
+                        suggestedLoading = false;
+                        
+                        const scrollArea = document.getElementById('suggested-scroll');
+                        if (suggestedSentinel.getBoundingClientRect().top <= scrollArea.getBoundingClientRect().bottom + 200) {
+                            loadSuggestedVideos();
                         }
-                    }, 100);
+                    }, unlockDelay);
                 } else { 
-                    document.getElementById('suggested-loader').style.display = "none"; 
-                    const endCard = `
-                    <div class="s-card unrevealed" style="cursor: default;">
+                    suggestedSentinel.innerHTML = `
                         <div class="s-thumb" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                             <img src="/static/icons/no-more.svg" style="width: 32px; height: 32px;" alt="No more">
                         </div>
-                    </div>`;
-                    document.getElementById('suggested-grid').insertAdjacentHTML('beforeend', endCard);
+                        <div class="s-info" style="justify-content: center;">
+                            <span class="s-channel" style="color: #555; font-weight: bold;">No more videos</span>
+                        </div>
+                    `;
+                    suggestedSentinel.style.opacity = '1';
                     revealStaggeredSuggested();
+                    // Leave loading = true to lock further requests
                 }
-            }).catch(err => { if(err.name === 'AbortError') return; });
+            }).catch(err => { 
+                if(err.name === 'AbortError') return; 
+                suggestedSentinel.style.opacity = '0';
+                suggestedLoading = false;
+            });
     }
 
     const suggObserver = new IntersectionObserver((entries) => {
@@ -316,13 +392,20 @@
     function loadComments() {
         if (commentsFinished) return;
         commentsLoading = true;
-        document.getElementById('comments-loader').innerText = (commentsPage === 1) ? 'Extracting comments...' : 'Loading more...';
+        
+        const container = document.getElementById('comments-container');
+        if (commentsPage === 1) {
+            container.innerHTML = '';
+        }
+        
+        commentsSentinel.style.opacity = '1';
+        
         const sortMode = document.getElementById('comment-sort').value;
         
         window.appFetch(`/api/comments?url=${encodeURIComponent(videoUrl)}&page=${commentsPage}&sort=${sortMode}`)
             .then(r => { if (!r.ok) throw new Error("Server Error"); return r.text(); })
             .then(html => {
-                if (html.trim() !== '') {
+                if (html.trim() !== '' && !html.includes("Comments not supported")) {
                     const temp = document.createElement('div');
                     temp.innerHTML = html;
                     
@@ -382,24 +465,36 @@
                                 if (parentBox) parentBox.style.display = 'block';
                                 if (countEl) countEl.innerText = (parseInt(countEl.innerText) || 0) + 1;
                             } else {
-                                document.getElementById('comments-container').appendChild(comment);
+                                container.appendChild(comment);
                             }
                         }
                     });
                     
                     Array.from(temp.children).forEach(child => {
-                        document.getElementById('comments-container').appendChild(child);
+                        container.appendChild(child);
                     });
 
-                    commentsPage++; commentsLoading = false;
-                    document.getElementById('comments-loader').innerText = 'Scroll for more comments';
+                    commentsSentinel.style.opacity = '0';
+
+                    setTimeout(() => {
+                        if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
+                        commentsPage++; 
+                        commentsLoading = false;
+                    }, 300);
                 } else {
                     commentsFinished = true;
-                    document.getElementById('comments-loader').innerText = (commentsPage === 1) ? '' : 'No more comments';
+                    if (commentsPage === 1 && html.includes("Comments not supported")) {
+                        container.innerHTML = html;
+                        commentsSentinel.style.display = 'none';
+                    } else if (commentsPage > 1) {
+                        commentsSentinel.innerHTML = `<div style="padding: 10px 0; color: var(--text-muted); font-weight: bold; width: 100%;">No more comments</div>`;
+                        commentsSentinel.style.opacity = '1';
+                    }
                 }
             }).catch(err => {
                 if(err.name === 'AbortError') return;
-                commentsLoading = false; document.getElementById('comments-loader').innerText = 'Failed to load comments.';
+                commentsSentinel.style.opacity = '0';
+                commentsLoading = false; 
             });
     }
 

@@ -3,12 +3,15 @@
 {% block content %}
 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; background: var(--card-bg); padding: 30px; border-radius: 12px; flex-wrap: wrap; gap: 15px;">
     <div style="display: flex; align-items: center; gap: 20px;">
-        <img id="ch-icon" src="{{ (channel_icon | proxy_image) if channel_icon else 'data:image/gif;base64,R0lGODlhAQABAAD/ACwAAAAAAQABAAACADs=' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #333;">
+        <div id="ch-icon-wrap">
+            <div id="ch-icon-skel" class="skeleton-box skel-circle" style="width: 100px; height: 100px; {{ 'display:none;' if not needs_fetch else '' }}"></div>
+            <img id="ch-icon" src="{{ (channel_icon | proxy_image) if channel_icon else '' }}" style="width: 100px; height: 100px; border-radius: 50%; object-fit: cover; background: #333; {{ 'display:none;' if needs_fetch else '' }}">
+        </div>
         <div>
-            <h1 id="ch-name" style="margin: 0 0 5px 0;">{{ channel_name }}</h1>
+            <h1 id="ch-name" class="{{ 'skeleton-box skel-line' if needs_fetch else '' }}" style="margin: 0 0 5px 0; {{ 'width: 250px; height: 2rem;' if needs_fetch else '' }}">{{ channel_name if not needs_fetch else '' }}</h1>
             <div style="display: flex; gap: 15px; color: var(--text-muted); font-size: 0.95rem; margin-bottom: 5px;">
-                <span id="ch-subs"></span>
-                <span>{{ url }}</span>
+                <span id="ch-subs" class="{{ 'skeleton-box skel-line' if needs_fetch else '' }}" style="{{ 'width: 120px;' if needs_fetch else '' }}"></span>
+                <span id="ch-url-span">{{ url }}</span>
             </div>
         </div>
     </div>
@@ -16,10 +19,21 @@
 </div>
 
 <div class="video-grid" id="video-grid">
-    <!-- JS will populate this -->
+    <!-- JS will populate videos before this sentinel -->
+    <div class="video-card" id="sentinel-card" style="opacity: 0; pointer-events: none; transition: opacity 0.3s ease;">
+        <div class="thumbnail skeleton-box"></div>
+        <div class="video-info">
+            <div class="skel-line skeleton-box title"></div>
+            <div class="skel-row">
+                <div class="channel-avatar skeleton-box skel-circle"></div>
+                <div class="skel-col">
+                    <div class="skel-line skeleton-box"></div>
+                    <div class="skel-line skeleton-box short"></div>
+                </div>
+            </div>
+        </div>
+    </div>
 </div>
-
-<div id="loader">Scroll down for more</div>
 
 <script>
 (function() {
@@ -40,12 +54,25 @@
         window.appFetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
             .then(r => r.json())
             .then(data => {
+                document.getElementById('ch-name').classList.remove('skeleton-box', 'skel-line');
+                document.getElementById('ch-name').style.width = 'auto';
+                document.getElementById('ch-name').style.height = 'auto';
                 document.getElementById('ch-name').innerText = data.name;
-                if (data.subscriber_count) document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers';
+                
+                const subsEl = document.getElementById('ch-subs');
+                subsEl.classList.remove('skeleton-box', 'skel-line');
+                subsEl.style.width = 'auto';
+                if (data.subscriber_count) subsEl.innerText = data.subscriber_count + ' subscribers';
+                else subsEl.style.display = 'none';
+
                 currentChannel.name = data.name;
                 
                 const rawFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=333&color=fff`;
-                document.getElementById('ch-icon').src = getImgProxyUrl(data.icon || rawFallback);
+                const iconEl = document.getElementById('ch-icon');
+                iconEl.src = getImgProxyUrl(data.icon || rawFallback);
+                iconEl.style.display = 'block';
+                document.getElementById('ch-icon-skel').style.display = 'none';
+                
                 currentChannel.icon = data.icon || rawFallback;
                 
                 isSubbed = data.is_subbed;
@@ -78,6 +105,7 @@
     }
 
     let page = 1; let loading = false; const reqType = "channel";
+    const sentinel = document.getElementById('sentinel-card');
     
     function revealStaggered() {
         const unrevealed = document.querySelectorAll('.unrevealed');
@@ -91,37 +119,44 @@
     }
     
     function loadVideos() {
-        loading = true; document.getElementById('loader').innerText = 'Loading videos...';
+        loading = true; 
+        sentinel.style.opacity = '1';
+
         window.appFetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(chUrl)}&page=${page}`)
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
-                    document.getElementById('video-grid').insertAdjacentHTML('beforeend', html);
+                    sentinel.insertAdjacentHTML('beforebegin', html);
+                    sentinel.style.opacity = '0';
+                    
+                    const newCardsCount = document.querySelectorAll('.unrevealed').length;
+                    const unlockDelay = (newCardsCount * 80) + 400; 
+                    
                     revealStaggered();
-                    loading = false;
-                    document.getElementById('loader').innerText = 'Scroll down for more';
+                    
                     setTimeout(() => {
-                        if (!loading && !window.pageAbortController.signal.aborted) {
-                            const rect = document.getElementById('loader').getBoundingClientRect();
-                            if (rect.top <= window.innerHeight + 200) { page++; loadVideos(); }
-                        }
-                    }, 100);
+                        if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
+                        
+                        loading = false;
+                        
+                        const rect = sentinel.getBoundingClientRect();
+                        if (rect.top <= window.innerHeight + 200) { page++; loadVideos(); }
+                    }, unlockDelay);
                 } else { 
-                    document.getElementById('loader').style.display = "none";
-                    const endCard = `
-                    <div class="video-card unrevealed" style="cursor: default;">
+                    sentinel.innerHTML = `
                         <div class="thumbnail" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                             <img src="/static/icons/no-more.svg" style="width: 48px; height: 48px; margin-bottom: 8px;" alt="No more">
-                            <span style="color: #555; font-weight: bold; font-size: 1.1rem;">No more videos</span>
+                            <span style="color: #555; font-weight: bold; font-size: 1.1rem; text-align: center;">No more videos</span>
                         </div>
-                    </div>`;
-                    document.getElementById('video-grid').insertAdjacentHTML('beforeend', endCard);
-                    revealStaggered();
+                    `;
+                    sentinel.style.opacity = '1';
                     loading = true; 
                 }
             }).catch(err => { 
                 if (err.name === 'AbortError') return;
-                loading = false; document.getElementById('loader').innerText = "Error loading videos. Scroll to retry."; 
+                sentinel.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted); font-weight: bold;">Error loading videos.</div>`;
+                sentinel.style.opacity = '1';
+                loading = false; 
             });
     }
 
@@ -129,7 +164,7 @@
         if (entries[0].isIntersecting && !loading) { loadVideos(); page++; }
     }, { rootMargin: "200px" });
 
-    observer.observe(document.getElementById('loader'));
+    observer.observe(sentinel);
 
     window.pageTeardown = function() {
         observer.disconnect();

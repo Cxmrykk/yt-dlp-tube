@@ -21,6 +21,17 @@
     .skeleton-loader { 
         position: absolute; top:0; left:0; width:100%; height:100%; display:flex; align-items:center; 
         justify-content:center; color: var(--text-muted); font-weight: bold; background: #111; z-index: 10;
+        overflow: hidden;
+    }
+
+    .video-loading-bar {
+        position: absolute; top: 0; left: -30%; width: 30%; height: 3px; background: #f03;
+        animation: indeterminate-bar 1.5s infinite ease-in-out;
+    }
+    @keyframes indeterminate-bar {
+        0% { left: -30%; width: 30%; }
+        50% { left: 30%; width: 70%; }
+        100% { left: 100%; width: 30%; }
     }
 
     .shortcut-overlay {

@@ -78,6 +78,7 @@
         
         #loader { text-align: center; padding: 20px; font-weight: bold; color: var(--text-muted); }
 
+        /* Skeleton Screen Base */
         .skeleton-box { position: relative; overflow: hidden; background-color: #222; }
         .skeleton-box::after {
             content: ""; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
@@ -86,6 +87,14 @@
         }
         @keyframes shimmer { 0% { transform: translateX(-100%); } 100% { transform: translateX(100%); } }
         
+        /* Skeleton Shapes */
+        .skel-line { height: 1em; border-radius: 4px; margin-bottom: 8px; }
+        .skel-line.short { width: 60%; }
+        .skel-line.title { height: 1.5rem; margin-bottom: 12px; }
+        .skel-circle { border-radius: 50%; }
+        .skel-col { display: flex; flex-direction: column; flex: 1; min-width: 0; }
+        .skel-row { display: flex; gap: 12px; align-items: flex-start; }
+
         .lazy-img { opacity: 0; transition: opacity 0.4s ease-in-out; }
         .lazy-img.loaded { opacity: 1; }
 
