@@ -229,7 +229,12 @@
     #sbMenu.show-submit #sbWrapper { transform: translateX(-33.3333%); }
     #sbMenu.show-rate #sbWrapper { transform: translateX(-66.6666%); }
     
-    .cache-menu-popup { right: 145px; width: 220px; }
+    /* MULTI-PANE CACHE & DOWNLOAD MENU */
+    .cache-menu-popup { right: 145px; width: 250px; }
+    #cacheWrapper { width: 300%; }
+    #cacheWrapper .settings-pane { width: 33.3333%; }
+    #cacheMenu.show-format #cacheWrapper { transform: translateX(-33.3333%); }
+    #cacheMenu.show-action #cacheWrapper { transform: translateX(-66.6666%); }
 
     .settings-item { display: flex; align-items: center; justify-content: space-between; padding: 12px 16px; cursor: pointer; font-size: 13.5px; transition: background 0.15s; }
     .settings-item:hover { background: rgba(255, 255, 255, 0.1); }

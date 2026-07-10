@@ -313,7 +313,7 @@ class MenuSystem {
         };
         document.addEventListener('click', this.bodyMenuClick);
 
-        document.querySelectorAll('.settings-item:not(#downloadCacheBtn):not(#removeCacheBtn)').forEach(item => {
+        document.querySelectorAll('.settings-item:not(#menuCacheActionBtn):not(#menuCacheDownloadBtn):not(#menuCacheRemoveBtn):not(#menuSubtitlesBtn):not(#cacheCopyBtn):not(#cacheDownloadFileBtn)').forEach(item => {
             if(!item.hasAttribute('data-menu')) return;
             item.addEventListener('click', (e) => {
                 e.stopPropagation(); 

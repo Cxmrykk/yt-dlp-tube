@@ -10,19 +10,73 @@
     <video id="vid-player" class="main-video" playsinline preload="auto" crossorigin="anonymous" style="display:none;"></video>
     <audio id="aud-player" preload="auto" style="display:none;"></audio>
     
+    <!-- Multi-pane Cache & Download Menu -->
     <div class="settings-menu cache-menu-popup" id="cacheMenu">
-        <div class="settings-panes-wrapper">
-            <div class="settings-pane" style="width: 100%;">
-                <div class="settings-item" id="downloadCacheBtn">
+        <div class="settings-panes-wrapper" id="cacheWrapper">
+            <!-- PANE 1: Main Cache Actions -->
+            <div class="settings-pane" id="cacheMainPane">
+                <div class="settings-item" id="menuCacheActionBtn">
+                    <div class="settings-label">
+                        <img src="/static/icons/download.svg" id="menuCacheActionIcon" alt="Cache">
+                        <span id="menuCacheActionText">Preload/Cache Video</span>
+                    </div>
+                </div>
+                <div class="settings-item" id="menuCacheDownloadBtn" style="display:none;">
                     <div class="settings-label">
                         <img src="/static/icons/download.svg" alt="Download">
                         <span>Download to Device</span>
                     </div>
                 </div>
-                <div class="settings-item" id="removeCacheBtn">
+                <div class="settings-item" id="menuCacheRemoveBtn" style="display:none;">
                     <div class="settings-label">
                         <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ff4a4a" style="width: 20px; height: 20px;"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
                         <span style="color: #ff4a4a; font-weight: 500;">Remove from Cache</span>
+                    </div>
+                </div>
+                <div style="height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0;"></div>
+                <div class="settings-item" id="menuSubtitlesBtn">
+                    <div class="settings-label">
+                        <img src="/static/icons/cc-outline.svg" style="width:20px; height:20px;" alt="Subtitles">
+                        <span>Download Subtitles</span>
+                    </div>
+                    <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                </div>
+            </div>
+
+            <!-- PANE 2: Subtitle Format Selection -->
+            <div class="settings-pane" id="cacheFormatPane">
+                <div class="submenu-header" id="cacheFormatBackBtn">
+                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <span>Select Format</span>
+                </div>
+                <div class="submenu-option selected" data-format="vtt">
+                    <img src="/static/icons/check.svg" class="check-icon" alt="Check">
+                    <span>.vtt (Original WebVTT)</span>
+                </div>
+                <div class="submenu-option" data-format="txt">
+                    <img src="/static/icons/check.svg" class="check-icon" alt="Check">
+                    <span>.txt (Continuous Text)</span>
+                </div>
+            </div>
+
+            <!-- PANE 3: Subtitle Output Action -->
+            <div class="settings-pane" id="cacheActionPane">
+                <div class="submenu-header" id="cacheActionBackBtn">
+                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <span>Output Action</span>
+                </div>
+                <div class="settings-item" id="cacheCopyBtn">
+                    <div class="settings-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" style="width:20px;height:20px;">
+                            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
+                        </svg>
+                        <span style="margin-left:4px;">Copy to Clipboard</span>
+                    </div>
+                </div>
+                <div class="settings-item" id="cacheDownloadFileBtn">
+                    <div class="settings-label">
+                        <img src="/static/icons/download.svg" style="width:20px;height:20px;" alt="Download">
+                        <span style="margin-left:4px;">Download File</span>
                     </div>
                 </div>
             </div>
@@ -203,7 +257,7 @@
                 <div class="time-display"><span id="currentTime">0:00</span> / <span id="duration">0:00</span></div>
             </div>
             <div class="controls-right">
-                <button id="cacheBtn" title="Download to Edge Cache">
+                <button id="cacheBtn" title="Download & Subtitles">
                     <img src="/static/icons/download.svg" id="cacheIconDefault" class="control-icon" alt="Cache">
                     <img src="/static/icons/cloud-check.svg" id="cacheIconDone" class="control-icon" style="display:none;" alt="Cached">
                 </button>

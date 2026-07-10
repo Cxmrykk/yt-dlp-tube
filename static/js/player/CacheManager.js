@@ -6,25 +6,74 @@ class CacheManager {
         this.progressCached = document.getElementById('progressCached');
         this.cacheIconDefault = document.getElementById('cacheIconDefault');
         this.cacheIconDone = document.getElementById('cacheIconDone');
-        this.downloadCacheBtn = document.getElementById('downloadCacheBtn');
-        this.removeCacheBtn = document.getElementById('removeCacheBtn');
-
+        
+        // New Menu DOM Elements
+        this.menuCacheActionBtn = document.getElementById('menuCacheActionBtn');
+        this.menuCacheActionText = document.getElementById('menuCacheActionText');
+        this.menuCacheDownloadBtn = document.getElementById('menuCacheDownloadBtn');
+        this.menuCacheRemoveBtn = document.getElementById('menuCacheRemoveBtn');
+        this.menuSubtitlesBtn = document.getElementById('menuSubtitlesBtn');
+        
+        this.selectedSubFormat = 'vtt';
+        
         this.bindEvents();
     }
 
     openCacheMenu() {
         this.player.menus.closeSettingsMenu();
         this.player.menus.closeCcMenu();
+        this.player.menus.closeSbMenu();
         this.ui.cacheMenu.classList.add('open');
         this.ui.cacheBtn.classList.add('active-menu-btn');
         this.player.container.classList.add('menu-open');
+        this.updateCacheUI();
     }
 
     closeCacheMenu() {
         this.ui.cacheMenu.classList.remove('open');
         this.ui.cacheBtn.classList.remove('active-menu-btn');
-        if(!this.ui.ccMenu.classList.contains('open') && !this.ui.settingsMenu.classList.contains('open')) {
+        if(!this.player.menus.isAnyMenuOpen()) {
             this.player.container.classList.remove('menu-open');
+        }
+        setTimeout(() => {
+            this.ui.cacheMenu.classList.remove('show-format', 'show-action');
+            if (document.getElementById('cacheMainPane')) {
+                this.player.menus.setMenuHeight(document.getElementById('cacheMainPane'), this.ui.cacheMenu);
+            }
+        }, 300);
+    }
+
+    updateCacheUI() {
+        if (this.player.state.isCurrentResCached) {
+            this.menuCacheActionBtn.style.display = 'none';
+            this.menuCacheDownloadBtn.style.display = 'flex';
+            this.menuCacheRemoveBtn.style.display = 'flex';
+            this.cacheIconDefault.style.display = 'none';
+            this.cacheIconDone.style.display = 'block';
+            this.ui.cacheBtn.classList.remove('active');
+        } else if (this.ui.cacheBtn.classList.contains('active')) {
+            // Downloading
+            this.menuCacheActionBtn.style.display = 'flex';
+            this.menuCacheActionText.textContent = "Cancel Caching";
+            this.menuCacheDownloadBtn.style.display = 'none';
+            this.menuCacheRemoveBtn.style.display = 'none';
+            this.cacheIconDefault.style.display = 'block';
+            this.cacheIconDone.style.display = 'none';
+        } else {
+            // Default
+            this.menuCacheActionBtn.style.display = 'flex';
+            this.menuCacheActionText.textContent = "Preload/Cache Video";
+            this.menuCacheDownloadBtn.style.display = 'none';
+            this.menuCacheRemoveBtn.style.display = 'none';
+            this.cacheIconDefault.style.display = 'block';
+            this.cacheIconDone.style.display = 'none';
+        }
+        
+        // Ensure menu height is correct if we are on the main pane
+        if (this.ui.cacheMenu.classList.contains('open') && 
+            !this.ui.cacheMenu.classList.contains('show-format') && 
+            !this.ui.cacheMenu.classList.contains('show-action')) {
+            this.player.menus.setMenuHeight(document.getElementById('cacheMainPane'), this.ui.cacheMenu);
         }
     }
 
@@ -45,10 +94,8 @@ class CacheManager {
                     if (ratio >= 1.0 && data.status === 'complete') {
                         this.player.state.isCurrentResCached = true;
                         clearInterval(this.cacheInterval);
-                        this.cacheIconDefault.style.display = 'none';
-                        this.cacheIconDone.style.display = 'block';
-                        this.ui.cacheBtn.classList.remove('active');
                         this.player.container.classList.add('is-cached');
+                        this.updateCacheUI();
                         
                         if (this.ui.mainVideo.src && !this.ui.mainVideo.src.includes('/proxy/local')) {
                             const currTime = this.ui.mainVideo.currentTime;
@@ -64,7 +111,6 @@ class CacheManager {
                             
                             const localUrl = `/proxy/local?key=${vidId}_${targetRes}`;
                             
-                            // Don't override previewVideo if it already has a seek-specific local resolution loaded
                             if (!this.ui.previewVideo.src.includes('/proxy/local')) {
                                 this.ui.previewVideo.src = localUrl;
                             }
@@ -89,16 +135,14 @@ class CacheManager {
                         }
                     } else if (ratio > 0 || data.status === 'downloading') {
                         this.player.state.isCurrentResCached = false;
-                        this.cacheIconDefault.style.display = 'block';
-                        this.cacheIconDone.style.display = 'none';
                         this.ui.cacheBtn.classList.add('active');
                         this.player.container.classList.remove('is-cached');
+                        this.updateCacheUI();
                     } else {
                         this.player.state.isCurrentResCached = false;
-                        this.cacheIconDefault.style.display = 'block';
-                        this.cacheIconDone.style.display = 'none';
                         this.ui.cacheBtn.classList.remove('active');
                         this.player.container.classList.remove('is-cached');
+                        this.updateCacheUI();
                     }
                 }).catch(()=>{});
 
@@ -125,8 +169,134 @@ class CacheManager {
         poll();
     }
 
+    // --- Subtitle Extraction & Processing Logic ---
+    
+    processSubtitle(text, format) {
+        if (!text) return "";
+
+        if (format === 'txt') {
+            let rawLines = text.split('\n');
+            let processedLines = [];
+
+            // 1. Initial Strip & Clean
+            for (let line of rawLines) {
+                line = line.trim();
+                if (!line) continue;
+                if (line.startsWith('WEBVTT')) continue;
+                if (line.startsWith('Kind:')) continue;
+                if (line.startsWith('Language:')) continue;
+                if (line.includes('-->')) continue; // Drop timeline
+
+                // Strip inline timing tags e.g., <00:00:01.520> and formatting tags <b>
+                line = line.replace(/<[^>]+>/g, '');
+                
+                // Unescape
+                line = line.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ');
+                
+                // Strip structural speaker arrows '>> ' for clean continuous reading
+                line = line.replace(/^>>\s*/g, '');
+                
+                line = line.trim();
+                // Prevent capturing solitary VTT block IDs
+                if (line && !/^\d+$/.test(line)) {
+                    processedLines.push(line);
+                }
+            }
+
+            // 2. Sliding-Window Deduplication (The Fix for YouTube's Rolling Captions)
+            let finalLines = [];
+            for (let line of processedLines) {
+                if (finalLines.length === 0) {
+                    finalLines.push(line);
+                    continue;
+                }
+                
+                let last = finalLines[finalLines.length - 1];
+                
+                // Skip exact duplicate
+                if (line === last) continue;
+                
+                // If the new line is an expansion of the last line (typing effect)
+                // e.g. "I went" -> "I went to the store"
+                if (line.startsWith(last)) {
+                    finalLines[finalLines.length - 1] = line;
+                    continue;
+                }
+                
+                // If the last line already fully contains this string (backwards overlapping cues)
+                if (last.startsWith(line)) {
+                    continue;
+                }
+                
+                finalLines.push(line);
+            }
+
+            // Join all survived unique statements into a beautiful continuous paragraph
+            return finalLines.join(' ');
+        }
+        
+        // Fallback (.vtt format returns completely raw & unaltered)
+        return text;
+    }
+
+    async getSubtitleContent() {
+        let subUrl = null;
+        let subLabel = "Subtitle";
+        
+        // 1. Check if a track is actively showing
+        const tracks = this.player.ui.mainVideo.textTracks;
+        for (let i = 0; i < tracks.length; i++) {
+            if (tracks[i].mode === 'showing') {
+                const trackEl = this.player.ui.mainVideo.querySelector(`track[srclang="${tracks[i].language}"][label="${tracks[i].label}"]`);
+                if (trackEl) {
+                    subUrl = trackEl.src;
+                    subLabel = tracks[i].label;
+                    break;
+                }
+            }
+        }
+        
+        // 2. If nothing is showing, fallback to our standard 'best fit' default logic
+        if (!subUrl) {
+            const bestVal = this.player.subtitles.getBestSubVal(); 
+            if (bestVal !== "off") {
+                const [lang, label] = bestVal.split('|');
+                const trackEl = this.player.ui.mainVideo.querySelector(`track[srclang="${lang}"]`);
+                if (trackEl) {
+                    subUrl = trackEl.src;
+                    subLabel = label;
+                }
+            }
+        }
+        
+        if (!subUrl) {
+            alert("No subtitles available for this video.");
+            return null;
+        }
+        
+        try {
+            const resp = await fetch(subUrl);
+            const text = await resp.text();
+            return { text: this.processSubtitle(text, this.selectedSubFormat), label: subLabel };
+        } catch (e) {
+            alert("Failed to fetch subtitles. Are you offline?");
+            return null;
+        }
+    }
+
     bindEvents() {
+        // Main Toolbar Button -> Just toggles the menu now
         this.ui.cacheBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (this.ui.cacheMenu.classList.contains('open')) {
+                this.closeCacheMenu();
+            } else {
+                this.openCacheMenu();
+            }
+        });
+
+        // 1. Edge Cache Video Action
+        this.menuCacheActionBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if(!this.player.state.currentVideoId) return;
             
@@ -136,12 +306,6 @@ class CacheManager {
             
             const lowestResObj = this.player.state.resolutionsList.length ? this.player.state.resolutionsList[this.player.state.resolutionsList.length - 1] : null;
             const lowestRes = lowestResObj ? lowestResObj.height : null;
-            
-            if (this.player.state.isCurrentResCached) {
-                if (this.ui.cacheMenu.classList.contains('open')) this.closeCacheMenu();
-                else this.openCacheMenu();
-                return;
-            }
 
             if (this.ui.cacheBtn.classList.contains('active')) {
                 // Cancel ongoing download
@@ -153,10 +317,9 @@ class CacheManager {
                     if (this.cacheInterval) clearInterval(this.cacheInterval);
                     this.player.state.isCurrentResCached = false;
                     this.ui.cacheBtn.classList.remove('active');
-                    this.cacheIconDefault.style.display = 'block';
-                    this.cacheIconDone.style.display = 'none';
                     this.progressCached.style.width = '0%';
                     this.player.container.classList.remove('is-cached');
+                    this.updateCacheUI();
                 });
                 
                 if (lowestRes && lowestRes !== targetRes) {
@@ -170,6 +333,8 @@ class CacheManager {
             }
             
             this.ui.cacheBtn.classList.add('active');
+            this.updateCacheUI();
+            
             const meta = {
                 title: document.getElementById('ui-title').textContent,
                 uploader: document.getElementById('ui-channel-name').textContent,
@@ -187,6 +352,7 @@ class CacheManager {
             }).catch(err => {
                 if (err.name !== 'AbortError') alert("Failed to start caching");
                 this.ui.cacheBtn.classList.remove('active');
+                this.updateCacheUI();
             });
 
             if (lowestRes && lowestRes !== targetRes) {
@@ -198,7 +364,8 @@ class CacheManager {
             }
         });
 
-        this.downloadCacheBtn.addEventListener('click', (e) => {
+        // Download Complete Cache to Device
+        this.menuCacheDownloadBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if(!this.player.state.currentVideoId) return;
             
@@ -213,66 +380,152 @@ class CacheManager {
             this.closeCacheMenu();
         });
 
-        if (this.removeCacheBtn) {
-            this.removeCacheBtn.addEventListener('click', (e) => {
-                e.stopPropagation();
-                if (!this.player.state.currentVideoId) return;
+        // Remove from Edge Cache
+        this.menuCacheRemoveBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            if (!this.player.state.currentVideoId) return;
+            
+            const resStr = document.getElementById('lbl-quality').textContent;
+            const resMatch = resStr.match(/(\d+)p/);
+            const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
+            
+            const lowestResObj = this.player.state.resolutionsList.length ? this.player.state.resolutionsList[this.player.state.resolutionsList.length - 1] : null;
+            const lowestRes = lowestResObj ? lowestResObj.height : null;
+            
+            window.appFetch('/api/cache/remove', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: targetRes })
+            }).then(() => {
+                this.closeCacheMenu();
+                this.player.state.isCurrentResCached = false;
+                this.ui.cacheBtn.classList.remove('active');
+                this.progressCached.style.width = '0%';
+                this.player.container.classList.remove('is-cached');
+                this.updateCacheUI();
                 
-                const resStr = document.getElementById('lbl-quality').textContent;
-                const resMatch = resStr.match(/(\d+)p/);
-                const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
-                
-                const lowestResObj = this.player.state.resolutionsList.length ? this.player.state.resolutionsList[this.player.state.resolutionsList.length - 1] : null;
-                const lowestRes = lowestResObj ? lowestResObj.height : null;
-                
+                // Downgrade playing track off of localhost immediately
+                const resObj = this.player.state.resolutionsList.find(r => r.height === targetRes);
+                if (resObj && resObj.original_url && this.ui.mainVideo.src.includes('/proxy/local')) {
+                    const proxyUrl = PlayerUtils.getMediaProxyUrl(resObj.original_url);
+                    resObj.url = proxyUrl;
+                    resObj.has_audio = resObj.original_has_audio !== undefined ? resObj.original_has_audio : resObj.has_audio;
+                    resObj.is_cached = false;
+                    
+                    const menuOpt = this.player.menus.menuData.quality.options.find(o => o.label.includes(targetRes + 'p'));
+                    if (menuOpt) menuOpt.value = proxyUrl;
+                    
+                    this.player.changeResolution(proxyUrl, menuOpt ? menuOpt.label : targetRes + 'p');
+                }
+            });
+            
+            if (lowestRes && lowestRes !== targetRes) {
                 window.appFetch('/api/cache/remove', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: targetRes })
-                }).then(() => {
-                    this.closeCacheMenu();
-                    this.player.state.isCurrentResCached = false;
-                    this.ui.cacheBtn.classList.remove('active');
-                    this.cacheIconDefault.style.display = 'block';
-                    this.cacheIconDone.style.display = 'none';
-                    this.progressCached.style.width = '0%';
-                    this.player.container.classList.remove('is-cached');
-                    
-                    // Immediately downgrade out of local fallback if currently playing the removed cache file
-                    const resObj = this.player.state.resolutionsList.find(r => r.height === targetRes);
-                    if (resObj && resObj.original_url && this.ui.mainVideo.src.includes('/proxy/local')) {
-                        const proxyUrl = PlayerUtils.getMediaProxyUrl(resObj.original_url);
-                        resObj.url = proxyUrl;
-                        resObj.has_audio = resObj.original_has_audio !== undefined ? resObj.original_has_audio : resObj.has_audio;
-                        resObj.is_cached = false;
-                        
-                        const menuOpt = this.player.menus.menuData.quality.options.find(o => o.label.includes(targetRes + 'p'));
-                        if (menuOpt) menuOpt.value = proxyUrl;
-                        
-                        this.player.changeResolution(proxyUrl, menuOpt ? menuOpt.label : targetRes + 'p');
-                    }
+                    body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: lowestRes })
                 });
                 
-                if (lowestRes && lowestRes !== targetRes) {
-                    window.appFetch('/api/cache/remove', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: lowestRes })
-                    });
-                    
-                    const resObj = this.player.state.resolutionsList.find(r => r.height === lowestRes);
-                    if (resObj && resObj.original_url) {
-                        resObj.url = resObj.original_url;
-                        resObj.is_cached = false;
-                        this.ui.previewVideo.src = PlayerUtils.getMediaProxyUrl(resObj.original_url);
-                    }
+                const resObj = this.player.state.resolutionsList.find(r => r.height === lowestRes);
+                if (resObj && resObj.original_url) {
+                    resObj.url = resObj.original_url;
+                    resObj.is_cached = false;
+                    this.ui.previewVideo.src = PlayerUtils.getMediaProxyUrl(resObj.original_url);
                 }
-            });
-        }
+            }
+        });
 
+        // --- Subtitle Menu Navigation & Actions ---
+
+        this.menuSubtitlesBtn.addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.ui.cacheMenu.classList.add('show-format');
+            this.player.menus.setMenuHeight(document.getElementById('cacheFormatPane'), this.ui.cacheMenu);
+        });
+
+        document.getElementById('cacheFormatBackBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.ui.cacheMenu.classList.remove('show-format');
+            this.player.menus.setMenuHeight(document.getElementById('cacheMainPane'), this.ui.cacheMenu);
+        });
+
+        document.querySelectorAll('#cacheFormatPane .submenu-option').forEach(opt => {
+            opt.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.selectedSubFormat = opt.getAttribute('data-format');
+                
+                // Update checkmarks visually
+                document.querySelectorAll('#cacheFormatPane .submenu-option').forEach(o => o.classList.remove('selected'));
+                opt.classList.add('selected');
+
+                this.ui.cacheMenu.classList.add('show-action');
+                this.player.menus.setMenuHeight(document.getElementById('cacheActionPane'), this.ui.cacheMenu);
+            });
+        });
+
+        document.getElementById('cacheActionBackBtn').addEventListener('click', (e) => {
+            e.stopPropagation();
+            this.ui.cacheMenu.classList.remove('show-action');
+            this.player.menus.setMenuHeight(document.getElementById('cacheFormatPane'), this.ui.cacheMenu);
+        });
+
+        // Action: Copy to Clipboard
+        document.getElementById('cacheCopyBtn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const textSpan = e.currentTarget.querySelector('span');
+            const origText = textSpan.textContent;
+            textSpan.textContent = "Processing...";
+            
+            const data = await this.getSubtitleContent();
+            if (data) {
+                try {
+                    await navigator.clipboard.writeText(data.text);
+                    textSpan.textContent = "Copied to Clipboard!";
+                } catch (err) {
+                    textSpan.textContent = "Clipboard Error";
+                }
+            } else {
+                textSpan.textContent = "Subtitle Error";
+            }
+            setTimeout(() => { textSpan.textContent = origText; }, 2000);
+        });
+
+        // Action: Download File
+        document.getElementById('cacheDownloadFileBtn').addEventListener('click', async (e) => {
+            e.stopPropagation();
+            const textSpan = e.currentTarget.querySelector('span');
+            const origText = textSpan.textContent;
+            textSpan.textContent = "Processing...";
+            
+            const data = await this.getSubtitleContent();
+            if (data) {
+                const blob = new Blob([data.text], { type: "text/plain" });
+                const url = URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.href = url;
+                
+                const rawTitle = document.getElementById('ui-title').textContent || "Video";
+                const safeTitle = rawTitle.replace(/[^a-z0-9 ]/gi, '').trim().replace(/ /g, '_');
+                
+                a.download = `${safeTitle}_${data.label}.${this.selectedSubFormat}`;
+                document.body.appendChild(a);
+                a.click();
+                document.body.removeChild(a);
+                URL.revokeObjectURL(url);
+                
+                textSpan.textContent = "Downloaded!";
+            } else {
+                textSpan.textContent = "Subtitle Error";
+            }
+            setTimeout(() => { textSpan.textContent = origText; }, 2000);
+        });
+
+        // Global Body Click to Close
         this.bodyClick = (e) => {
             if (!this.ui.cacheMenu.contains(e.target) && !this.ui.cacheBtn.contains(e.target)) {
-                this.closeCacheMenu();
+                if (this.ui.cacheMenu.classList.contains('open')) {
+                    this.closeCacheMenu();
+                }
             }
         };
         document.addEventListener('click', this.bodyClick);
