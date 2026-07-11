@@ -329,8 +329,9 @@
     }
     
     function loadSuggestedVideos() {
-        if (!suggestedQuery) return;
-        suggestedLoading = true; suggestedPage++;
+        if (!suggestedQuery || suggestedLoading) return;
+        suggestedLoading = true; 
+        suggestedPage++;
         
         suggestedSentinel.style.opacity = '1';
         
@@ -373,6 +374,7 @@
                 if(err.name === 'AbortError') return; 
                 suggestedSentinel.style.opacity = '0';
                 suggestedLoading = false;
+                suggestedPage--;
             });
     }
 
@@ -405,7 +407,16 @@
         window.appFetch(`/api/comments?url=${encodeURIComponent(videoUrl)}&page=${commentsPage}&sort=${sortMode}`)
             .then(r => { if (!r.ok) throw new Error("Server Error"); return r.text(); })
             .then(html => {
-                if (html.trim() !== '' && !html.includes("Comments not supported")) {
+                if (html.includes("comment-error")) {
+                    commentsFinished = true;
+                    if (commentsPage === 1) {
+                        container.innerHTML = html;
+                        commentsSentinel.style.display = 'none';
+                    } else {
+                        commentsSentinel.innerHTML = html;
+                        commentsSentinel.style.opacity = '1';
+                    }
+                } else if (html.trim() !== '') {
                     const temp = document.createElement('div');
                     temp.innerHTML = html;
                     
@@ -483,12 +494,11 @@
                     }, 300);
                 } else {
                     commentsFinished = true;
-                    if (commentsPage === 1 && html.includes("Comments not supported")) {
-                        container.innerHTML = html;
-                        commentsSentinel.style.display = 'none';
-                    } else if (commentsPage > 1) {
+                    if (commentsPage > 1) {
                         commentsSentinel.innerHTML = `<div style="padding: 10px 0; color: var(--text-muted); font-weight: bold; width: 100%;">No more comments</div>`;
                         commentsSentinel.style.opacity = '1';
+                    } else {
+                        commentsSentinel.style.display = 'none';
                     }
                 }
             }).catch(err => {

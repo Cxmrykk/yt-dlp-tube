@@ -42,6 +42,7 @@
     }
     
     function loadVideos() {
+        if (loading) return;
         loading = true;
         sentinel.style.opacity = '1';
         
@@ -49,10 +50,9 @@
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
-                    // Inject the real video cards immediately before the sentinel
-                    sentinel.insertAdjacentHTML('beforebegin', html);
+                    page++; // Increment strictly after a successful fetch yields data
                     
-                    // Hide sentinel back to reserve +1 space silently
+                    sentinel.insertAdjacentHTML('beforebegin', html);
                     sentinel.style.opacity = '0';
                     
                     const newCardsCount = document.querySelectorAll('.unrevealed').length;
@@ -65,15 +65,12 @@
                         
                         loading = false;
                         
-                        // Check if we immediately need to load more
                         const rect = sentinel.getBoundingClientRect();
                         if (rect.top <= window.innerHeight + 200) {
-                            page++;
                             loadVideos();
                         }
                     }, unlockDelay);
                 } else {
-                    // Turn the sentinel into the permanent "No more videos" card
                     sentinel.innerHTML = `
                         <div class="thumbnail" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
                             <img src="/static/icons/no-more.svg" style="width: 48px; height: 48px; margin-bottom: 8px;" alt="No more">
@@ -95,7 +92,6 @@
     const observer = new IntersectionObserver((entries) => {
         if (entries[0].isIntersecting && !loading) {
             loadVideos();
-            page++;
         }
     }, { rootMargin: "200px" });
 

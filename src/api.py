@@ -272,7 +272,15 @@ def api_videos():
             info = ydl.extract_info(f"ytsearch{fetch_end}:{query}", download=False)
             videos = info.get('entries', []) if info else []
             
-        if current_id: videos = [v for v in videos if v.get('id') != current_id]
+        if current_id:
+            filtered = []
+            for v in videos:
+                v_id = v.get('id', '')
+                v_url = v.get('url', '')
+                if current_id != v_id and current_id not in v_url:
+                    filtered.append(v)
+            videos = filtered
+            
         videos = videos[:per_page]
         fetch_missing_icons(videos)
         return render_template('partials/suggested_cards.html', videos=videos)
@@ -312,24 +320,24 @@ def api_comments():
                 info = ydl.extract_info(url, download=False, process=True)
                 if not info or info.get('_type') in ('playlist', 'multi_video'):
                     ydl.close()
-                    return "<p style='color:var(--text-muted);'>Comments not supported.</p>"
+                    return "<p class='comment-error' style='color:var(--text-muted);'>Comments not supported.</p>"
                 lazy_list = info.get('comments')
                 if lazy_list is None:
                     ydl.close()
-                    return "<p style='color:var(--text-muted);'>Comments disabled or not supported.</p>"
+                    return "<p class='comment-error' style='color:var(--text-muted);'>Comments disabled or not supported.</p>"
                 COMMENTS_CACHE[cache_key] = { 'lazy_list': lazy_list, 'ydl': ydl, 'exhausted': False }
             except Exception as e:
                 ydl.close()
-                return f"<p style='color:var(--accent);'>Error initializing comments: {e}</p>"
+                return f"<p class='comment-error' style='color:var(--accent);'>Error initializing comments: {e}</p>"
         cache_data = COMMENTS_CACHE[cache_key]
 
     try: chunk_plus_one = cache_data['lazy_list'][target_start : target_end + 1]
-    except Exception as e: return f"<p style='color:var(--accent);'>Error loading comments: {e}</p>"
+    except Exception as e: return f"<p class='comment-error' style='color:var(--accent);'>Error loading comments: {e}</p>"
 
     chunk = chunk_plus_one[:per_page]
     with COMMENTS_LOCK:
         if len(chunk_plus_one) <= per_page: cache_data['exhausted'] = True
-    if not chunk: return "" if page > 1 else "<p style='color:var(--text-muted);'>No comments found.</p>"
+    if not chunk: return "" if page > 1 else "<p class='comment-error' style='color:var(--text-muted);'>No comments found.</p>"
     return render_template('partials/comments.html', comments=chunk)
 
 @api_bp.route('/api/save_cc_settings', methods=['POST'])

@@ -121,6 +121,7 @@
     }
     
     function loadVideos() {
+        if (loading) return;
         loading = true; 
         sentinel.style.opacity = '1';
 
@@ -128,6 +129,8 @@
             .then(r => r.text())
             .then(html => {
                 if(html.trim() !== '') {
+                    page++;
+                    
                     sentinel.insertAdjacentHTML('beforebegin', html);
                     sentinel.style.opacity = '0';
                     
@@ -142,7 +145,7 @@
                         loading = false;
                         
                         const rect = sentinel.getBoundingClientRect();
-                        if (rect.top <= window.innerHeight + 200) { page++; loadVideos(); }
+                        if (rect.top <= window.innerHeight + 200) { loadVideos(); }
                     }, unlockDelay);
                 } else { 
                     sentinel.innerHTML = `
@@ -163,7 +166,7 @@
     }
 
     const observer = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && !loading) { loadVideos(); page++; }
+        if (entries[0].isIntersecting && !loading) { loadVideos(); }
     }, { rootMargin: "200px" });
 
     observer.observe(sentinel);

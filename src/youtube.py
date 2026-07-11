@@ -135,6 +135,11 @@ def update_feed_now():
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
                     if info is not None:
+                        new_icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
+                        if new_icon and sub.get('icon') != new_icon:
+                            sub['icon'] = new_icon
+                            sub['icon_updated'] = True
+
                         valid_entries = []
                         for e in info.get('entries', []):
                             if e:
@@ -149,6 +154,15 @@ def update_feed_now():
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             results = list(executor.map(fetch_flat, subs))
+            
+        subs_updated = False
+        for s in subs:
+            if s.pop('icon_updated', False):
+                subs_updated = True
+                
+        if subs_updated:
+            from storage import save_subs
+            save_subs(subs)
             
         all_entries = []
         for url, entries, success in results:
