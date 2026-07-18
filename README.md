@@ -2,6 +2,8 @@
 
 A self-hosted, lightweight YouTube web frontend powered by `yt-dlp` and Flask. 
 
+![UI Screenshot](screenshot.png)
+
 ## Why use this over YouTube?
 * **Zero Algorithm:** The feed is strictly chronological and only displays videos from channels you manually subscribe to. No recommendations, no Shorts, no engagement traps.
 * **No Ads or Tracking:** Direct media stream extraction. No Google account required.
