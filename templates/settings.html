@@ -176,6 +176,9 @@
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Description Preview Height (px):</label>
         <input type="number" name="desc_preview_height" value="{{ app_settings.desc_preview_height | default(100) }}" min="40" max="1000" required>
 
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Controls Overlay Timeout (ms):</label>
+        <input type="number" name="overlay_timeout_ms" value="{{ app_settings.overlay_timeout_ms | default(500) }}" min="100" max="10000" required>
+
         <button type="submit" class="btn btn-danger">Save Settings</button>
     </form>
 </div>

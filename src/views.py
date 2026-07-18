@@ -188,6 +188,7 @@ def settings_page():
                 app_settings['background_interval_mins'] = int(request.form.get('background_interval_mins', 30))
                 app_settings['per_page'] = int(request.form.get('per_page', 15))
                 app_settings['desc_preview_height'] = int(request.form.get('desc_preview_height', 100))
+                app_settings['overlay_timeout_ms'] = int(request.form.get('overlay_timeout_ms', 500))
                 save_settings(app_settings)
             except ValueError: pass
 

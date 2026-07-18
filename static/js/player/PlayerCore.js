@@ -122,13 +122,6 @@ class PlayerCore {
         }
     }
 
-    toggleMute() {
-        this.ui.mainVideo.muted = !this.ui.mainVideo.muted; 
-        this.ui.audio.muted = this.ui.mainVideo.muted;
-        this.ui.volumeSlider.value = this.ui.mainVideo.muted ? 0 : (this.ui.mainVideo.volume || 1); 
-        this.updateVolumeIcons();
-    }
-
     changeResolution(url, label) {
         const resMatch = label.match(/(\d+)p/);
         const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
@@ -160,10 +153,13 @@ class PlayerCore {
         this.ui.mainVideo.addEventListener('loadedmetadata', () => {
             if (isFinite(currentTime)) {
                 this.ui.mainVideo.currentTime = currentTime; 
+                this.ui.mainVideo.dispatchEvent(new Event('timeupdate'));
+                
                 this.ui.mainVideo.playbackRate = currentRate;
                 if (this.state.isDualAudio) {
                     if (!this.ui.audio.src) this.ui.audio.src = this.state.bestAudioUrl;
                     this.ui.audio.currentTime = currentTime; 
+                    this.ui.audio.dispatchEvent(new Event('timeupdate'));
                     this.ui.audio.muted = this.ui.mainVideo.muted;
                     this.ui.audio.volume = this.ui.mainVideo.volume; 
                     this.ui.audio.playbackRate = currentRate;
@@ -257,6 +253,7 @@ class PlayerCore {
             else this.container.classList.remove('is-cached');
             
             this.ui.mainVideo.src = bestMatch.url;
+            
             this.cache.startCachePolling(this.state.currentVideoId, bestMatch.height, lowestResObj ? lowestResObj.height : null);
         }
 
@@ -278,18 +275,47 @@ class PlayerCore {
             if (this.state.resumeTime && this.state.resumeTime > 0) {
                 const targetTime = this.state.resumeTime;
                 this.ui.mainVideo.currentTime = targetTime;
+                this.ui.mainVideo.dispatchEvent(new Event('timeupdate'));
                 
                 if (this.state.isDualAudio) {
-                    const syncInit = () => { this.ui.audio.currentTime = targetTime; };
+                    const syncInit = () => { 
+                        this.ui.audio.currentTime = targetTime; 
+                        this.ui.audio.dispatchEvent(new Event('timeupdate'));
+                    };
                     if (this.ui.audio.readyState >= 1) syncInit();
                     else this.ui.audio.addEventListener('loadedmetadata', syncInit, {once: true});
                 }
                 this.state.resumeTime = 0; 
             }
             
-            this.ui.playIcon.style.display = 'block';
-            this.ui.pauseIcon.style.display = 'none';
-            this.container.classList.add('paused');
+            // Autoplay the video upon initialization
+            let p1 = this.ui.mainVideo.play();
+            let p2;
+            if (this.state.isDualAudio) p2 = this.ui.audio.play();
+
+            const setPlayingUI = () => {
+                this.ui.playIcon.style.display = 'none';
+                this.ui.pauseIcon.style.display = 'block';
+                this.container.classList.remove('paused');
+                this.input.resetInactivity();
+            };
+
+            const setPausedUI = () => {
+                this.ui.playIcon.style.display = 'block';
+                this.ui.pauseIcon.style.display = 'none';
+                this.container.classList.add('paused');
+            };
+
+            if (p1 !== undefined) {
+                p1.then(() => {
+                    if (p2) p2.catch(()=>{});
+                    setPlayingUI();
+                }).catch(() => {
+                    setPausedUI();
+                });
+            } else {
+                setPlayingUI();
+            }
         }, {once: true});
     }
 

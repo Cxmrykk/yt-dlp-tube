@@ -8,7 +8,7 @@
                 {{ comment.time_text or '' }}
             </span>
         </div>
-        <div style="font-size: 0.95rem; line-height: 1.4; color: #eee; white-space: pre-wrap; word-break: break-word;">{{ comment.text }}</div>
+        <div style="font-size: 0.95rem; line-height: 1.4; color: #eee; white-space: pre-wrap; word-break: break-word;">{{ comment.text | linkify_timestamps }}</div>
         <div style="margin-top: 5px; font-size: 0.85rem; color: var(--text-muted); display: flex; align-items: center;">
             {% set c_views = comment.like_count | format_views %}
             <img src="/static/icons/like.svg" style="width: 14px; height: 14px; margin-right: 6px;" alt="Like">

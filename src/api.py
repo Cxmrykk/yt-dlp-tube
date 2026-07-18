@@ -28,7 +28,12 @@ def update_history():
     now = time.time()
     
     if existing:
-        new_duration = existing.get('watch_duration', 0) + data.get('watch_time_increment', 0)
+        current_time = data.get('current_time')
+        if current_time is not None:
+            new_duration = current_time
+        else:
+            new_duration = existing.get('watch_duration', 0) + data.get('watch_time_increment', 0)
+            
         total_dur = data.get('duration') or existing.get('duration') or 0
         if total_dur and new_duration > total_dur:
             new_duration = total_dur
@@ -53,7 +58,7 @@ def update_history():
             'thumbnail': data.get('thumbnail'),
             'channel_icon': data.get('channel_icon'),
             'duration': data.get('duration', 0),
-            'watch_duration': data.get('watch_time_increment', 0),
+            'watch_duration': data.get('current_time', data.get('watch_time_increment', 0)),
             'last_viewed': now
         }
         hist.insert(0, item)
@@ -295,8 +300,6 @@ def api_comments():
     if not url: return "No URL provided", 400
     if sort not in ('top', 'new'): sort = 'top'
 
-    target_start = (page - 1) * per_page
-    target_end = page * per_page
     cache_key = f"{url}|{sort}"
 
     with COMMENTS_LOCK:
@@ -325,19 +328,45 @@ def api_comments():
                 if lazy_list is None:
                     ydl.close()
                     return "<p class='comment-error' style='color:var(--text-muted);'>Comments disabled or not supported.</p>"
-                COMMENTS_CACHE[cache_key] = { 'lazy_list': lazy_list, 'ydl': ydl, 'exhausted': False }
+                COMMENTS_CACHE[cache_key] = { 'lazy_list': lazy_list, 'ydl': ydl, 'exhausted': False, 'cursor': 0 }
             except Exception as e:
                 ydl.close()
                 return f"<p class='comment-error' style='color:var(--accent);'>Error initializing comments: {e}</p>"
+        
         cache_data = COMMENTS_CACHE[cache_key]
+        if page == 1:
+            cache_data['cursor'] = 0
+            cache_data['exhausted'] = False
 
-    try: chunk_plus_one = cache_data['lazy_list'][target_start : target_end + 1]
-    except Exception as e: return f"<p class='comment-error' style='color:var(--accent);'>Error loading comments: {e}</p>"
+    if cache_data['exhausted']:
+        return "" if page > 1 else "<p class='comment-error' style='color:var(--text-muted);'>No comments found.</p>"
 
-    chunk = chunk_plus_one[:per_page]
+    chunk = []
+    root_count = 0
+    
     with COMMENTS_LOCK:
-        if len(chunk_plus_one) <= per_page: cache_data['exhausted'] = True
-    if not chunk: return "" if page > 1 else "<p class='comment-error' style='color:var(--text-muted);'>No comments found.</p>"
+        cursor = cache_data.get('cursor', 0)
+        try:
+            while root_count < per_page:
+                try:
+                    c = cache_data['lazy_list'][cursor]
+                except IndexError:
+                    cache_data['exhausted'] = True
+                    break
+                
+                chunk.append(c)
+                cursor += 1
+                
+                p_id = c.get('parent')
+                if not p_id or p_id == 'root' or p_id == 'None':
+                    root_count += 1
+                    
+            cache_data['cursor'] = cursor
+        except Exception as e:
+            return f"<p class='comment-error' style='color:var(--accent);'>Error loading comments: {e}</p>"
+
+    if not chunk: 
+        return "" if page > 1 else "<p class='comment-error' style='color:var(--text-muted);'>No comments found.</p>"
     return render_template('partials/comments.html', comments=chunk)
 
 @api_bp.route('/api/save_cc_settings', methods=['POST'])

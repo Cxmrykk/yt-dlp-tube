@@ -29,6 +29,9 @@
     .replies-box summary::-webkit-details-marker { display: none; }
     .replies-box .reply-icon { transition: transform 0.2s; }
     .replies-box[open] .reply-icon { transform: rotate(180deg); }
+
+    .comment-timestamp { color: #3ea6ff; text-decoration: none; font-weight: 500; }
+    .comment-timestamp:hover { text-decoration: underline; }
     
     .suggested-list { display: flex; flex-direction: column; gap: 15px; overflow-y: auto; height: 100%; padding-right: 10px;}
     
@@ -158,6 +161,33 @@
     let suggestedPage = 0; let suggestedLoading = false; let suggestedQuery = ""; let currentVideoId = "";
     const suggestedSentinel = document.getElementById('suggested-sentinel');
     const commentsSentinel = document.getElementById('comments-sentinel');
+    
+    // Abstract history pinging so it can be called reliably
+    function pingHistory() {
+        if (!window.ytPlayer || !window.ytPlayer.ui || !window.ytPlayer.ui.mainVideo) return;
+        const p = window.ytPlayer;
+        if (p.ui.mainVideo.readyState >= 1 && currentVideoId) {
+            const th_url = `https://i.ytimg.com/vi/${currentVideoId}/hqdefault.jpg`;
+            const duration = p.getValidDuration() || 0;
+            
+            // Native fetch with keepalive to ensure delivery during page teardown
+            fetch('/api/history/update', {
+                method: 'POST',
+                headers: {'Content-Type': 'application/json'},
+                body: JSON.stringify({
+                    id: currentVideoId,
+                    title: document.getElementById('ui-title').innerText,
+                    uploader: document.getElementById('ui-channel-name').innerText,
+                    uploader_url: document.getElementById('ui-channel-link').href,
+                    channel_icon: currentChannel.icon,
+                    thumbnail: th_url,
+                    duration: duration,
+                    current_time: p.ui.mainVideo.currentTime
+                }),
+                keepalive: true
+            }).catch(()=>{});
+        }
+    }
 
     window.appFetch(`/api/info?url=${encodeURIComponent(videoUrl)}`)
         .then(r => r.json())
@@ -252,34 +282,13 @@
             if (!suggestedLoading) loadSuggestedVideos();
             if (!commentsLoading && !commentsFinished) loadComments();
 
-            let watchSessionTime = 0;
-            let lastHistoryPing = 0;
             if (window.historyInterval) clearInterval(window.historyInterval);
             window.historyInterval = setInterval(() => {
                 const p = window.ytPlayer;
-                if (p && p.ui && p.ui.mainVideo && !p.ui.mainVideo.paused && !p.state.isScrubbing && p.ui.mainVideo.readyState >= 3) {
-                    watchSessionTime++;
-                    if (watchSessionTime - lastHistoryPing >= 10) {
-                        lastHistoryPing = watchSessionTime;
-                        const th_url = `https://i.ytimg.com/vi/${data.id}/hqdefault.jpg`;
-                        
-                        window.appFetch('/api/history/update', {
-                            method: 'POST',
-                            headers: {'Content-Type': 'application/json'},
-                            body: JSON.stringify({
-                                id: data.id,
-                                title: data.title,
-                                uploader: data.uploader,
-                                uploader_url: data.uploader_url,
-                                channel_icon: currentChannel.icon,
-                                thumbnail: th_url,
-                                duration: p.getValidDuration() || data.duration || 0,
-                                watch_time_increment: 10
-                            })
-                        }).catch(()=>{});
-                    }
+                if (p && p.ui && p.ui.mainVideo && !p.ui.mainVideo.paused && !p.state.isScrubbing) {
+                    pingHistory();
                 }
-            }, 1000);
+            }, 10000);
         })
         .catch(err => {
             if (err.name === 'AbortError') return;
@@ -547,10 +556,38 @@
             card.dispatchEvent(new Event('mouseenter'));
         }
     };
+    
     document.addEventListener('mouseover', handleCardHover);
+
+    // Coordinate Timestamp clicking 
+    document.getElementById('comments-scroll').addEventListener('click', function(e) {
+        if (e.target && e.target.classList.contains('comment-timestamp')) {
+            e.preventDefault();
+            let parts = e.target.innerText.split(':').map(Number);
+            let secs = 0;
+            if (parts.length === 3) {
+                secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
+            } else if (parts.length === 2) {
+                secs = parts[0] * 60 + parts[1];
+            }
+            if (window.ytPlayer) {
+                window.ytPlayer.ui.mainVideo.currentTime = secs;
+                if (window.ytPlayer.state.isDualAudio) {
+                    window.ytPlayer.ui.audio.currentTime = secs;
+                }
+                window.ytPlayer.ui.mainVideo.play().catch(()=>{});
+                
+                const vidContainer = document.getElementById('videoContainer');
+                if (vidContainer) {
+                    vidContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+                }
+            }
+        }
+    });
 
     // Coordinate with global PJAX architecture
     window.pageTeardown = function() {
+        pingHistory(); // Ensure final absolute timestamp is pushed immediately upon exit
         if (window.historyInterval) clearInterval(window.historyInterval);
         suggObserver.disconnect();
         commentsObserver.disconnect();

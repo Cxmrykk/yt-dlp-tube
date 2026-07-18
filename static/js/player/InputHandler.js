@@ -11,12 +11,15 @@ class InputHandler {
         this.player.container.classList.add('user-active');
         this.player.container.classList.remove('hide-cursor');
         clearTimeout(this.inactivityTimeout);
+        
+        const timeoutDuration = window.APP_CONFIG.overlayTimeout || 500;
+        
         this.inactivityTimeout = setTimeout(() => {
             if (!this.player.ui.mainVideo.paused && !this.player.menus.isAnyMenuOpen()) {
                 this.player.container.classList.remove('user-active'); 
                 this.player.container.classList.add('hide-cursor');
             }
-        }, 2500);
+        }, timeoutDuration);
     }
 
     handleGlobalKeydown(e) {

@@ -17,6 +17,7 @@ DEFAULT_SETTINGS = {
     'background_interval_mins': 30,
     'per_page': 15,
     'desc_preview_height': 100,
+    'overlay_timeout_ms': 500,
     'cache_ttl_hours': 24,
     'cache_max_size_gb': 5,
     'shortcut_pause': 'Space',

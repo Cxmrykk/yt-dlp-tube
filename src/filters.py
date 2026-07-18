@@ -1,4 +1,6 @@
 import time
+import re
+from markupsafe import escape, Markup
 from flask import session
 from urllib.parse import urlparse, quote
 from storage import get_subs, get_settings
@@ -36,6 +38,16 @@ def register_filters(app):
 
     @app.template_filter('time_ago')
     def time_ago(timestamp): return time_ago_str(timestamp)
+
+    @app.template_filter('linkify_timestamps')
+    def linkify_timestamps(text):
+        if not text: return ""
+        escaped_text = str(escape(text))
+        pattern = r'(?<!\d)(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)'
+        def replace_match(m):
+            ts = m.group(1)
+            return f'<a href="javascript:void(0)" class="comment-timestamp">{ts}</a>'
+        return Markup(re.sub(pattern, replace_match, escaped_text))
 
     @app.context_processor
     def inject_globals():
