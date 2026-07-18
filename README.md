@@ -1,106 +1,54 @@
 # yt-dlp Tube
 
-A self-hosted, lightweight YouTube web client
+A self-hosted, lightweight YouTube web frontend powered by `yt-dlp` and Flask. 
 
----
-
-## Architecture & Design Philosophy
-
-1. **Zero-Block Rendering**: Main page routes (`/watch`, `/channel`, `/`) return layout shells instantly. Heavy metadata extraction via `yt-dlp` is offloaded to background API tasks, with the UI populated dynamically via vanilla JavaScript.
-2. **Vanilla Frontend**: Built entirely with native HTML5, vanilla JavaScript, and plain CSS. It avoids heavy frontend frameworks and animation libraries to keep page loads small and responsive.
-3. **Decoupled Background Engine**: An internal scheduler runs in a background thread to poll subscriptions, sorting and matching upload times with a local database (`video_dates.json`) to highlight new uploads without stalling user interactions.
-4. **Local Database & Cache**: Subscriptions, application settings, and video timestamps are stored in secure local JSON databases protected by thread-safe file locks.
-
----
+## Why use this over YouTube?
+* **Zero Algorithm:** The feed is strictly chronological and only displays videos from channels you manually subscribe to. No recommendations, no Shorts, no engagement traps.
+* **No Ads or Tracking:** Direct media stream extraction. No Google account required.
+* **Native SponsorBlock:** Skip, vote, and submit sponsor segments directly inside the player.
+* **Bypass Throttling:** Pre-load and cache videos directly to your server to bypass YouTube's bandwidth throttling and ensure buffer-free playback.
+* **Data Ownership:** Your subscriptions, watch history, and settings are stored locally as plain JSON files.
 
 ## Features
-
-- **Custom HTML5 Dual-Stream Player**:
-  - Combined and split video/audio stream handling.
-  - Adaptive playback sync loop that dynamically micro-adjusts playback rates to reconcile drifting audio and video tracks instead of hard-seeking.
-  - Real-time hovering seek previews utilizing a background metadata video element.
-  - Chapters extraction and visualization on the timeline.
-- **Subtitles & Closed Captions**:
-  - Automatic and manual subtitle format extraction.
-  - Custom dynamic styling (font family, size, background opacity, and color).
-  - Direct synchronization delay controls (fine-tuning offset limits up to $\pm$5s).
-- **Subscriptions Engine**:
-  - Local subscription tracking.
-  - Import/Export capability using standard JSON array structures.
-  - Subscription feed populated only with genuine new uploads to minimize bandwidth.
-  - Unread notification indicators on the sidebar for channels with new uploads.
-- **Paginated Comments Section**:
-  - Paginated comments fetching matching "Top" or "Newest" sort orders.
-  - Hierarchical tree construction on the client side to map and display nested comment replies.
-- **Privacy-Enhancing Proxies**:
-  - Image, subtitle, and media proxies that route external Google/YouTube assets through the host server to block trackers and prevent mixed-content warnings.
-- **Security & Authentication**:
-  - Standard session-key authentication restricting UI, API, and proxy endpoints.
-  - Auto-generated cryptographically secure secret token on first boot.
-
----
+* **Custom HTML5 Player:** Supports dual-audio sync (video + audio streams), chapter markers, and customizable keyboard shortcuts.
+* **Edge Caching:** Downloads media locally via `ffmpeg`. Includes automated cache sweeping based on user-defined TTL and max size limits.
+* **Advanced Subtitles:** WebVTT support, UI customization, and raw text extraction (copy to clipboard or download).
+* **PJAX Navigation:** SPA-like page loading speeds without heavy frontend JavaScript frameworks.
+* **Import/Export:** Full JSON import/export support for watch history and subscriptions.
 
 ## Limitations
-
-- **Simplified Home Feed Metadata**: To ensure fast response times and avoid rate limits, the background engine uses `yt-dlp`'s `extract_flat` mode when scanning subscriptions. This skips retrieving full video details, which is why view counts and accurate upload dates are not displayed on the home feed page or channel page.
-- **Discovery-Based Upload Dates**: Because precise publication dates are omitted during flat playlist extraction, the application records a timestamp based on when the background scheduler first detected the video. Consequently, feed dates reflect discovery time rather than the exact YouTube publish date and the feed is only updated when a new video is uploaded. Full and accurate metadata is resolved only when a video is loaded on its watch page.
-- **Dual-Stream Playback Drift**: YouTube delivers high-resolution streams (1080p and above) with separate video and audio tracks. While the custom player implements a background rate-adjustment sync loop to reconcile drift, temporary browser tab throttling, hardware limitations, or network hiccups can occasionally result in subtle audio desynchronization.
-
----
+* **No detailed feed metadata:** To ensure fast background scraping without rate limits, the home feed uses flat playlist extraction. View counts and exact upload dates are not visible on the home page. Feed sorting is based on when the server first detected the video.
+* **Playback delay:** Resolving raw streams on-the-fly via `yt-dlp` takes a few seconds before playback can begin.
+* **Polling-based updates:** Subscriptions are checked via a background worker interval (default 30 minutes). New videos do not appear instantly.
+* **No Shorts or Live Streams:** The feed explicitly targets standard Video-on-Demand (VOD) uploads.
+* **API Fragility:** Strictly dependent on `yt-dlp`. When YouTube updates their internal mechanics, video extraction will break until `yt-dlp` releases a patch.
 
 ## Requirements
+* **Python 3.8+**
+* **`ffmpeg`**: Required by `yt-dlp` to merge video and audio streams.
+* **`deno`**: Required by `yt-dlp` to solve YouTube's JavaScript ciphers.
 
-- Python 3.8+
-- `pip` (Python package manager)
-- Active internet connection for stream extraction
+## Installation & Usage
 
----
-
-## Installation & Local Setup
-
-1. **Clone the repository**:
-
+1. Install system dependencies (`ffmpeg` and `deno`):
    ```bash
-   git clone <repository-url>
-   cd yt-dlp-tube
+   # Debian/Ubuntu example
+   sudo apt install ffmpeg
+   curl -fsSL https://deno.land/install.sh | sh
    ```
-
-2. **Install dependencies**:
-
+2. Clone the repository and install Python dependencies:
    ```bash
    pip install -r requirements.txt
    ```
-
-3. **Run the application**:
-
+3. Run the application:
    ```bash
-   python app.py
+   python src/app.py
    ```
+4. **Authentication:** On the very first run, the app will generate a secure `secret.key` and print a token to the console. Copy this token to log in via the web interface. 
 
-4. **Retrieve Secret Key**:
-   On the initial startup, a secure authentication key is generated and printed directly to the terminal console. Copy this key to log in to the web interface. This key is saved in `secret.key` for persistent access.
+By default, the server runs on `http://0.0.0.0:5000`.
 
-5. **Access the Web UI**:
-   Open your browser and navigate to `http://localhost:5000`.
-
----
-
-## Configuration
-
-All local states and settings are stored as JSON files within the application's root directory:
-
-- `subscriptions.json`: List of subscribed channel URLs, names, and cached icons.
-- `settings.json`: Configuration values for the background poll intervals, pagination sizes, description container heights, and keyboard shortcuts.
-- `video_dates.json`: Database recording publication history used to calculate "new upload" status.
-- `secret.key`: Generated token used for session authentication.
-
-### Keyboard Shortcuts
-
-Default player controls can be bound to alternative key sequences under the **Settings** menu:
-
-- **Play/Pause**: `Space`
-- **Seek Forward (10s)**: `ArrowRight`
-- **Seek Backward (10s)**: `ArrowLeft`
-- **Mute/Unmute**: `m`
-- **Next Chapter**: `PageUp`
-- **Previous Chapter**: `PageDown`
+## Architecture & Storage
+There is no database. All state is stored in the `data/` directory at the project root:
+* `data/*.json`: Flat files for settings, history, and subscriptions.
+* `data/cache/`: Downloaded media files and ffmpeg segments.
