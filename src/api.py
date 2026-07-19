@@ -385,9 +385,10 @@ def api_cache_start():
     vid_id = data.get('vid_id')
     res = data.get('resolution')
     metadata = data.get('metadata', {})
+    size_limit_mb = data.get('size_limit_mb', None)
     
     if vid_id and res:
-        start_caching_media(vid_id, res, metadata)
+        start_caching_media(vid_id, res, metadata, size_limit_mb)
     return jsonify({"status": "started"})
 
 @api_bp.route('/api/cache/status')

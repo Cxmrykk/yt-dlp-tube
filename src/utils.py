@@ -32,10 +32,19 @@ def time_ago_str(timestamp):
         diff = (datetime.now() - dt).total_seconds()
         
         if diff < 60: return "just now"
-        if diff < 3600: return f"{int(diff//60)} mins ago"
-        if diff < 86400: return f"{int(diff//3600)} hours ago"
-        if diff < 2592000: return f"{int(diff//86400)} days ago"
-        if diff < 31536000: return f"{int(diff//2592000)} months ago"
-        return f"{int(diff//31536000)} years ago"
+        if diff < 3600:
+            val = int(diff//60)
+            return f"{val} min{'s' if val != 1 else ''} ago"
+        if diff < 86400:
+            val = int(diff//3600)
+            return f"{val} hour{'s' if val != 1 else ''} ago"
+        if diff < 2592000:
+            val = int(diff//86400)
+            return f"{val} day{'s' if val != 1 else ''} ago"
+        if diff < 31536000:
+            val = int(diff//2592000)
+            return f"{val} month{'s' if val != 1 else ''} ago"
+        val = int(diff//31536000)
+        return f"{val} year{'s' if val != 1 else ''} ago"
     except: 
         return ""

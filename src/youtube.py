@@ -178,7 +178,7 @@ def update_feed_now():
     finally:
         FEED_UPDATE_LOCK.release()
 
-def _download_task(vid_id, resolution, metadata):
+def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
     cache_key = f"{vid_id}_{resolution}"
     manifest = get_cache_manifest()
     
@@ -202,6 +202,13 @@ def _download_task(vid_id, resolution, metadata):
         current_manifest = get_cache_manifest()
         if cache_key not in current_manifest or current_manifest[cache_key].get('status') == 'cancelled':
             raise ValueError("Download cancelled by user")
+
+        if size_limit_mb is not None:
+            max_bytes = size_limit_mb * 1024 * 1024
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+            dl = d.get('downloaded_bytes', 0)
+            if total > max_bytes or dl > max_bytes:
+                raise ValueError("Size limit exceeded")
 
         if d['status'] == 'downloading':
             total = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
@@ -287,6 +294,15 @@ def _download_task(vid_id, resolution, metadata):
     except ValueError as e:
         if str(e) == "Download cancelled by user":
             print(f"[DEBUG] Download for {vid_id} gracefully aborted.")
+        elif str(e) == "Size limit exceeded":
+            print(f"[DEBUG] Download for {vid_id} aborted: Size limit exceeded.")
+            manifest = get_cache_manifest()
+            if cache_key in manifest:
+                manifest[cache_key]['status'] = 'error_size_limit'
+                save_cache_manifest(manifest)
+            for f in glob.glob(os.path.join(CACHE_DIR, f"{cache_key}*")):
+                try: os.remove(f)
+                except: pass
         else:
             print(f"[DEBUG] Value error: {e}")
     except Exception as e:
@@ -296,8 +312,8 @@ def _download_task(vid_id, resolution, metadata):
             manifest[cache_key]['status'] = 'error'
             save_cache_manifest(manifest)
 
-def start_caching_media(vid_id, resolution, metadata):
-    threading.Thread(target=_download_task, args=(vid_id, resolution, metadata), daemon=True).start()
+def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None):
+    threading.Thread(target=_download_task, args=(vid_id, resolution, metadata, size_limit_mb), daemon=True).start()
 
 def remove_from_cache(vid_id, resolution):
     """

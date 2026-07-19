@@ -20,6 +20,8 @@ DEFAULT_SETTINGS = {
     'overlay_timeout_ms': 500,
     'cache_ttl_hours': 24,
     'cache_max_size_gb': 5,
+    'preview_cache_size_mb': 100,
+    'cache_auto_switch_threshold': 720,
     'shortcut_pause': 'Space',
     'shortcut_seek_fwd': 'ArrowRight',
     'shortcut_seek_bwd': 'ArrowLeft',

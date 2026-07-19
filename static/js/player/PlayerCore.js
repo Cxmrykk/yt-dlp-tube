@@ -102,7 +102,10 @@ class PlayerCore {
         if (this.ui.mainVideo.paused) {
             let p1 = this.ui.mainVideo.play();
             let p2;
-            if (this.state.isDualAudio && this.ui.audio.paused) p2 = this.ui.audio.play();
+            if (this.state.isDualAudio && this.ui.audio.paused && this.ui.audio.readyState >= 3) {
+                this.ui.audio.currentTime = this.ui.mainVideo.currentTime;
+                p2 = this.ui.audio.play();
+            }
             
             if(p1) p1.catch(()=>{});
             if(p2) p2.catch((e)=>{ console.warn("Background audio suppressed", e); });
@@ -146,9 +149,7 @@ class PlayerCore {
         document.getElementById('cacheIconDefault').style.display = 'block';
         document.getElementById('cacheIconDone').style.display = 'none';
         
-        const lowestResObj = this.state.resolutionsList.length ? this.state.resolutionsList[this.state.resolutionsList.length - 1] : null;
-        const lowestRes = lowestResObj ? lowestResObj.height : null;
-        if(this.state.currentVideoId) this.cache.startCachePolling(this.state.currentVideoId, targetRes, lowestRes);
+        if(this.state.currentVideoId) this.cache.startCachePolling(this.state.currentVideoId, targetRes);
         
         this.ui.mainVideo.addEventListener('loadedmetadata', () => {
             if (isFinite(currentTime)) {
@@ -228,7 +229,9 @@ class PlayerCore {
             }
         }
         
-        if (highestCachedMatch) {
+        const autoSwitchThreshold = window.APP_CONFIG.cacheAutoSwitchThreshold || 720;
+        
+        if (highestCachedMatch && highestCachedMatch.height >= autoSwitchThreshold) {
             bestMatch = highestCachedMatch;
         } else if (!bestMatch && this.state.resolutionsList.length > 0) {
             let r = this.state.resolutionsList[this.state.resolutionsList.length - 1];
@@ -238,10 +241,11 @@ class PlayerCore {
         const lowestResObj = this.state.resolutionsList.length > 0 ? this.state.resolutionsList[this.state.resolutionsList.length - 1] : null;
         if (lowestResObj && (lowestResObj.is_cached || lowestResObj.url.includes('/proxy/local'))) {
             this.ui.previewVideo.src = lowestResObj.url;
-        } else if (highestCachedMatch) {
+        } else if (highestCachedMatch && highestCachedMatch.height === lowestResObj.height) {
             this.ui.previewVideo.src = highestCachedMatch.url;
         } else if (lowestResObj) {
             this.ui.previewVideo.src = PlayerUtils.getMediaProxyUrl(lowestResObj.url);
+            this.cache.startAutoPreviewCache(this.state.currentVideoId, lowestResObj.height);
         }
 
         if (bestMatch) {
@@ -254,7 +258,7 @@ class PlayerCore {
             
             this.ui.mainVideo.src = bestMatch.url;
             
-            this.cache.startCachePolling(this.state.currentVideoId, bestMatch.height, lowestResObj ? lowestResObj.height : null);
+            this.cache.startCachePolling(this.state.currentVideoId, bestMatch.height);
         }
 
         if (this.state.bestAudioUrl && this.state.isDualAudio) {
@@ -288,10 +292,11 @@ class PlayerCore {
                 this.state.resumeTime = 0; 
             }
             
-            // Autoplay the video upon initialization
             let p1 = this.ui.mainVideo.play();
             let p2;
-            if (this.state.isDualAudio) p2 = this.ui.audio.play();
+            if (this.state.isDualAudio && this.ui.audio.readyState >= 3) {
+                p2 = this.ui.audio.play();
+            }
 
             const setPlayingUI = () => {
                 this.ui.playIcon.style.display = 'none';

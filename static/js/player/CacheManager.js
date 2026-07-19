@@ -3,6 +3,7 @@ class CacheManager {
         this.player = player;
         this.ui = player.ui;
         this.cacheInterval = null;
+        this.previewInterval = null;
         this.progressCached = document.getElementById('progressCached');
         this.cacheIconDefault = document.getElementById('cacheIconDefault');
         this.cacheIconDone = document.getElementById('cacheIconDone');
@@ -77,9 +78,64 @@ class CacheManager {
         }
     }
 
-    startCachePolling(vidId, targetRes, lowestRes = null) {
+    startAutoPreviewCache(vidId, resolution) {
+        if (!vidId || !resolution) return;
+        
+        const meta = {
+            title: document.getElementById('ui-title') ? document.getElementById('ui-title').textContent : 'Video',
+            uploader: document.getElementById('ui-channel-name') ? document.getElementById('ui-channel-name').textContent : 'Unknown',
+            uploader_url: document.getElementById('ui-channel-link') ? document.getElementById('ui-channel-link').href : '',
+            channel_icon: document.getElementById('ui-channel-icon') ? document.getElementById('ui-channel-icon').src : '',
+            duration: this.player.getValidDuration() || 0
+        };
+        
+        const sizeLimit = window.APP_CONFIG.previewCacheSizeMb || 100;
+        
+        window.appFetch('/api/cache/start', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ vid_id: vidId, resolution: resolution, metadata: meta, size_limit_mb: sizeLimit })
+        }).then(() => {
+            this.pollAutoPreview(vidId, resolution);
+        }).catch(()=>{});
+    }
+
+    pollAutoPreview(vidId, resolution) {
+        if (this.previewInterval) clearInterval(this.previewInterval);
+        
+        this.previewInterval = setInterval(() => {
+            if (window.pageAbortController && window.pageAbortController.signal.aborted) {
+                clearInterval(this.previewInterval); return;
+            }
+            window.appFetch(`/api/cache/status?vid_id=${encodeURIComponent(vidId)}&resolution=${encodeURIComponent(resolution)}`)
+                .then(r => r.json())
+                .then(data => {
+                    if (data.status === 'complete' && data.ratio >= 1.0) {
+                        clearInterval(this.previewInterval);
+                        const localUrl = `/proxy/local?key=${vidId}_${resolution}`;
+                        
+                        if (this.ui.previewVideo && this.ui.previewVideo.src !== localUrl && !this.ui.previewVideo.src.includes('/proxy/local')) {
+                            const currentTime = this.ui.previewVideo.currentTime;
+                            this.ui.previewVideo.src = localUrl;
+                            if (isFinite(currentTime)) {
+                                this.ui.previewVideo.currentTime = currentTime;
+                            }
+                        }
+                        
+                        const resObj = this.player.state.resolutionsList.find(r => r.height === parseInt(resolution));
+                        if (resObj) {
+                            resObj.url = localUrl;
+                            resObj.is_cached = true;
+                        }
+                    } else if (data.status === 'error_size_limit' || data.status === 'error' || data.status === 'cancelled') {
+                        clearInterval(this.previewInterval);
+                    }
+                }).catch(()=>{});
+        }, 5000);
+    }
+
+    startCachePolling(vidId, targetRes) {
         if(this.cacheInterval) clearInterval(this.cacheInterval);
-        let previewDone = false;
         
         const poll = () => {
             if(window.pageAbortController && window.pageAbortController.signal.aborted) {
@@ -145,24 +201,6 @@ class CacheManager {
                         this.updateCacheUI();
                     }
                 }).catch(()=>{});
-
-            if (!previewDone && lowestRes && lowestRes !== targetRes) {
-                window.appFetch(`/api/cache/status?vid_id=${encodeURIComponent(vidId)}&resolution=${encodeURIComponent(lowestRes)}`)
-                    .then(r => r.json())
-                    .then(d => {
-                        if (d.ratio >= 1.0 && d.status === 'complete') {
-                            previewDone = true;
-                            const localUrl = `/proxy/local?key=${vidId}_${lowestRes}`;
-                            this.ui.previewVideo.src = localUrl;
-                            
-                            const resObj = this.player.state.resolutionsList.find(r => r.height === parseInt(lowestRes));
-                            if (resObj) {
-                                resObj.url = localUrl;
-                                resObj.is_cached = true;
-                            }
-                        }
-                    }).catch(()=>{});
-            }
         };
         
         this.cacheInterval = setInterval(poll, 3000);
@@ -304,9 +342,6 @@ class CacheManager {
             const resMatch = resStr.match(/(\d+)p/);
             const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
             
-            const lowestResObj = this.player.state.resolutionsList.length ? this.player.state.resolutionsList[this.player.state.resolutionsList.length - 1] : null;
-            const lowestRes = lowestResObj ? lowestResObj.height : null;
-
             if (this.ui.cacheBtn.classList.contains('active')) {
                 // Cancel ongoing download
                 window.appFetch('/api/cache/remove', {
@@ -321,14 +356,6 @@ class CacheManager {
                     this.player.container.classList.remove('is-cached');
                     this.updateCacheUI();
                 });
-                
-                if (lowestRes && lowestRes !== targetRes) {
-                    window.appFetch('/api/cache/remove', {
-                        method: 'POST',
-                        headers: {'Content-Type': 'application/json'},
-                        body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: lowestRes })
-                    });
-                }
                 return;
             }
             
@@ -348,20 +375,12 @@ class CacheManager {
                 headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: targetRes, metadata: meta })
             }).then(() => {
-                this.startCachePolling(this.player.state.currentVideoId, targetRes, lowestRes);
+                this.startCachePolling(this.player.state.currentVideoId, targetRes);
             }).catch(err => {
                 if (err.name !== 'AbortError') alert("Failed to start caching");
                 this.ui.cacheBtn.classList.remove('active');
                 this.updateCacheUI();
             });
-
-            if (lowestRes && lowestRes !== targetRes) {
-                window.appFetch('/api/cache/start', {
-                    method: 'POST',
-                    headers: {'Content-Type': 'application/json'},
-                    body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: lowestRes, metadata: meta })
-                });
-            }
         });
 
         // Download Complete Cache to Device
@@ -533,6 +552,7 @@ class CacheManager {
 
     destroy() {
         if(this.cacheInterval) clearInterval(this.cacheInterval);
+        if(this.previewInterval) clearInterval(this.previewInterval);
         document.removeEventListener('click', this.bodyClick);
     }
 }

@@ -212,6 +212,8 @@ def settings_page():
             try:
                 app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 5))
                 app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 24))
+                app_settings['preview_cache_size_mb'] = float(request.form.get('preview_cache_size_mb', 100))
+                app_settings['cache_auto_switch_threshold'] = int(request.form.get('cache_auto_switch_threshold', 720))
                 save_settings(app_settings)
             except ValueError: pass
                 

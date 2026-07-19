@@ -2,6 +2,8 @@
 (function() {
     window.APP_CONFIG = {
         overlayTimeout: {{ app_settings.overlay_timeout_ms | default(500) }},
+        previewCacheSizeMb: {{ app_settings.preview_cache_size_mb | default(100) }},
+        cacheAutoSwitchThreshold: {{ app_settings.cache_auto_switch_threshold | default(720) }},
         shortcuts: {
             pause: "{{ app_settings.shortcut_pause | default('Space') }}",
             seekFwd: "{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}",
