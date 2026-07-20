@@ -50,9 +50,9 @@
                 <span id="bulkProgressHeaderTxt">Active Bulk Download</span>
             </div>
             
-            <div id="bulkProgressWarning" class="error-block" style="display: none;">
-                <img src="/static/icons/warning.svg" style="width: 20px; height: 20px;" alt="Warning">
-                <span id="bulkProgressWarningTxt"></span>
+            <div id="bulkProgressWarning" class="error-block" style="display: none; padding: 8px 12px; margin: 10px 16px;">
+                <img src="/static/icons/warning.svg" style="width: 18px; height: 18px;" alt="Warning">
+                <span id="bulkProgressWarningTxt" style="font-size: 13px;"></span>
             </div>
 
             <div id="bulkProgressView">
@@ -71,6 +71,11 @@
             </div>
 
             <div id="bulkCompleteView" style="display: none;">
+                <div id="bulkDetailsContainer" style="padding: 0 16px 15px 16px; display: none;">
+                    <div id="bulkCompleteErrors" style="display: none; max-height: 100px; overflow-y: auto; background: rgba(255, 74, 74, 0.1); border: 1px solid rgba(255, 74, 74, 0.3); border-radius: 6px; padding: 8px; margin-bottom: 8px;"></div>
+                    <div id="bulkCompleteWarnings" style="display: none; max-height: 100px; overflow-y: auto; background: rgba(243, 156, 18, 0.1); border: 1px solid rgba(243, 156, 18, 0.3); border-radius: 6px; padding: 8px;"></div>
+                </div>
+
                 <div class="settings-item" onclick="downloadBulkFile()">
                     <div class="settings-label">
                         <img src="/static/icons/download.svg" alt="Download">

@@ -177,19 +177,37 @@ video::-webkit-media-text-track-display { text-align: center !important; }
 #ccBtn.cc-on #ccIconOutline { display: none; }
 #ccBtn.cc-on #ccIconFilled { display: block; }
 
-.settings-menu.cc-menu-popup { right: 65px; width: 250px; } 
+/* Menus pop *up* from the control bar. */
+.video-container .settings-menu {
+    top: auto !important;
+    bottom: 50px;
+    transform-origin: bottom right !important;
+    transform: translateY(10px) scale(0.95);
+}
+.video-container .settings-menu.open {
+    transform: translateY(0) scale(1) !important;
+}
+
+/* 
+ * Exact horizontal offsets mapping the right edge of each menu 
+ * perfectly to the right edge of its respective button trigger.
+ * Math: Padding(15) + (Width(28) + Gap(15)) * ButtonIndex
+ */
+#settingsMenu { right: 58px; width: 280px; }
+.settings-menu.cc-menu-popup { right: 101px; width: 250px; } 
+.settings-menu.sb-menu-popup { right: 144px; width: 240px; }
+.settings-menu.cache-menu-popup { right: 187px; width: 250px; }
+
 #ccWrapper { width: 300%; }
 #ccWrapper .settings-pane { width: 33.3333%; }
 #ccMenu.show-submenu #ccWrapper { transform: translateX(-33.3333%); }
 #ccMenu.show-options #ccWrapper { transform: translateX(-66.6666%); }
 
-.settings-menu.sb-menu-popup { right: 105px; width: 240px; }
 #sbWrapper { width: 300%; }
 #sbWrapper .settings-pane { width: 33.3333%; }
 #sbMenu.show-submit #sbWrapper { transform: translateX(-33.3333%); }
 #sbMenu.show-rate #sbWrapper { transform: translateX(-66.6666%); }
 
-.settings-menu.cache-menu-popup { right: 145px; width: 250px; }
 #cacheWrapper { width: 300%; }
 #cacheWrapper .settings-pane { width: 33.3333%; }
 #cacheMenu.show-format #cacheWrapper { transform: translateX(-33.3333%); }

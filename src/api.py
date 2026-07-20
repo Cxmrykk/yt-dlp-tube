@@ -477,7 +477,8 @@ def bulk_status():
         'current': task.get('current', 0),
         'total': task.get('total', 0),
         'fractional_progress': task.get('fractional_progress', 0.0),
-        'errors': task.get('errors', [])
+        'errors': task.get('errors', []),
+        'warnings': task.get('warnings', [])
     })
 
 @api_bp.route('/api/bulk/cancel', methods=['POST'])
@@ -508,3 +509,4 @@ def bulk_download():
         return "File not found", 404
         
     return send_file(zip_file, as_attachment=True, download_name="ytdlp_bulk_download.zip")
+

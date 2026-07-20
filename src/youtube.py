@@ -550,6 +550,7 @@ def start_bulk_task(video_ids, dl_type, dl_format):
         'current': 0,
         'fractional_progress': 0.0,
         'errors': [],
+        'warnings': [],
         'zip_file': None,
         'cancelled': False,
         'last_accessed': time.time()
@@ -676,26 +677,27 @@ def _bulk_worker(task_id, video_ids, dl_type, dl_format):
             ydl_opts['ffmpeg_location'] = ffmpeg_path
         inject_deno(ydl_opts)
         
+        title = vid
         if dl_type == 'subtitles':
-            # Subtitle Extraction Bypass (Python-native handling to avoid yt-dlp spam)
             ydl_opts['skip_download'] = True
             ydl_opts['writesubtitles'] = False
             
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
-                    if not info: raise Exception("No info extracted")
+                    if not info: raise Exception("No video metadata could be extracted")
                     
+                    title = info.get('title', vid)
                     sub_url = get_best_subtitle_url(info)
                     if not sub_url:
-                        raise Exception("No subtitles found")
+                        raise Exception("No subtitles available for this video")
                         
                     BULK_TASKS[task_id]['fractional_progress'] = 0.5
                     
                     r = requests.get(sub_url, timeout=15)
                     r.raise_for_status()
                     
-                    safe_title = "".join([c for c in info.get('title', 'Video') if c.isalpha() or c.isdigit() or c == ' ']).rstrip().replace(' ', '_')
+                    safe_title = "".join([c for c in title if c.isalpha() or c.isdigit() or c == ' ']).rstrip().replace(' ', '_')
                     filename = f"{safe_title}_[{vid}].{dl_format}"
                     
                     final_text = process_subtitle_text(r.text, dl_format)
@@ -706,11 +708,11 @@ def _bulk_worker(task_id, video_ids, dl_type, dl_format):
                     BULK_TASKS[task_id]['fractional_progress'] = 1.0
                     
             except Exception as e:
-                print(f"[Bulk Download] Error fetching subtitles for {vid}: {e}")
-                BULK_TASKS[task_id]['errors'].append(vid)
+                err_str = str(e).split('\n')[0].replace('ERROR: ', '').strip()
+                print(f"[Bulk Download] Error fetching subtitles for {vid}: {err_str}")
+                BULK_TASKS[task_id]['errors'].append({'id': vid, 'title': title, 'reason': err_str})
                 
         else:
-            # Standard Media Extraction
             if dl_type == 'video':
                 res = dl_format
                 ydl_opts['format'] = f'bestvideo[ext=mp4][height<={res}]+bestaudio[ext=m4a]/bestvideo[height<={res}]+bestaudio/best[height<={res}]/best'
@@ -724,14 +726,29 @@ def _bulk_worker(task_id, video_ids, dl_type, dl_format):
                 
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-                    ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=True)
+                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=True)
+                    if info:
+                        title = info.get('title', vid)
+                        if dl_type == 'video':
+                            requested_res = int(dl_format)
+                            actual_res = info.get('height')
+                            if not actual_res and 'requested_downloads' in info and info['requested_downloads']:
+                                actual_res = info['requested_downloads'][0].get('height')
+                            
+                            if actual_res and actual_res < requested_res:
+                                BULK_TASKS[task_id]['warnings'].append({
+                                    'id': vid,
+                                    'title': title,
+                                    'reason': f"Fell back to {actual_res}p (Requested {requested_res}p)"
+                                })
             except ValueError as e:
                 if str(e) == "Download cancelled by user":
                     print(f"[Bulk Download] Aborting video {vid} due to cancellation.")
                     break
             except Exception as e:
-                print(f"[Bulk Download] Error downloading {vid}: {e}")
-                BULK_TASKS[task_id]['errors'].append(vid)
+                err_str = str(e).split('\n')[0].replace('ERROR: ', '').strip()
+                print(f"[Bulk Download] Error downloading {vid}: {err_str}")
+                BULK_TASKS[task_id]['errors'].append({'id': vid, 'title': title, 'reason': err_str})
             
     if BULK_TASKS[task_id].get('cancelled'):
         try: shutil.rmtree(temp_dir)

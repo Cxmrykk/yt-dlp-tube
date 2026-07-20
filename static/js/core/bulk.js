@@ -245,6 +245,7 @@ window.submitBulkTask = function(type, format) {
     
     document.getElementById('bulkProgressView').style.display = 'block';
     document.getElementById('bulkCompleteView').style.display = 'none';
+    document.getElementById('bulkDetailsContainer').style.display = 'none';
     document.getElementById('bulkProgressWarning').style.display = 'none';
     document.getElementById('bulkProgressHeaderTxt').innerText = 'Compiling Archive...';
     
@@ -323,9 +324,15 @@ window.pollBulkTask = function() {
                 
                 txt.innerText = `${actionVerb} ${data.current} of ${data.total} ${dlNoun}...`;
                 
-                if (data.errors && data.errors.length > 0) {
+                const errs = data.errors ? data.errors.length : 0;
+                const warns = data.warnings ? data.warnings.length : 0;
+                
+                if (errs > 0 || warns > 0) {
                     warnDiv.style.display = 'flex';
-                    document.getElementById('bulkProgressWarningTxt').innerText = `${data.errors.length} failed`;
+                    let msg = [];
+                    if (errs > 0) msg.push(`${errs} Errors`);
+                    if (warns > 0) msg.push(`${warns} Warnings`);
+                    document.getElementById('bulkProgressWarningTxt').innerText = msg.join(' | ');
                 } else {
                     warnDiv.style.display = 'none';
                 }
@@ -338,15 +345,38 @@ window.pollBulkTask = function() {
                 document.getElementById('bulkProgressView').style.display = 'none';
                 document.getElementById('bulkCompleteView').style.display = 'block';
                 
-                if (data.errors && data.errors.length > 0) {
-                    document.getElementById('bulkProgressHeaderTxt').innerText = 'Completed with Errors';
-                    headerIcon.src = '/static/icons/warning.svg';
-                    warnDiv.style.display = 'flex';
-                    document.getElementById('bulkProgressWarningTxt').innerText = `${data.errors.length} out of ${data.total} failed to process.`;
-                    activeBtn.innerHTML = '<img src="/static/icons/warning.svg" style="width:24px; height:24px;" alt="Warning">';
+                const errs = data.errors || [];
+                const warns = data.warnings || [];
+                
+                const detCont = document.getElementById('bulkDetailsContainer');
+                const errCont = document.getElementById('bulkCompleteErrors');
+                const warnCont = document.getElementById('bulkCompleteWarnings');
+                
+                if (errs.length > 0 || warns.length > 0) {
+                    detCont.style.display = 'block';
+                    document.getElementById('bulkProgressHeaderTxt').innerText = errs.length > 0 ? 'Completed with Errors' : 'Completed with Warnings';
+                    headerIcon.src = errs.length > 0 ? '/static/icons/warning.svg' : '/static/icons/cloud-check.svg';
+                    
+                    if (errs.length > 0) {
+                        errCont.style.display = 'block';
+                        errCont.innerHTML = '<strong style="color:#ff4a4a; font-size:12px; display:block; margin-bottom:4px;">Errors:</strong>' + errs.map(e => `<div style="font-size:11px; color:#ffb3b3; margin-bottom:4px; line-height:1.3;"><strong>${e.title}</strong>: ${e.reason}</div>`).join('');
+                        activeBtn.innerHTML = '<img src="/static/icons/warning.svg" style="width:24px; height:24px;" alt="Warning">';
+                    } else {
+                        errCont.style.display = 'none';
+                        activeBtn.innerHTML = '<img src="/static/icons/cloud-check.svg" style="width:24px; height:24px;" alt="Ready">';
+                    }
+                    
+                    if (warns.length > 0) {
+                        warnCont.style.display = 'block';
+                        warnCont.innerHTML = '<strong style="color:#f39c12; font-size:12px; display:block; margin-bottom:4px;">Warnings:</strong>' + warns.map(w => `<div style="font-size:11px; color:#fbe0b6; margin-bottom:4px; line-height:1.3;"><strong>${w.title}</strong>: ${w.reason}</div>`).join('');
+                    } else {
+                        warnCont.style.display = 'none';
+                    }
+                    warnDiv.style.display = 'none';
                 } else {
                     document.getElementById('bulkProgressHeaderTxt').innerText = 'Zip Archive Ready';
                     headerIcon.src = '/static/icons/cloud-check.svg';
+                    detCont.style.display = 'none';
                     warnDiv.style.display = 'none';
                     activeBtn.innerHTML = '<img src="/static/icons/cloud-check.svg" style="width:24px; height:24px;" alt="Ready">';
                 }
