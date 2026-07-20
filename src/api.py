@@ -2,13 +2,15 @@ import time
 import yt_dlp
 import os
 import urllib.parse
-from flask import Blueprint, request, jsonify, render_template
+from flask import Blueprint, request, jsonify, render_template, send_file
 
 from storage import get_history, save_history, get_subs, save_subs, get_settings, get_cache_manifest, save_cache_manifest
 from youtube import (
     get_cached_icon, fetch_channel_info, purge_channel_from_feed, 
     get_flat_feed, fix_youtube_url, fetch_missing_icons, 
     parse_chapters_from_desc, start_caching_media, remove_from_cache, inject_deno,
+    start_bulk_task, cancel_bulk_task, clear_bulk_task, BULK_TASKS,
+    start_format_task, cancel_format_task, FORMAT_TASKS,
     COMMENTS_CACHE, COMMENTS_LOCK
 )
 from utils import format_views_str, time_ago_str
@@ -92,7 +94,6 @@ def api_info():
     except Exception as e: return jsonify({"error": str(e)}), 500
     if not info: return jsonify({"error": "Video unavailable"}), 404
 
-    # Require protocols to be standard progressive HTTP/HTTPS, excluding manifests (m3u8/dash)
     valid_protocols = ['http', 'https']
     audio_formats = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('protocol') in valid_protocols]
     video_formats = [f for f in info.get('formats', []) if f.get('vcodec') != 'none' and f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in valid_protocols]
@@ -109,7 +110,6 @@ def api_info():
     resolutions = sorted(unique_resolutions.values(), key=lambda x: x.get('height', 0), reverse=True)
     resolutions_list = [{'height': r.get('height'), 'url': r.get('url'), 'fps': r.get('fps'), 'has_audio': r.get('acodec') != 'none', 'is_cached': False} for r in resolutions]
 
-    # --- Inject Local Cache Overrides ---
     manifest = get_cache_manifest()
     manifest_updated = False
     vid_id = info.get('id')
@@ -120,8 +120,8 @@ def api_info():
         if entry and entry.get('status') == 'complete':
             if os.path.exists(entry.get('file_path', '')):
                 r['url'] = f"/proxy/local?key={cache_key}"
-                r['has_audio'] = True  # Native dual-audio bypass
-                r['is_cached'] = True  # Signal for auto-selection in frontend
+                r['has_audio'] = True  
+                r['is_cached'] = True  
                 entry['last_accessed'] = time.time()
                 manifest_updated = True
                 
@@ -414,3 +414,97 @@ def api_cache_remove():
     if vid_id and res:
         remove_from_cache(vid_id, res)
     return jsonify({"status": "removed"})
+
+@api_bp.route('/api/bulk/formats/start', methods=['POST'])
+def bulk_formats_start():
+    data = request.get_json()
+    video_ids = data.get('video_ids', [])
+    if not video_ids:
+        return jsonify({'error': 'No video IDs provided'}), 400
+        
+    task_id = start_format_task(video_ids)
+    return jsonify({'task_id': task_id})
+
+@api_bp.route('/api/bulk/formats/status')
+def bulk_formats_status():
+    task_id = request.args.get('task_id')
+    task = FORMAT_TASKS.get(task_id)
+    if not task:
+        return jsonify({'status': 'error', 'message': 'Task not found'})
+    
+    task['last_accessed'] = time.time()
+    
+    return jsonify({
+        'status': task['status'],
+        'current': task['current'],
+        'total': task['total'],
+        'result': task.get('result')
+    })
+
+@api_bp.route('/api/bulk/formats/cancel', methods=['POST'])
+def bulk_formats_cancel():
+    data = request.get_json()
+    task_id = data.get('task_id')
+    if task_id:
+        cancel_format_task(task_id)
+    return jsonify({'status': 'cancelled'})
+
+@api_bp.route('/api/bulk/start', methods=['POST'])
+def bulk_start():
+    data = request.get_json()
+    video_ids = data.get('video_ids', [])
+    dl_type = data.get('dl_type')
+    dl_format = data.get('dl_format')
+    
+    if not video_ids or not dl_type or not dl_format:
+        return jsonify({'error': 'Missing parameters'}), 400
+        
+    task_id = start_bulk_task(video_ids, dl_type, dl_format)
+    return jsonify({'task_id': task_id})
+
+@api_bp.route('/api/bulk/status')
+def bulk_status():
+    task_id = request.args.get('task_id')
+    task = BULK_TASKS.get(task_id)
+    if not task:
+        return jsonify({'status': 'error', 'message': 'Task not found'})
+        
+    task['last_accessed'] = time.time()
+        
+    return jsonify({
+        'status': task['status'],
+        'dl_type': task.get('dl_type', 'video'),
+        'current': task.get('current', 0),
+        'total': task.get('total', 0),
+        'fractional_progress': task.get('fractional_progress', 0.0),
+        'errors': task.get('errors', [])
+    })
+
+@api_bp.route('/api/bulk/cancel', methods=['POST'])
+def bulk_cancel():
+    data = request.get_json()
+    task_id = data.get('task_id')
+    if task_id:
+        cancel_bulk_task(task_id)
+    return jsonify({'status': 'cancelled'})
+
+@api_bp.route('/api/bulk/clear', methods=['POST'])
+def bulk_clear():
+    data = request.get_json()
+    task_id = data.get('task_id')
+    if task_id:
+        clear_bulk_task(task_id)
+    return jsonify({'status': 'cleared'})
+
+@api_bp.route('/api/bulk/download')
+def bulk_download():
+    task_id = request.args.get('task_id')
+    task = BULK_TASKS.get(task_id)
+    if not task or task['status'] != 'complete':
+        return "File not ready or task not found", 404
+        
+    zip_file = task.get('zip_file')
+    if not zip_file or not os.path.exists(zip_file):
+        return "File not found", 404
+        
+    return send_file(zip_file, as_attachment=True, download_name="ytdlp_bulk_download.zip")

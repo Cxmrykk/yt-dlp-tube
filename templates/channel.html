@@ -19,9 +19,6 @@
 </div>
 
 <div class="video-grid" id="video-grid">
-    <!-- JS will populate videos before this sentinel -->
-    
-    <!-- Persistent Sentinel Card (The singular skeleton placeholder for loading/infinite scroll) -->
     <div class="video-card" id="sentinel-card" style="opacity: 0; pointer-events: none; transition: opacity 0.3s ease;">
         <div class="thumbnail skeleton-box"></div>
         <div class="video-info">
@@ -38,142 +35,13 @@
 </div>
 
 <script>
-(function() {
-    const needsFetch = {{ 'true' if needs_fetch else 'false' }};
-    const chUrl = "{{ url }}";
-    const checkIcon = `<img src="/static/icons/check.svg" style="width: 18px; height: 18px; margin-left: 4px;" alt="Subscribed">`;
-    
-    let currentChannel = { url: chUrl, name: "{{ channel_name }}", icon: "{{ channel_icon }}" };
-    let isSubbed = {{ 'true' if is_subbed else 'false' }};
-
-    function getImgProxyUrl(url) {
-        if(!url) return '';
-        if(url.startsWith('/proxy/') || url.startsWith('data:')) return url;
-        return `/proxy/image?url=${encodeURIComponent(url)}`;
-    }
-    
-    if (needsFetch) {
-        window.appFetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
-            .then(r => r.json())
-            .then(data => {
-                document.getElementById('ch-name').classList.remove('skeleton-box', 'skel-line');
-                document.getElementById('ch-name').style.width = 'auto';
-                document.getElementById('ch-name').style.height = 'auto';
-                document.getElementById('ch-name').innerText = data.name;
-                
-                const subsEl = document.getElementById('ch-subs');
-                subsEl.classList.remove('skeleton-box', 'skel-line');
-                subsEl.style.width = 'auto';
-                if (data.subscriber_count) subsEl.innerText = data.subscriber_count + ' subscribers';
-                else subsEl.style.display = 'none';
-
-                currentChannel.name = data.name;
-                
-                const rawFallback = `https://ui-avatars.com/api/?name=${encodeURIComponent(data.name)}&background=333&color=fff`;
-                const iconEl = document.getElementById('ch-icon');
-                iconEl.src = getImgProxyUrl(data.icon || rawFallback);
-                iconEl.style.display = 'block';
-                document.getElementById('ch-icon-skel').style.display = 'none';
-                
-                currentChannel.icon = data.icon || rawFallback;
-                
-                isSubbed = data.is_subbed;
-                updateSubButton();
-            }).catch(err => { if (err.name !== 'AbortError') console.error(err); });
-    } else {
-        updateSubButton();
-        window.appFetch(`/api/channel_info?url=${encodeURIComponent(chUrl)}`)
-            .then(r => r.json())
-            .then(data => { if (data.subscriber_count) document.getElementById('ch-subs').innerText = data.subscriber_count + ' subscribers'; })
-            .catch(err => { if (err.name !== 'AbortError') console.error(err); });
-    }
-
-    function updateSubButton() {
-        const btn = document.getElementById('sub-btn');
-        btn.style.display = 'inline-flex';
-        if (isSubbed) { btn.className = 'btn'; btn.innerHTML = 'Subscribed ' + checkIcon; } 
-        else { btn.className = 'btn btn-danger'; btn.innerHTML = 'Subscribe'; }
-    }
-
-    window.toggleSubscribe = function() {
-        const btn = document.getElementById('sub-btn'); btn.innerHTML = 'Saving...';
-        window.appFetch('/api/toggle_sub', {
-            method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(currentChannel)
-        }).then(r => r.json()).then(res => { isSubbed = res.is_subbed; updateSubButton();
-        }).catch(err => { 
-            if (err.name === 'AbortError') return;
-            alert("Error toggling subscription"); updateSubButton(); 
-        });
-    }
-
-    let page = 1; let loading = false; const reqType = "channel";
-    const sentinel = document.getElementById('sentinel-card');
-    
-    function revealStaggered() {
-        const unrevealed = document.querySelectorAll('.unrevealed');
-        unrevealed.forEach((card, index) => {
-            setTimeout(() => {
-                if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
-                card.classList.remove('unrevealed');
-                card.classList.add('reveal-anim');
-            }, index * 80);
-        });
-    }
-    
-    function loadVideos() {
-        if (loading) return;
-        loading = true; 
-        sentinel.style.opacity = '1';
-
-        window.appFetch(`/api/videos?type=${reqType}&query=${encodeURIComponent(chUrl)}&page=${page}`)
-            .then(r => r.text())
-            .then(html => {
-                if(html.trim() !== '') {
-                    page++;
-                    
-                    sentinel.insertAdjacentHTML('beforebegin', html);
-                    sentinel.style.opacity = '0';
-                    
-                    const newCardsCount = document.querySelectorAll('.unrevealed').length;
-                    const unlockDelay = (newCardsCount * 80) + 400; 
-                    
-                    revealStaggered();
-                    
-                    setTimeout(() => {
-                        if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
-                        
-                        loading = false;
-                        
-                        const rect = sentinel.getBoundingClientRect();
-                        if (rect.top <= window.innerHeight + 200) { loadVideos(); }
-                    }, unlockDelay);
-                } else { 
-                    sentinel.innerHTML = `
-                        <div class="thumbnail" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <img src="/static/icons/no-more.svg" style="width: 48px; height: 48px; margin-bottom: 8px;" alt="No more">
-                            <span style="color: #555; font-weight: bold; font-size: 1.1rem; text-align: center;">No more videos</span>
-                        </div>
-                    `;
-                    sentinel.style.opacity = '1';
-                    loading = true; 
-                }
-            }).catch(err => { 
-                if (err.name === 'AbortError') return;
-                sentinel.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted); font-weight: bold;">Error loading videos.</div>`;
-                sentinel.style.opacity = '1';
-                loading = false; 
-            });
-    }
-
-    const observer = new IntersectionObserver((entries) => {
-        if (entries[0].isIntersecting && !loading) { loadVideos(); }
-    }, { rootMargin: "200px" });
-
-    observer.observe(sentinel);
-
-    window.pageTeardown = function() {
-        observer.disconnect();
+    window.CHANNEL_CONFIG = {
+        url: "{{ url | safe }}",
+        name: "{{ channel_name | safe }}",
+        icon: "{{ channel_icon | safe }}",
+        isSubbed: {{ 'true' if is_subbed else 'false' }},
+        needsFetch: {{ 'true' if needs_fetch else 'false' }}
     };
-})();
 </script>
+<script src="/static/js/pages/channel.js"></script>
 {% endblock %}

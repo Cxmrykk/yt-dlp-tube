@@ -6,6 +6,10 @@ import concurrent.futures
 import os
 import glob
 import shutil
+import uuid
+import zipfile
+import requests
+from collections import defaultdict
 from storage import get_subs, get_settings, get_video_dates, save_video_dates, get_cache_manifest, save_cache_manifest
 from config import CACHE_DIR
 
@@ -24,10 +28,8 @@ def inject_deno(ydl_opts):
     if deno_path:
         ydl_opts['js_runtimes'] = {'deno': {'path': deno_path}}
     else:
-        # Fallback to standard handling if absolutely no binary is found locally
         ydl_opts['js_runtimes'] = {'deno': {}}
         
-    # Explicitly allow yt-dlp to fetch the cipher-solving EJS scripts from GitHub/NPM
     ydl_opts['remote_components'] = ['ejs:github', 'ejs:npm']
         
     return ydl_opts
@@ -37,6 +39,9 @@ COMMENTS_CACHE = {}
 COMMENTS_LOCK = threading.Lock()
 CHANNEL_ICON_CACHE = {}
 FEED_UPDATE_LOCK = threading.Lock()
+
+BULK_TASKS = {}
+FORMAT_TASKS = {}
 
 class YTDLPLogger:
     """Custom logger to capture exactly what yt-dlp is doing for debugging."""
@@ -198,7 +203,6 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
     last_save = [time.time()]
 
     def progress_hook(d):
-        # Abort if the user manually cancelled the download
         current_manifest = get_cache_manifest()
         if cache_key not in current_manifest or current_manifest[cache_key].get('status') == 'cancelled':
             raise ValueError("Download cancelled by user")
@@ -227,7 +231,6 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
                 save_cache_manifest(manifest)
                 last_save[0] = time.time()
 
-    # Enforce strict container pairings so FFmpeg doesn't convert to mkv
     fmt_str = (f'bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/'
                f'bestvideo[height<={resolution}][ext=webm]+bestaudio[ext=webm]/'
                f'bestvideo[height<={resolution}]+bestaudio/'
@@ -253,10 +256,8 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
     try:
         print(f"[DEBUG] Starting yt-dlp extraction/download for {vid_id} at <= {resolution}p")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            # download=True blocks until merging is completely finished
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=True)
             
-            # Prevent updating a cancelled download back to complete
             latest_manifest = get_cache_manifest()
             if cache_key not in latest_manifest or latest_manifest[cache_key].get('status') == 'cancelled':
                 return
@@ -316,9 +317,6 @@ def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None):
     threading.Thread(target=_download_task, args=(vid_id, resolution, metadata, size_limit_mb), daemon=True).start()
 
 def remove_from_cache(vid_id, resolution):
-    """
-    Cancels any active downloads for this target and safely purges all downloaded files.
-    """
     manifest = get_cache_manifest()
     cache_key = f"{vid_id}_{resolution}"
     
@@ -350,7 +348,6 @@ def sweep_cache():
         if now - data.get('last_accessed', 0) > ttl_seconds:
             to_delete.append(h)
             
-    # Compute size directly from disk files, ignoring deleted keys
     total_size = 0
     for h, data in manifest.items():
         if h not in to_delete:
@@ -372,13 +369,21 @@ def sweep_cache():
         del manifest[h]
         changed = True
         
-        # Glob delete main file + any orphaned ffmpeg .part or .f* segments
         for f in glob.glob(os.path.join(CACHE_DIR, f"{h}*")):
             try: os.remove(f)
             except: pass
                 
     if changed:
         save_cache_manifest(manifest)
+
+    # Garbage collection for abandoned format and bulk tasks
+    for tid in list(FORMAT_TASKS.keys()):
+        if now - FORMAT_TASKS[tid].get('last_accessed', now) > 7200:
+            del FORMAT_TASKS[tid]
+            
+    for tid in list(BULK_TASKS.keys()):
+        if now - BULK_TASKS[tid].get('last_accessed', now) > 7200:
+            clear_bulk_task(tid)
 
 def bg_worker_loop(app):
     with app.app_context():
@@ -429,3 +434,332 @@ def fetch_missing_icons(videos):
         if c_url:
             icon = get_cached_icon(c_url)
             if icon: v['channel_icon'] = icon
+
+# ----------------------------------------------------
+# Bulk Download Mechanics
+# ----------------------------------------------------
+
+def _extract_formats_for_video(vid):
+    ydl_opts = {
+        'quiet': True, 'no_warnings': True, 'ignoreerrors': True,
+        'writesubtitles': True, 'allsubtitles': True
+    }
+    inject_deno(ydl_opts)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
+            if not info: return None
+            
+            res_heights = set()
+            for f in info.get('formats', []):
+                h = f.get('height')
+                if h and f.get('vcodec') != 'none':
+                    res_heights.add(h)
+                    
+            has_subs = False
+            if info.get('subtitles') or info.get('automatic_captions'):
+                has_subs = True
+                
+            return {
+                'id': vid,
+                'heights': res_heights,
+                'has_subs': has_subs
+            }
+    except:
+        return None
+
+def start_format_task(video_ids):
+    task_id = str(uuid.uuid4())
+    FORMAT_TASKS[task_id] = {
+        'status': 'processing',
+        'current': 0,
+        'total': len(video_ids),
+        'result': None,
+        'cancelled': False,
+        'last_accessed': time.time()
+    }
+    threading.Thread(target=_format_worker, args=(task_id, video_ids), daemon=True).start()
+    return task_id
+
+def cancel_format_task(task_id):
+    if task_id in FORMAT_TASKS:
+        FORMAT_TASKS[task_id]['cancelled'] = True
+        FORMAT_TASKS[task_id]['last_accessed'] = time.time()
+
+def _format_worker(task_id, video_ids):
+    results = []
+    
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+        futures = {executor.submit(_extract_formats_for_video, vid): vid for vid in video_ids}
+        for i, future in enumerate(concurrent.futures.as_completed(futures)):
+            if FORMAT_TASKS[task_id].get('cancelled'):
+                break
+            r = future.result()
+            if r: results.append(r)
+            FORMAT_TASKS[task_id]['current'] = i + 1
+            
+    if FORMAT_TASKS[task_id].get('cancelled'):
+        FORMAT_TASKS[task_id]['status'] = 'cancelled'
+        return
+            
+    height_counts = defaultdict(int)
+    subs_count = 0
+    total = len(video_ids)
+    
+    for r in results:
+        for h in r['heights']:
+            height_counts[h] += 1
+        if r['has_subs']:
+            subs_count += 1
+            
+    video_formats = []
+    for h in sorted(height_counts.keys(), reverse=True):
+        if h in [2160, 1440, 1080, 720, 480]:
+            video_formats.append({
+                'label': f"{h}p MP4",
+                'val': str(h),
+                'count': height_counts[h]
+            })
+            
+    audio_formats = [
+        {'label': 'MP3 (Highest)', 'val': 'mp3', 'count': total},
+        {'label': 'M4A (Highest)', 'val': 'm4a', 'count': total}
+    ]
+    
+    sub_formats = []
+    if subs_count > 0:
+        sub_formats = [
+            {'label': 'TXT (Continuous Text)', 'val': 'txt', 'count': subs_count},
+            {'label': 'VTT (Original)', 'val': 'vtt', 'count': subs_count}
+        ]
+        
+    FORMAT_TASKS[task_id]['result'] = {
+        'total': total,
+        'video': video_formats,
+        'audio': audio_formats,
+        'subtitles': sub_formats
+    }
+    FORMAT_TASKS[task_id]['status'] = 'complete'
+
+def start_bulk_task(video_ids, dl_type, dl_format):
+    task_id = str(uuid.uuid4())
+    BULK_TASKS[task_id] = {
+        'status': 'processing',
+        'dl_type': dl_type,
+        'total': len(video_ids),
+        'current': 0,
+        'fractional_progress': 0.0,
+        'errors': [],
+        'zip_file': None,
+        'cancelled': False,
+        'last_accessed': time.time()
+    }
+    threading.Thread(target=_bulk_worker, args=(task_id, video_ids, dl_type, dl_format), daemon=True).start()
+    return task_id
+
+def cancel_bulk_task(task_id):
+    if task_id in BULK_TASKS:
+        BULK_TASKS[task_id]['cancelled'] = True
+        BULK_TASKS[task_id]['last_accessed'] = time.time()
+
+def clear_bulk_task(task_id):
+    """Safely deletes the zip file and unregisters the task."""
+    task = BULK_TASKS.get(task_id)
+    if task:
+        zip_file = task.get('zip_file')
+        if zip_file and os.path.exists(zip_file):
+            try: os.remove(zip_file)
+            except: pass
+            
+        temp_dir = os.path.join(CACHE_DIR, f"bulk_{task_id}")
+        if os.path.exists(temp_dir):
+            try: shutil.rmtree(temp_dir)
+            except: pass
+            
+        del BULK_TASKS[task_id]
+
+def get_best_subtitle_url(info):
+    subs = info.get('subtitles', {})
+    autos = info.get('automatic_captions', {})
+    
+    def extract_vtt_url(fmts):
+        if not fmts: return None
+        vtt = next((f for f in fmts if f.get('ext') == 'vtt'), None)
+        if not vtt: vtt = fmts[-1]
+        url = vtt.get('url')
+        if url and 'youtube.com/api/timedtext' in url and 'fmt=vtt' not in url:
+            url += '&fmt=vtt'
+        return url
+
+    for lang, fmts in subs.items():
+        if lang.startswith('en'):
+            u = extract_vtt_url(fmts)
+            if u: return u
+            
+    for lang, fmts in subs.items():
+        if 'live_chat' not in lang:
+            u = extract_vtt_url(fmts)
+            if u: return u
+            
+    for lang, fmts in autos.items():
+        if lang.startswith('en') and '-orig' not in lang:
+            u = extract_vtt_url(fmts)
+            if u: return u
+            
+    for lang, fmts in autos.items():
+        u = extract_vtt_url(fmts)
+        if u: return u
+        
+    return None
+
+def process_subtitle_text(raw_text, out_format):
+    if out_format == 'vtt':
+        return raw_text
+        
+    processed = []
+    for line in raw_text.split('\n'):
+        line = line.strip()
+        if not line: continue
+        if line.startswith('WEBVTT') or line.startswith('Kind:') or line.startswith('Language:'): continue
+        if '-->' in line: continue
+        line = re.sub(r'<[^>]+>', '', line)
+        line = line.replace('&gt;', '>').replace('&lt;', '<').replace('&amp;', '&').replace('&nbsp;', ' ')
+        line = re.sub(r'^>>\s*', '', line).strip()
+        if line and not re.match(r'^\d+$', line):
+            processed.append(line)
+            
+    final_lines = []
+    for line in processed:
+        if not final_lines:
+            final_lines.append(line)
+            continue
+        last = final_lines[-1]
+        if line == last: continue
+        if line.startswith(last):
+            final_lines[-1] = line
+            continue
+        if last.startswith(line):
+            continue
+        final_lines.append(line)
+        
+    return ' '.join(final_lines)
+
+def _bulk_worker(task_id, video_ids, dl_type, dl_format):
+    temp_dir = os.path.join(CACHE_DIR, f"bulk_{task_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+    ffmpeg_path = shutil.which('ffmpeg')
+    
+    def progress_hook(d):
+        if BULK_TASKS[task_id].get('cancelled'):
+            raise ValueError("Download cancelled by user")
+        if d['status'] == 'downloading':
+            total = d.get('total_bytes') or d.get('total_bytes_estimate') or 1
+            dl = d.get('downloaded_bytes', 0)
+            BULK_TASKS[task_id]['fractional_progress'] = min(dl / total, 1.0)
+    
+    for i, vid in enumerate(video_ids):
+        if BULK_TASKS[task_id].get('cancelled'):
+            break
+            
+        BULK_TASKS[task_id]['current'] = i + 1
+        BULK_TASKS[task_id]['fractional_progress'] = 0.0
+        
+        ydl_opts = {
+            'outtmpl': os.path.join(temp_dir, '%(title)s [%(id)s].%(ext)s'),
+            'quiet': True,
+            'no_warnings': True,
+            'ignoreerrors': True,
+            'progress_hooks': [progress_hook],
+            'logger': YTDLPLogger()
+        }
+        if ffmpeg_path:
+            ydl_opts['ffmpeg_location'] = ffmpeg_path
+        inject_deno(ydl_opts)
+        
+        if dl_type == 'subtitles':
+            # Subtitle Extraction Bypass (Python-native handling to avoid yt-dlp spam)
+            ydl_opts['skip_download'] = True
+            ydl_opts['writesubtitles'] = False
+            
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
+                    if not info: raise Exception("No info extracted")
+                    
+                    sub_url = get_best_subtitle_url(info)
+                    if not sub_url:
+                        raise Exception("No subtitles found")
+                        
+                    BULK_TASKS[task_id]['fractional_progress'] = 0.5
+                    
+                    r = requests.get(sub_url, timeout=15)
+                    r.raise_for_status()
+                    
+                    safe_title = "".join([c for c in info.get('title', 'Video') if c.isalpha() or c.isdigit() or c == ' ']).rstrip().replace(' ', '_')
+                    filename = f"{safe_title}_[{vid}].{dl_format}"
+                    
+                    final_text = process_subtitle_text(r.text, dl_format)
+                    
+                    with open(os.path.join(temp_dir, filename), 'w', encoding='utf-8') as f:
+                        f.write(final_text)
+                        
+                    BULK_TASKS[task_id]['fractional_progress'] = 1.0
+                    
+            except Exception as e:
+                print(f"[Bulk Download] Error fetching subtitles for {vid}: {e}")
+                BULK_TASKS[task_id]['errors'].append(vid)
+                
+        else:
+            # Standard Media Extraction
+            if dl_type == 'video':
+                res = dl_format
+                ydl_opts['format'] = f'bestvideo[ext=mp4][height<={res}]+bestaudio[ext=m4a]/bestvideo[height<={res}]+bestaudio/best[height<={res}]/best'
+                ydl_opts['merge_output_format'] = 'mp4/webm'
+            elif dl_type == 'audio':
+                ydl_opts['format'] = 'bestaudio/best'
+                ydl_opts['postprocessors'] = [{
+                    'key': 'FFmpegExtractAudio',
+                    'preferredcodec': dl_format,
+                }]
+                
+            try:
+                with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+                    ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=True)
+            except ValueError as e:
+                if str(e) == "Download cancelled by user":
+                    print(f"[Bulk Download] Aborting video {vid} due to cancellation.")
+                    break
+            except Exception as e:
+                print(f"[Bulk Download] Error downloading {vid}: {e}")
+                BULK_TASKS[task_id]['errors'].append(vid)
+            
+    if BULK_TASKS[task_id].get('cancelled'):
+        try: shutil.rmtree(temp_dir)
+        except: pass
+        BULK_TASKS[task_id]['status'] = 'cancelled'
+        return
+
+    # Safe Zipping Loop (Interruptable)
+    zip_base = os.path.join(CACHE_DIR, f"bulk_{task_id}.zip")
+    try:
+        with zipfile.ZipFile(zip_base, 'w', zipfile.ZIP_DEFLATED) as zipf:
+            for root, _, files in os.walk(temp_dir):
+                for file in files:
+                    if BULK_TASKS[task_id].get('cancelled'):
+                        raise ValueError("Cancelled during zip")
+                    file_path = os.path.join(root, file)
+                    arcname = os.path.relpath(file_path, temp_dir)
+                    zipf.write(file_path, arcname)
+                    
+        shutil.rmtree(temp_dir)
+        BULK_TASKS[task_id]['zip_file'] = zip_base
+        BULK_TASKS[task_id]['status'] = 'complete'
+    except ValueError:
+        try: 
+            shutil.rmtree(temp_dir)
+            if os.path.exists(zip_base): os.remove(zip_base)
+        except: pass
+        BULK_TASKS[task_id]['status'] = 'cancelled'
+    except Exception as e:
+        print(f"Zipping failed: {e}")
+        BULK_TASKS[task_id]['status'] = 'error'

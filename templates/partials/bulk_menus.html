@@ -1,0 +1,90 @@
+<div class="settings-menu" id="bulkMenu">
+    <div class="settings-panes-wrapper">
+        <div class="settings-pane" id="bulkMainPane">
+            <div id="bulk-loading" style="text-align: center; padding: 20px;">
+                <div class="loading-spinner"></div>
+                <div id="bulk-loading-text" style="font-size: 13px; color: #aaa; margin-top: 10px;">Fetching available formats...</div>
+            </div>
+            <div id="bulk-type-selection" style="display:none;">
+                <div class="settings-item" onclick="bulkShowFormats('video')">
+                    <div class="settings-label">
+                        <img src="/static/icons/quality.svg" alt="Video">
+                        <span>Video (MP4/WebM)</span>
+                    </div>
+                    <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                </div>
+                <div class="settings-item" onclick="bulkShowFormats('audio')">
+                    <div class="settings-label">
+                        <img src="/static/icons/vol-high.svg" alt="Audio">
+                        <span>Audio Only</span>
+                    </div>
+                    <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                </div>
+                <div class="settings-item" onclick="bulkShowFormats('subtitles')">
+                    <div class="settings-label">
+                        <img src="/static/icons/cc-outline.svg" alt="Subs">
+                        <span>Subtitle Transcripts</span>
+                    </div>
+                    <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="settings-pane" id="bulkFormatPane">
+            <div class="submenu-header" onclick="bulkGoBack()">
+                <img src="/static/icons/chevron-left.svg" alt="Back">
+                <span id="bulkFormatTitle">Select Format</span>
+            </div>
+            <div id="bulkFormatContent"></div>
+            <div id="bulkFormatFooter" class="format-fallback-footer" style="display:none;"></div>
+        </div>
+    </div>
+</div>
+
+<div class="settings-menu" id="bulkProgressMenu">
+    <div class="settings-panes-wrapper" style="width: 100%;">
+        <div class="settings-pane" id="bulkProgressPane" style="width: 100%;">
+            
+            <div class="submenu-header">
+                <img src="/static/icons/bulk.svg" id="bulkProgressHeaderIcon" alt="Status" style="transition: none;">
+                <span id="bulkProgressHeaderTxt">Active Bulk Download</span>
+            </div>
+            
+            <div id="bulkProgressWarning" class="error-block" style="display: none;">
+                <img src="/static/icons/warning.svg" style="width: 20px; height: 20px;" alt="Warning">
+                <span id="bulkProgressWarningTxt"></span>
+            </div>
+
+            <div id="bulkProgressView">
+                <div style="padding: 10px 16px;">
+                    <div id="bulk-progress-text" style="font-size: 13.5px; color: #ccc; margin-bottom: 10px; text-align: center;">Initializing...</div>
+                    <div style="width: 100%; height: 6px; background: #333; border-radius: 3px; overflow: hidden; margin-bottom: 5px;">
+                        <div id="bulk-progress-bar-inner" style="height: 100%; width: 0%; background: #4a90e2; transition: width 0.3s;"></div>
+                    </div>
+                </div>
+                <div class="settings-item" onclick="cancelBulkDownload()">
+                    <div class="settings-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ff4a4a" style="width: 20px; height: 20px;"><path d="M19 6.41L17.59 5 12 10.59 6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 12 13.41 17.59 19 19 17.59 13.41 12z"/></svg>
+                        <span style="color: #ff4a4a; font-weight: 500;">Cancel Download</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="bulkCompleteView" style="display: none;">
+                <div class="settings-item" onclick="downloadBulkFile()">
+                    <div class="settings-label">
+                        <img src="/static/icons/download.svg" alt="Download">
+                        <span>Save to Device</span>
+                    </div>
+                </div>
+                <div class="settings-item" onclick="clearBulkDownload()">
+                    <div class="settings-label">
+                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ff4a4a" style="width: 20px; height: 20px;"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        <span style="color: #ff4a4a; font-weight: 500;">Delete & Close</span>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>

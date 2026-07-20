@@ -1,0 +1,30 @@
+<nav>
+    <a href="/" class="logo">
+        <img src="/static/icons/logo.svg" style="width: 28px; height: 28px;" alt="Logo">
+        yt-dlp Tube
+    </a>
+    <form class="search-bar" action="/search" method="GET">
+        <input type="text" name="q" placeholder="Search..." required>
+        <button type="submit">Search</button>
+    </form>
+    <div class="nav-links">
+        <a href="javascript:void(0)" id="bulk-active-btn" title="View Active Download" onclick="openBulkProgressMenu(event)" style="display:none; color: #4a90e2;">
+            <img src="/static/icons/spinner.svg" class="nav-spinner" alt="Downloading">
+        </a>
+        <a href="javascript:void(0)" id="bulk-btn" title="Bulk Download" onclick="toggleBulkMode()">
+            <img src="/static/icons/bulk.svg" alt="Bulk">
+        </a>
+        <a href="javascript:void(0)" id="bulk-cancel-btn" title="Cancel Selection" onclick="cancelBulkMode()" style="display:none; background: rgba(255, 74, 74, 0.15);">
+            <img src="/static/icons/close.svg" alt="Cancel">
+        </a>
+        <a href="javascript:void(0)" id="bulk-next-btn" title="Continue" onclick="openBulkMenu(event)" style="display:none; pointer-events: none; opacity: 0.5;">
+            <img src="/static/icons/next.svg" alt="Next">
+        </a>
+        <a href="/settings" title="Settings">
+            <img src="/static/icons/settings.svg" alt="Settings">
+        </a>
+        <a href="/logout" class="logout" data-no-pjax="true" title="Logout">
+            <img src="/static/icons/logout.svg" alt="Logout">
+        </a>
+    </div>
+</nav>

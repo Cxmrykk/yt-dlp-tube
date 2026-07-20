@@ -1,5 +1,4 @@
-{% include 'partials/player_style.html' %}
-
+<link rel="stylesheet" href="/static/css/player.css">
 <style id="custom-cc-style"></style>
 
 <div class="video-container paused" id="videoContainer">
@@ -10,10 +9,8 @@
     <video id="vid-player" class="main-video" playsinline preload="metadata" crossorigin="anonymous" style="display:none;"></video>
     <audio id="aud-player" preload="metadata" style="display:none;"></audio>
     
-    <!-- Multi-pane Cache & Download Menu -->
     <div class="settings-menu cache-menu-popup" id="cacheMenu">
         <div class="settings-panes-wrapper" id="cacheWrapper">
-            <!-- PANE 1: Main Cache Actions -->
             <div class="settings-pane" id="cacheMainPane">
                 <div class="settings-item" id="menuCacheActionBtn">
                     <div class="settings-label">
@@ -43,7 +40,6 @@
                 </div>
             </div>
 
-            <!-- PANE 2: Subtitle Format Selection -->
             <div class="settings-pane" id="cacheFormatPane">
                 <div class="submenu-header" id="cacheFormatBackBtn">
                     <img src="/static/icons/chevron-left.svg" alt="Back">
@@ -59,7 +55,6 @@
                 </div>
             </div>
 
-            <!-- PANE 3: Subtitle Output Action -->
             <div class="settings-pane" id="cacheActionPane">
                 <div class="submenu-header" id="cacheActionBackBtn">
                     <img src="/static/icons/chevron-left.svg" alt="Back">
@@ -83,7 +78,6 @@
         </div>
     </div>
 
-    <!-- SponsorBlock Menu -->
     <div class="settings-menu sb-menu-popup" id="sbMenu">
         <div class="settings-panes-wrapper" id="sbWrapper">
             <div class="settings-pane" id="sbMainPane"></div>
@@ -115,7 +109,6 @@
                     </div>
                 </div>
             </div>
-            <!-- New Pane for Rating -->
             <div class="settings-pane" id="sbRatePane">
                 <div class="submenu-header" id="sbRateBackBtn">
                     <img src="/static/icons/chevron-left.svg" alt="Back">
@@ -126,7 +119,6 @@
         </div>
     </div>
 
-    <!-- CC Menu -->
     <div class="settings-menu cc-menu-popup" id="ccMenu">
         <div class="settings-panes-wrapper" id="ccWrapper">
             <div class="settings-pane" id="ccMainPane"></div>
@@ -189,7 +181,6 @@
         </div>
     </div>
 
-    <!-- Main Settings Menu -->
     <div class="settings-menu" id="settingsMenu">
         <div class="settings-panes-wrapper" id="settingsWrapper">
             <div class="settings-pane" id="mainPane">
@@ -280,4 +271,37 @@
     </div>
 </div>
 
-{% include 'partials/player_script.html' %}
+<script>
+    window.APP_CONFIG = {
+        overlayTimeout: {{ app_settings.overlay_timeout_ms | default(500) }},
+        previewCacheSizeMb: {{ app_settings.preview_cache_size_mb | default(100) }},
+        cacheAutoSwitchThreshold: {{ app_settings.cache_auto_switch_threshold | default(720) }},
+        shortcuts: {
+            pause: "{{ app_settings.shortcut_pause | default('Space') }}",
+            seekFwd: "{{ app_settings.shortcut_seek_fwd | default('ArrowRight') }}",
+            seekBwd: "{{ app_settings.shortcut_seek_bwd | default('ArrowLeft') }}",
+            mute: "{{ app_settings.shortcut_mute | default('m') }}",
+            cc: "{{ app_settings.shortcut_cc | default('v') }}",
+            chapNext: "{{ app_settings.shortcut_chap_next | default('PageUp') }}",
+            chapPrev: "{{ app_settings.shortcut_chap_prev | default('PageDown') }}",
+            speedUp: "{{ app_settings.shortcut_speed_up | default('ArrowUp') }}",
+            speedDown: "{{ app_settings.shortcut_speed_down | default('ArrowDown') }}"
+        },
+        ccSettings: {
+            font: {{ app_settings.cc_font | tojson }},
+            color: {{ app_settings.cc_color | tojson }},
+            bg: {{ app_settings.cc_bg | tojson }},
+            bg_op: parseFloat({{ app_settings.cc_bg_op | tojson }}),
+            scale: parseFloat({{ app_settings.cc_scale | tojson }}),
+            v_offset: parseFloat({{ app_settings.cc_v_offset | tojson }})
+        },
+        sbSettings: {
+            enabled: {{ 'true' if app_settings.sb_enabled else 'false' }},
+            action: "{{ app_settings.sb_action }}",
+            categories: {{ app_settings.sb_categories | default([]) | tojson | safe }},
+            colors: {{ app_settings.sb_colors | default({}) | tojson | safe }},
+            userID: "{{ app_settings.sb_userid }}"
+        }
+    };
+</script>
+<script src="/static/js/player/init.js"></script>
