@@ -22,7 +22,13 @@ def history_page():
     history.sort(key=lambda x: x.get('last_viewed', 0), reverse=True)
     
     manifest = get_cache_manifest()
-    cached_vids = {v['vid_id'] for v in manifest.values() if v.get('status') == 'complete' and 'vid_id' in v}
+    
+    # Only include videos that have been fully cached manually, not just auto-previewed
+    cached_vids = {
+        v['vid_id'] 
+        for v in manifest.values() 
+        if v.get('status') == 'complete' and 'vid_id' in v and not v.get('is_preview', False)
+    }
     
     return render_template('history.html', history=history, cached_vids=cached_vids)
 

@@ -187,7 +187,15 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
     cache_key = f"{vid_id}_{resolution}"
     manifest = get_cache_manifest()
     
+    # Track whether this was triggered via auto-preview or manual full-cache
+    is_preview = (size_limit_mb is not None)
+    
     if cache_key in manifest and manifest[cache_key].get('status') == 'complete':
+        # If it was already cached as a preview, but the user manually requests 
+        # caching for this exact resolution, upgrade the flag so it appears in history.
+        if not is_preview and manifest[cache_key].get('is_preview', False):
+            manifest[cache_key]['is_preview'] = False
+            save_cache_manifest(manifest)
         return 
 
     manifest[cache_key] = {
@@ -196,6 +204,7 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
         'status': 'downloading',
         'ratio': 0.0,
         'last_accessed': time.time(),
+        'is_preview': is_preview,
         **metadata
     }
     save_cache_manifest(manifest)
