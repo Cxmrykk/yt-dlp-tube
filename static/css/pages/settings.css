@@ -13,3 +13,27 @@
 .btn-shortcut.listening { background: #444; box-shadow: 0 0 0 2px var(--text-color); outline: none; }
 .btn-clear { background: transparent; color: #ff4a4a; border: 1px solid #ff4a4a; padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.9rem; transition: all 0.2s; }
 .btn-clear:hover { background: #ff4a4a; color: white; }
+
+.settings-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 12px;
+}
+
+@media (max-width: 768px) {
+    .settings-grid {
+        grid-template-columns: 1fr;
+    }
+    .add-form {
+        padding: 15px;
+    }
+    .shortcut-row {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 5px;
+        margin-bottom: 20px;
+    }
+    .btn-shortcut, .btn-clear {
+        width: 100%;
+    }
+}

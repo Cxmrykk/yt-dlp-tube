@@ -28,3 +28,69 @@ nav a.logo { color: var(--text-color); text-decoration: none; font-weight: bold;
 .sidebar img:not(.nav-icon) { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
 
 .main-content { flex: 1; padding: 20px; overflow-y: auto; overflow-x: hidden; position: relative; }
+
+#sidebar-overlay { display: none; }
+
+/* Apply mobile layout exclusively when the screen is narrow AND the phone is upright */
+@media (max-width: 768px) and (orientation: portrait) {
+    nav {
+        height: auto;
+        display: grid;
+        grid-template-columns: 1fr auto;
+        grid-template-rows: auto auto;
+        gap: 15px 0;
+        padding: 10px 15px;
+    }
+    nav a.logo {
+        grid-column: 1;
+        grid-row: 1;
+        justify-self: start;
+        cursor: pointer;
+    }
+    .nav-links {
+        grid-column: 2;
+        grid-row: 1;
+        justify-self: end;
+    }
+    .search-bar {
+        grid-column: 1 / -1;
+        grid-row: 2;
+        position: relative;
+        left: auto;
+        transform: none;
+        width: 100%;
+    }
+    .layout {
+        height: calc(100vh - 110px);
+    }
+    .sidebar {
+        position: fixed;
+        top: 0;
+        left: -260px;
+        height: 100%;
+        z-index: 2000;
+        transition: left 0.3s ease;
+        box-shadow: 2px 0 12px rgba(0,0,0,0.5);
+        padding-top: 20px;
+    }
+    .sidebar.open {
+        left: 0;
+    }
+    #sidebar-overlay {
+        display: block; 
+        position: fixed;
+        top: 0; left: 0; right: 0; bottom: 0;
+        background: rgba(0,0,0,0.6);
+        z-index: 1999;
+        opacity: 0;
+        visibility: hidden;
+        transition: opacity 0.3s ease, visibility 0.3s ease;
+    }
+    #sidebar-overlay.open {
+        opacity: 1;
+        visibility: visible;
+    }
+    .main-content {
+        padding: 15px 10px;
+    }
+}

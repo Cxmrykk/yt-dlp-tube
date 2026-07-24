@@ -22,7 +22,7 @@
         </select>
         
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Categories to Target:</label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 25px;">
+        <div class="settings-grid" style="margin-bottom: 25px;">
             {% set cats = [
                 ('sponsor', 'Sponsor'), ('intro', 'Intro/Animation'), ('outro', 'Outro/Credits'),
                 ('interaction', 'Interaction Reminder'), ('selfpromo', 'Unpaid/Self Promo'),
@@ -37,7 +37,7 @@
         </div>
         
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Timeline Colors:</label>
-        <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 20px; background: #222; padding: 15px; border-radius: 8px;">
+        <div class="settings-grid" style="margin-bottom: 20px; background: #222; padding: 15px; border-radius: 8px;">
             {% set cat_colors = [
                 ('sponsor', 'Sponsor'), ('intro', 'Intro / Animation'), ('outro', 'Outro / Credits'),
                 ('interaction', 'Interaction'), ('selfpromo', 'Self Promo'), ('music_offtopic', 'Off-topic'),
