@@ -45,14 +45,9 @@ class PlayerCore {
             bestAudioUrl: '',
             isCurrentResCached: false,
             isScrubbing: false,
-            // Resume position arrives with the video payload (see loadVideoData).
-            // It is deliberately NOT read from a global at construction time —
-            // the player is constructed before the page script that used to set it.
             resumeTime: 0,
             currentVideoHeight: 0,
             currentResolution: null,
-            // Authoritative "the user wants this paused" flag. The `paused` CSS class
-            // is presentation only and can't be trusted by the sync layer.
             userPaused: false
         };
 
@@ -111,14 +106,6 @@ class PlayerCore {
         return PlayerUtils.getValidDuration(this.ui.mainVideo);
     }
 
-    /**
-     * Resolve once the element reaches `level` readiness.
-     *
-     * Critically this checks readyState *first*. The previous code attached
-     * `loadedmetadata` listeners after assigning `src`, which silently never fired
-     * for locally cached files that were already parsed — that was the real cause
-     * of "sometimes it just doesn't autoplay".
-     */
     waitReady(el, level, timeout = 15000) {
         return new Promise(resolve => {
             if (!el) return resolve(false);
@@ -193,13 +180,6 @@ class PlayerCore {
         if (this.state.isDualAudio) this.ui.audio.play().catch(() => {});
     }
 
-    /**
-     * Single entry point for starting playback.
-     *
-     * Both elements are brought to a known-ready state and seeked before either is
-     * told to play, which removes the window where video runs and audio is still
-     * buffering — the "momentary desync" that could become permanent.
-     */
     async startPlayback(seekTo) {
         const v = this.ui.mainVideo;
         const a = this.ui.audio;
@@ -227,7 +207,6 @@ class PlayerCore {
             a.volume = v.volume;
             a.playbackRate = v.playbackRate;
 
-            // Wait for BOTH to have enough data before starting either.
             await Promise.all([
                 this.waitReady(v, 3, 12000),
                 this.waitReady(a, 3, 12000)
@@ -247,8 +226,6 @@ class PlayerCore {
             this.setPlayingUI();
         } catch (err) {
             if (err && err.name === 'NotAllowedError') {
-                // Browser blocked unmuted autoplay. Fall back to muted playback and
-                // surface an explicit unmute affordance rather than silently sitting paused.
                 v.muted = true;
                 a.muted = true;
                 try {
@@ -282,11 +259,6 @@ class PlayerCore {
         }
     }
 
-    /**
-     * The scrub preview stream and the background preview-cache job both compete for
-     * bandwidth with the stream we're actually trying to start. Defer them until
-     * playback is under way.
-     */
     initPreview() {
         if (this._previewInitialised || !this._pendingPreview || this.isAborted()) return;
         this._previewInitialised = true;
@@ -333,7 +305,6 @@ class PlayerCore {
         
         if(this.state.currentVideoId) this.cache.startCachePolling(this.state.currentVideoId, targetRes);
 
-        // readyState-first, so a cached file that is already parsed doesn't strand us.
         this.waitReady(this.ui.mainVideo, 1).then(ok => {
             if (this.isAborted()) return;
 
@@ -422,7 +393,6 @@ class PlayerCore {
 
         const lowestResObj = this.state.resolutionsList.length > 0 ? this.state.resolutionsList[this.state.resolutionsList.length - 1] : null;
         
-        // Defer preview loading so it doesn't fight with the main video stream
         this._previewInitialised = false;
         if (lowestResObj && (lowestResObj.is_cached || lowestResObj.url.includes('/proxy/local'))) {
             this._pendingPreview = { src: lowestResObj.url, startCache: false };
@@ -462,10 +432,8 @@ class PlayerCore {
 
         this.updateVolumeIcons();
 
-        // Autoplay!
         this.state.userPaused = false;
         this.startPlayback(this.state.resumeTime).then(() => {
-            // Once playback begins (or fails into paused), initialize the preview video
             this.initPreview();
         });
     }

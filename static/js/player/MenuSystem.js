@@ -110,7 +110,7 @@ class MenuSystem {
         this.ui.sbMenu.classList.remove('open');
         this.ui.sbBtn.classList.remove('active-menu-btn');
         if (!this.isAnyMenuOpen()) this.player.container.classList.remove('menu-open');
-        this.player.sponsorBlock.clearHighlight(); // Ensure highlight drops
+        this.player.sponsorBlock.clearHighlight(); 
         setTimeout(() => {
             this.ui.sbMenu.classList.remove('show-submit', 'show-rate');
             this.setMenuHeight(document.getElementById('sbMainPane'), this.ui.sbMenu);
@@ -191,9 +191,7 @@ class MenuSystem {
             rateDiv.addEventListener('click', (e) => {
                 e.stopPropagation();
                 this.ui.sbMenu.classList.add('show-rate');
-                // Build DOM inside pane first so measuring its height works immediately
                 this.renderSbRateMenu(activeSeg);
-                // Then apply the newly generated height
                 this.setMenuHeight(document.getElementById('sbRatePane'), this.ui.sbMenu);
                 sb.highlightSegment(activeSeg.UUID, true);
             });

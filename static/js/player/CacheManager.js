@@ -72,7 +72,6 @@ class CacheManager {
             this.cacheIconDone.style.display = 'none';
         }
         
-        // Ensure menu height is correct if we are on the main pane
         if (this.ui.cacheMenu.classList.contains('open') && 
             !this.ui.cacheMenu.classList.contains('show-format') && 
             !this.ui.cacheMenu.classList.contains('show-action')) {
@@ -209,8 +208,6 @@ class CacheManager {
         poll();
     }
 
-    // --- Subtitle Extraction & Processing Logic ---
-    
     processSubtitle(text, format) {
         if (!text) return "";
 

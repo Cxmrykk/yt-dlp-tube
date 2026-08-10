@@ -30,11 +30,6 @@ app = Flask(
 app.secret_key = init_auth()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
 
-# Static assets (icons, css, js) are immutable between deploys. Without this Flask
-# only sends conditional-request headers, forcing a revalidation round-trip on every
-# navigation and a cold-cache fetch on every browser restart.
-app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
-
 # Register Blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(proxy_bp)

@@ -48,15 +48,6 @@ FEED_UPDATE_LOCK = threading.Lock()
 BULK_TASKS = {}
 FORMAT_TASKS = {}
 
-# ----------------------------------------------------
-# Download queues
-#
-# Previously every cache request spawned an unbounded thread. With auto-caching
-# enabled that means N simultaneous yt-dlp + ffmpeg processes competing with the
-# stream the user is actually watching. Everything now funnels through bounded
-# queues: one worker for full media (manual jobs preempt auto jobs) and one for
-# the tiny size-capped preview scrubs.
-# ----------------------------------------------------
 MEDIA_QUEUE = queue.PriorityQueue()
 PREVIEW_QUEUE = queue.Queue()
 QUEUED_KEYS = set()
@@ -66,12 +57,10 @@ _WORKERS_STARTED = False
 
 PRIORITY = {'manual': 0, 'auto': 1}
 KIND_EVICTION_RANK = {'preview': 0, 'auto': 1, 'manual': 2}
-# Anything touched this recently is presumed to be actively streaming.
 CACHE_HOT_WINDOW_SECS = 300
 
 
 class YTDLPLogger:
-    """Custom logger to capture exactly what yt-dlp is doing for debugging."""
     def debug(self, msg):
         if not msg.startswith('[download]'):
             print(f"[yt-dlp DEBUG] {msg}")
@@ -97,17 +86,13 @@ def sync_video_dates(entries):
     changed = False
     now = time.time()
     
-    known_count = sum(1 for e in entries if e and e.get('id') in dates_cache)
-    is_baseline_run = (known_count == 0)
-    
     for idx, e in enumerate(entries):
         if not e: continue
         vid = e.get('id')
         if not vid: continue
         
         if vid not in dates_cache:
-            is_new = False if is_baseline_run else (idx < 5)
-            dates_cache[vid] = {"timestamp": now, "is_new": is_new}
+            dates_cache[vid] = {"timestamp": now, "is_new": (idx < 5)}
             changed = True
         elif isinstance(dates_cache[vid], (int, float)):
             dates_cache[vid] = {"timestamp": dates_cache[vid], "is_new": False}
@@ -123,12 +108,7 @@ def sync_video_dates(entries):
         save_video_dates(dates_cache)
 
 
-# ----------------------------------------------------
-# Server-side "new upload" state
-# ----------------------------------------------------
-
 def mark_channel_seen(url, ts=None):
-    """Clear the new-upload dot for a channel."""
     n = norm_url(url)
     if not n:
         return
@@ -140,7 +120,6 @@ def mark_channel_seen(url, ts=None):
 
 
 def get_new_channel_urls():
-    """Normalized channel URLs that have uploads newer than the user's watermark."""
     state = get_feed_state()
     out = set()
     for v in feed_cache.get('data', []):
@@ -262,10 +241,6 @@ def update_feed_now():
         FEED_UPDATE_LOCK.release()
 
 
-# ----------------------------------------------------
-# Media caching
-# ----------------------------------------------------
-
 def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manual'):
     cache_key = f"{vid_id}_{resolution}"
     manifest = get_cache_manifest()
@@ -274,8 +249,6 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manua
 
     existing = manifest.get(cache_key)
     if existing and existing.get('status') == 'complete':
-        # A preview can be "upgraded" in place: a manual or auto request for the same
-        # key means the user actually wants this kept and surfaced in History.
         current_kind = existing.get('cache_kind') or ('preview' if existing.get('is_preview') else 'manual')
         if not is_preview and current_kind == 'preview':
             existing['cache_kind'] = kind
@@ -473,7 +446,6 @@ def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None, kind=N
         'kind': kind
     }
 
-    # Workers may not be running under `flask run` reloader edge cases; be defensive.
     start_cache_workers()
 
     if kind == 'preview':
@@ -483,7 +455,6 @@ def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None, kind=N
 
 
 def queue_auto_cache(vid_id, resolution, metadata):
-    """Entry point for the 'auto-cache watched videos' setting."""
     if not vid_id or not resolution:
         return False
     cache_key = f"{vid_id}_{resolution}"
@@ -548,15 +519,12 @@ def sweep_cache():
     def is_hot(entry):
         return (now - entry.get('last_accessed', 0)) < CACHE_HOT_WINDOW_SECS
 
-    # 1. TTL expiry (never touch something that is actively being streamed)
     for h, data in list(manifest.items()):
         if is_hot(data):
             continue
         if now - data.get('last_accessed', 0) > ttl_seconds:
             to_delete.add(h)
 
-    # 2. Disposable budget: previews and auto-cached files get their own, smaller cap
-    #    so that turning auto-cache on can't starve manually pinned downloads.
     disposable = [
         h for h, d in manifest.items()
         if h not in to_delete and _entry_kind(d) in ('preview', 'auto')
@@ -575,7 +543,6 @@ def sweep_cache():
             to_delete.add(h)
             disposable_size -= _entry_size(manifest[h])
 
-    # 3. Global cap. Evict previews first, then auto-cached, then manual; LRU within group.
     total_size = sum(_entry_size(d) for h, d in manifest.items() if h not in to_delete)
     if total_size > max_bytes:
         remaining = [h for h in manifest.keys() if h not in to_delete]
@@ -602,7 +569,6 @@ def sweep_cache():
     if changed:
         save_cache_manifest(manifest)
 
-    # Garbage collection for abandoned format and bulk tasks
     for tid in list(FORMAT_TASKS.keys()):
         if now - FORMAT_TASKS[tid].get('last_accessed', now) > 7200:
             del FORMAT_TASKS[tid]
@@ -660,10 +626,6 @@ def fetch_missing_icons(videos):
         if c_url:
             icon = get_cached_icon(c_url)
             if icon: v['channel_icon'] = icon
-
-# ----------------------------------------------------
-# Bulk Download Mechanics
-# ----------------------------------------------------
 
 def _extract_formats_for_video(vid):
     ydl_opts = {
@@ -790,7 +752,6 @@ def cancel_bulk_task(task_id):
         BULK_TASKS[task_id]['last_accessed'] = time.time()
 
 def clear_bulk_task(task_id):
-    """Safely deletes the zip file and unregisters the task."""
     task = BULK_TASKS.get(task_id)
     if task:
         zip_file = task.get('zip_file')
@@ -982,7 +943,6 @@ def _bulk_worker(task_id, video_ids, dl_type, dl_format):
         BULK_TASKS[task_id]['status'] = 'cancelled'
         return
 
-    # Safe Zipping Loop (Interruptable)
     zip_base = os.path.join(CACHE_DIR, f"bulk_{task_id}.zip")
     try:
         with zipfile.ZipFile(zip_base, 'w', zipfile.ZIP_DEFLATED) as zipf:

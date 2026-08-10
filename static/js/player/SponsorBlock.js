@@ -96,7 +96,7 @@ class SponsorBlock {
             
             const marker = document.createElement('div');
             marker.className = 'sb-marker';
-            marker.dataset.uuid = seg.UUID; // Track UUID for glow effect
+            marker.dataset.uuid = seg.UUID;
             marker.style.left = `${(start / dur) * 100}%`;
             marker.style.width = `${((end - start) / dur) * 100}%`;
             marker.style.backgroundColor = this.colors[seg.category.toLowerCase()] || '#ffffff';
