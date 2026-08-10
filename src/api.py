@@ -27,23 +27,20 @@ def _maybe_auto_cache(entry):
     if not settings.get('auto_cache_watched'):
         return
 
-    try:
-        threshold = float(settings.get('auto_cache_threshold_secs', 30))
-    except (TypeError, ValueError):
-        threshold = 30.0
+    # If the user enabled immediate caching, it was already triggered inside /api/info.
+    # We only enforce the time-threshold here if immediate is turned off.
+    # However, if they change resolution mid-stream, this handles catching that too.
+    if not settings.get('auto_cache_immediate'):
+        try:
+            threshold = float(settings.get('auto_cache_threshold_secs', 30))
+        except (TypeError, ValueError):
+            threshold = 30.0
 
-    watched = entry.get('watch_duration') or 0
-    if watched < threshold:
-        return
+        watched = entry.get('watch_duration') or 0
+        if watched < threshold:
+            return
 
-    # 0 means "whatever the player is currently streaming"
-    configured = settings.get('auto_cache_resolution', 720)
-    try:
-        configured = int(configured)
-    except (TypeError, ValueError):
-        configured = 720
-
-    resolution = configured if configured > 0 else entry.get('last_resolution')
+    resolution = entry.get('last_resolution')
     if not resolution:
         return
 
@@ -234,8 +231,6 @@ def api_info():
                     
     subtitles_list.sort(key=lambda x: (x['is_auto'], x['label']))
 
-    # Resume position is resolved here rather than at page-render time so there is a
-    # single authoritative source and no dependency on script ordering in the client.
     total_duration = info.get('duration', 0) or 0
     resume_time = 0
     hist = get_history()
@@ -248,6 +243,35 @@ def api_info():
         known_dur = hist_entry.get('duration') or total_duration or 0
         if watched > 5 and (not known_dur or (known_dur - watched) > 5):
             resume_time = watched
+
+    # --- IMMEDIATE AUTO-CACHE LOGIC ---
+    client_res_arg = request.args.get('client_res')
+    actual_res = None
+    if client_res_arg:
+        try:
+            target_res = int(client_res_arg)
+            # Find the best resolution <= the client's intent
+            for r in resolutions_list:
+                if r['height'] <= target_res:
+                    actual_res = r['height']
+                    break
+            # If all are higher, pick the lowest available
+            if not actual_res and resolutions_list:
+                actual_res = resolutions_list[-1]['height']
+        except ValueError:
+            pass
+
+    if actual_res:
+        settings = get_settings()
+        if settings.get('auto_cache_watched') and settings.get('auto_cache_immediate'):
+            meta_cache = {
+                'title': info.get('title', 'Untitled'),
+                'uploader': info.get('uploader') or info.get('channel') or 'Unknown',
+                'uploader_url': uploader_url,
+                'channel_icon': channel_icon,
+                'duration': total_duration
+            }
+            queue_auto_cache(vid_id, actual_res, meta_cache)
 
     raw_description = info.get('description', '') or ''
 
@@ -585,3 +609,4 @@ def bulk_download():
         return "File not found", 404
         
     return send_file(zip_file, as_attachment=True, download_name="ytdlp_bulk_download.zip")
+

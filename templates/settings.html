@@ -144,7 +144,7 @@
         <input type="hidden" name="action" value="update_cache_settings">
         
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Max Cache Size (GB):</label>
-        <input type="number" name="cache_max_size_gb" value="{{ app_settings.cache_max_size_gb | default(5) }}" min="1" max="100" required>
+        <input type="number" name="cache_max_size_gb" value="{{ app_settings.cache_max_size_gb | default(20) }}" min="1" max="100" required>
         
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Cache Time-To-Live (Hours):</label>
         <input type="number" name="cache_ttl_hours" value="{{ app_settings.cache_ttl_hours | default(24) }}" min="1" max="168" required>
@@ -171,20 +171,16 @@
             Auto-cached files are evicted before manually cached ones when space runs low.
         </p>
 
+        <label style="display: flex; align-items: center; gap: 10px; margin-bottom: 8px; color: white; cursor: pointer; font-weight: bold;">
+            <input type="checkbox" name="auto_cache_immediate" {% if app_settings.auto_cache_immediate %}checked{% endif %} style="width:auto; margin:0; transform: scale(1.2);">
+            Cache immediately upon opening (ignore time threshold)
+        </label>
+
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Start Caching After (seconds watched):</label>
         <input type="number" name="auto_cache_threshold_secs" value="{{ app_settings.auto_cache_threshold_secs | default(30) }}" min="5" max="3600" required>
 
-        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Auto-Cache Resolution:</label>
-        <select name="auto_cache_resolution" style="margin-bottom: 15px; width: 100%;">
-            <option value="0" {% if app_settings.auto_cache_resolution == 0 %}selected{% endif %}>Match current playback quality</option>
-            <option value="1080" {% if app_settings.auto_cache_resolution == 1080 %}selected{% endif %}>1080p</option>
-            <option value="720" {% if app_settings.auto_cache_resolution == 720 %}selected{% endif %}>720p</option>
-            <option value="480" {% if app_settings.auto_cache_resolution == 480 %}selected{% endif %}>480p</option>
-            <option value="360" {% if app_settings.auto_cache_resolution == 360 %}selected{% endif %}>360p</option>
-        </select>
-
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Auto-Cache Budget (GB):</label>
-        <input type="number" name="auto_cache_max_size_gb" value="{{ app_settings.auto_cache_max_size_gb | default(3) }}" min="1" max="100" step="0.5" required>
+        <input type="number" name="auto_cache_max_size_gb" value="{{ app_settings.auto_cache_max_size_gb | default(10) }}" min="1" max="100" step="0.5" required>
 
         <button type="submit" class="btn btn-danger">Save Cache Settings</button>
     </form>

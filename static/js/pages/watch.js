@@ -231,7 +231,11 @@
 
     let onPlayerPause = null;
 
-    window.appFetch(`/api/info?url=${encodeURIComponent(videoUrl)}`)
+    let clientTargetRes = localStorage.getItem('prefRes') || 'auto';
+    if (clientTargetRes === 'auto') clientTargetRes = window.screen.height * window.devicePixelRatio;
+    else clientTargetRes = parseInt(clientTargetRes, 10);
+
+    window.appFetch(`/api/info?url=${encodeURIComponent(videoUrl)}&client_res=${Math.round(clientTargetRes)}`)
         .then(r => r.json())
         .then(data => {
             if(data.error) {

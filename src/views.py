@@ -224,14 +224,14 @@ def settings_page():
 
         elif action == 'update_cache_settings':
             try:
-                app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 5))
+                app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 20))
                 app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 24))
                 app_settings['preview_cache_size_mb'] = float(request.form.get('preview_cache_size_mb', 100))
                 app_settings['cache_auto_switch_threshold'] = int(request.form.get('cache_auto_switch_threshold', 720))
                 app_settings['auto_cache_watched'] = request.form.get('auto_cache_watched') == 'on'
-                app_settings['auto_cache_resolution'] = int(request.form.get('auto_cache_resolution', 720))
+                app_settings['auto_cache_immediate'] = request.form.get('auto_cache_immediate') == 'on'
                 app_settings['auto_cache_threshold_secs'] = int(request.form.get('auto_cache_threshold_secs', 30))
-                app_settings['auto_cache_max_size_gb'] = float(request.form.get('auto_cache_max_size_gb', 3))
+                app_settings['auto_cache_max_size_gb'] = float(request.form.get('auto_cache_max_size_gb', 10))
                 save_settings(app_settings)
             except ValueError: pass
                 
