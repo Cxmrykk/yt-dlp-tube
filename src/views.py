@@ -5,16 +5,22 @@ import threading
 from urllib.parse import urlparse
 from flask import Blueprint, render_template, request, redirect, url_for, session, Response
 
-from storage import get_history, save_history, get_subs, save_subs, get_settings, save_settings, save_video_dates, get_cache_manifest
-from youtube import feed_cache, fetch_channel_info, purge_channel_from_feed, update_feed_now
+from storage import (
+    get_history, save_history, get_subs, save_subs, get_settings, save_settings,
+    save_video_dates, get_cache_manifest, save_feed_state
+)
+from youtube import (
+    feed_cache, fetch_channel_info, purge_channel_from_feed,
+    update_feed_now, mark_channel_seen
+)
 
 views_bp = Blueprint('views', __name__)
 
 @views_bp.route('/')
 def feed():
-    resp = render_template('feed.html', title="New Uploads", type="feed", query="")
-    session['last_feed_view'] = time.time()
-    return resp
+    # The new-upload dot is now per-channel and cleared by visiting that channel or
+    # watching one of its videos, so simply loading the feed no longer wipes it.
+    return render_template('feed.html', title="New Uploads", type="feed", query="")
 
 @views_bp.route('/history')
 def history_page():
@@ -22,12 +28,16 @@ def history_page():
     history.sort(key=lambda x: x.get('last_viewed', 0), reverse=True)
     
     manifest = get_cache_manifest()
-    
-    # Only include videos that have been fully cached manually, not just auto-previewed
+
+    def kind_of(entry):
+        return entry.get('cache_kind') or ('preview' if entry.get('is_preview') else 'manual')
+
+    # Auto-cached and manually cached videos both count as "available offline".
+    # Size-capped scrub previews do not.
     cached_vids = {
-        v['vid_id'] 
-        for v in manifest.values() 
-        if v.get('status') == 'complete' and 'vid_id' in v and not v.get('is_preview', False)
+        v['vid_id']
+        for v in manifest.values()
+        if v.get('status') == 'complete' and v.get('vid_id') and kind_of(v) != 'preview'
     }
     
     return render_template('history.html', history=history, cached_vids=cached_vids)
@@ -80,24 +90,9 @@ def watch():
     if v: video_url = f"https://www.youtube.com/watch?v={v}"
     if not video_url: return "Video URL required", 400
 
-    vid_id = v
-    if not vid_id:
-        parsed = urlparse(video_url)
-        if 'v=' in parsed.query:
-            vid_id = dict(q.split('=') for q in parsed.query.split('&')).get('v')
-        elif 'youtu.be' in parsed.netloc:
-            vid_id = parsed.path.strip('/')
-
-    resume_time = 0
-    if vid_id:
-        hist = get_history()
-        existing = next((item for item in hist if item['id'] == vid_id), None)
-        if existing and existing.get('watch_duration'):
-            resume_time = existing['watch_duration']
-            if existing.get('duration') and (existing['duration'] - resume_time < 5):
-                resume_time = 0
-
-    return render_template('watch.html', video_url=video_url, resume_time=resume_time)
+    # Resume position is resolved by /api/info so the player never has to depend on
+    # a global set by a script that may not have run yet.
+    return render_template('watch.html', video_url=video_url)
 
 @views_bp.route('/shorts/<video_id>')
 def shorts_redirect(video_id):
@@ -125,6 +120,10 @@ def render_channel(channel_url):
     subs = get_subs()
     n_url = channel_url.strip('/').split('?')[0].lower()
     sub = next((s for s in subs if s['url'].strip('/').split('?')[0].lower() == n_url), None)
+
+    # Visiting the channel acknowledges its new uploads.
+    mark_channel_seen(channel_url)
+
     return render_template('channel.html', url=channel_url, channel_name=sub['name'] if sub else "Loading...", channel_icon=sub['icon'] if sub else "", is_subbed=bool(sub), needs_fetch=not bool(sub))
 
 @views_bp.route('/settings/export')
@@ -146,6 +145,7 @@ def settings_page():
             if not any(s['url'] == url for s in subs):
                 c_info = fetch_channel_info(url)
                 subs.append({"name": c_info['name'], "url": url, "icon": c_info['icon'], "id": c_info.get('id', '')})
+                mark_channel_seen(url)
             save_subs(subs)
             
         elif action == 'remove' and url:
@@ -175,6 +175,8 @@ def settings_page():
                             with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
                                 for r in executor.map(fetch_and_format, urls_to_add): subs.append(r)
                             save_subs(subs)
+                            for u in urls_to_add:
+                                mark_channel_seen(u)
                             
                             def background_feed_update():
                                 from flask import current_app
@@ -188,6 +190,7 @@ def settings_page():
             save_subs([])
             feed_cache['data'] = []
             save_video_dates({}) 
+            save_feed_state({})
             
         elif action == 'update_settings':
             try:
@@ -203,7 +206,6 @@ def settings_page():
             app_settings['sb_action'] = request.form.get('sb_action', 'auto_skip')
             app_settings['sb_categories'] = request.form.getlist('sb_categories')
             
-            from storage import DEFAULT_SETTINGS
             if 'sb_colors' not in app_settings:
                 app_settings['sb_colors'] = DEFAULT_SETTINGS['sb_colors'].copy()
                 
@@ -220,6 +222,10 @@ def settings_page():
                 app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 24))
                 app_settings['preview_cache_size_mb'] = float(request.form.get('preview_cache_size_mb', 100))
                 app_settings['cache_auto_switch_threshold'] = int(request.form.get('cache_auto_switch_threshold', 720))
+                app_settings['auto_cache_watched'] = request.form.get('auto_cache_watched') == 'on'
+                app_settings['auto_cache_resolution'] = int(request.form.get('auto_cache_resolution', 720))
+                app_settings['auto_cache_threshold_secs'] = int(request.form.get('auto_cache_threshold_secs', 30))
+                app_settings['auto_cache_max_size_gb'] = float(request.form.get('auto_cache_max_size_gb', 3))
                 save_settings(app_settings)
             except ValueError: pass
                 

@@ -1,11 +1,11 @@
-import time
-import re
-from markupsafe import escape, Markup
 from flask import session
-from urllib.parse import urlparse, quote
+from urllib.parse import quote
 from storage import get_subs, get_settings
-from youtube import feed_cache
-from utils import format_time_str, format_views_str, time_ago_str
+from youtube import get_new_channel_urls, norm_url
+from utils import (
+    format_time_str, format_views_str, time_ago_str,
+    linkify_text, to_internal_path
+)
 
 def register_filters(app):
 
@@ -18,17 +18,7 @@ def register_filters(app):
     @app.template_filter('yt_path')
     def yt_path_filter(url):
         if not url: return "/"
-        try:
-            parsed = urlparse(url)
-            if 'youtu.be' in parsed.netloc:
-                video_id = parsed.path.strip('/')
-                return f"/watch?v={video_id}"
-            if 'youtube.com' in parsed.netloc:
-                res = parsed.path
-                if parsed.query: res += '?' + parsed.query
-                return res
-        except: pass
-        return url
+        return to_internal_path(url)
 
     @app.template_filter('format_time')
     def format_time(s): return format_time_str(s)
@@ -41,33 +31,22 @@ def register_filters(app):
 
     @app.template_filter('linkify_timestamps')
     def linkify_timestamps(text):
-        if not text: return ""
-        escaped_text = str(escape(text))
-        pattern = r'(?<!\d)(\d{1,2}:\d{2}(?::\d{2})?)(?!\d)'
-        def replace_match(m):
-            ts = m.group(1)
-            return f'<a href="javascript:void(0)" class="comment-timestamp">{ts}</a>'
-        return Markup(re.sub(pattern, replace_match, escaped_text))
+        # Comments now get the same treatment descriptions do: timestamps, URLs,
+        # handles and hashtags, all escaped exactly once.
+        return linkify_text(text)
 
     @app.context_processor
     def inject_globals():
-        last_view = session.get('last_feed_view', time.time())
-        new_urls = set()
-        
-        for v in feed_cache.get('data', []):
-            if v.get('timestamp', 0) > last_view:
-                c_url = v.get('channel_url') or v.get('uploader_url')
-                if c_url: new_urls.add(c_url.strip('/').split('?')[0].lower())
-                
+        new_urls = get_new_channel_urls()
+
         subs = get_subs()
         subs_new = []
         subs_normal = []
         for s in subs:
-            n_url = s['url'].strip('/').split('?')[0].lower()
-            s['has_new'] = n_url in new_urls
+            s['has_new'] = norm_url(s['url']) in new_urls
             if s['has_new']:
                 subs_new.append(s)
             else:
                 subs_normal.append(s)
-                
+
         return dict(subs=subs, subs_new=subs_new, subs_normal=subs_normal, app_settings=get_settings())

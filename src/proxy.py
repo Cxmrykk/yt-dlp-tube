@@ -2,9 +2,11 @@ import hashlib
 import requests
 import os
 import re
+import time
+import threading
 from flask import Blueprint, request, Response
 from urllib.parse import urlparse
-from storage import get_cache_manifest
+from storage import get_cache_manifest, save_cache_manifest
 from config import CACHE_DIR
 
 proxy_bp = Blueprint('proxy', __name__)
@@ -16,12 +18,34 @@ SESSION.mount('https://', adapter)
 
 ALLOWED_DOMAINS = ['ytimg.com', 'ggpht.com', 'googleusercontent.com', 'youtube.com', 'googlevideo.com', 'ui-avatars.com']
 
+# Range requests arrive constantly while streaming; throttle manifest writes so we
+# aren't rewriting JSON dozens of times a second just to record "still in use".
+_TOUCH_THROTTLE = {}
+_TOUCH_LOCK = threading.Lock()
+_TOUCH_INTERVAL = 30.0
+
 def is_safe_url(url):
     try:
         domain = urlparse(url).netloc.lower()
         return any(domain == d or domain.endswith('.' + d) for d in ALLOWED_DOMAINS)
     except:
         return False
+
+def _touch_cache_entry(key):
+    """Keep the currently streaming file 'hot' so the sweeper never evicts it
+    out from underneath the player."""
+    now = time.time()
+    with _TOUCH_LOCK:
+        last = _TOUCH_THROTTLE.get(key, 0)
+        if now - last < _TOUCH_INTERVAL:
+            return
+        _TOUCH_THROTTLE[key] = now
+
+    manifest = get_cache_manifest()
+    entry = manifest.get(key)
+    if entry:
+        entry['last_accessed'] = now
+        save_cache_manifest(manifest)
 
 @proxy_bp.route('/proxy/image')
 def proxy_image():
@@ -60,7 +84,9 @@ def proxy_local():
     
     if not entry or 'file_path' not in entry or not os.path.exists(entry['file_path']):
         return "Not found in cache", 404
-        
+
+    _touch_cache_entry(key)
+
     file_path = entry['file_path']
     file_size = os.path.getsize(file_path)
     res = entry.get('resolution', '')

@@ -8,9 +8,14 @@ import glob
 import shutil
 import uuid
 import zipfile
+import queue
+import itertools
 import requests
 from collections import defaultdict
-from storage import get_subs, get_settings, get_video_dates, save_video_dates, get_cache_manifest, save_cache_manifest
+from storage import (
+    get_subs, get_settings, get_video_dates, save_video_dates,
+    get_cache_manifest, save_cache_manifest, get_feed_state, save_feed_state
+)
 from config import CACHE_DIR
 
 def inject_deno(ydl_opts):
@@ -43,6 +48,28 @@ FEED_UPDATE_LOCK = threading.Lock()
 BULK_TASKS = {}
 FORMAT_TASKS = {}
 
+# ----------------------------------------------------
+# Download queues
+#
+# Previously every cache request spawned an unbounded thread. With auto-caching
+# enabled that means N simultaneous yt-dlp + ffmpeg processes competing with the
+# stream the user is actually watching. Everything now funnels through bounded
+# queues: one worker for full media (manual jobs preempt auto jobs) and one for
+# the tiny size-capped preview scrubs.
+# ----------------------------------------------------
+MEDIA_QUEUE = queue.PriorityQueue()
+PREVIEW_QUEUE = queue.Queue()
+QUEUED_KEYS = set()
+QUEUE_LOCK = threading.Lock()
+_JOB_SEQ = itertools.count()
+_WORKERS_STARTED = False
+
+PRIORITY = {'manual': 0, 'auto': 1}
+KIND_EVICTION_RANK = {'preview': 0, 'auto': 1, 'manual': 2}
+# Anything touched this recently is presumed to be actively streaming.
+CACHE_HOT_WINDOW_SECS = 300
+
+
 class YTDLPLogger:
     """Custom logger to capture exactly what yt-dlp is doing for debugging."""
     def debug(self, msg):
@@ -57,6 +84,13 @@ class YTDLPLogger:
         
     def error(self, msg):
         print(f"[yt-dlp ERROR] {msg}")
+
+
+def norm_url(url):
+    if not url:
+        return ''
+    return url.strip('/').split('?')[0].lower()
+
 
 def sync_video_dates(entries):
     dates_cache = get_video_dates()
@@ -88,16 +122,60 @@ def sync_video_dates(entries):
     if changed:
         save_video_dates(dates_cache)
 
+
+# ----------------------------------------------------
+# Server-side "new upload" state
+# ----------------------------------------------------
+
+def mark_channel_seen(url, ts=None):
+    """Clear the new-upload dot for a channel."""
+    n = norm_url(url)
+    if not n:
+        return
+    state = get_feed_state()
+    entry = state.get(n) or {}
+    entry['last_seen_ts'] = ts or time.time()
+    state[n] = entry
+    save_feed_state(state)
+
+
+def get_new_channel_urls():
+    """Normalized channel URLs that have uploads newer than the user's watermark."""
+    state = get_feed_state()
+    out = set()
+    for v in feed_cache.get('data', []):
+        c_url = v.get('channel_url') or v.get('uploader_url')
+        if not c_url:
+            continue
+        n = norm_url(c_url)
+        seen = (state.get(n) or {}).get('last_seen_ts', 0)
+        if (v.get('timestamp') or 0) > seen:
+            out.add(n)
+    return out
+
+
+def forget_channel_state(url):
+    n = norm_url(url)
+    if not n:
+        return
+    state = get_feed_state()
+    if n in state:
+        del state[n]
+        save_feed_state(state)
+
+
 def purge_channel_from_feed(url):
     if not url: return
-    n_url = url.strip('/').split('?')[0].lower()
-    feed_cache['data'] = [v for v in feed_cache.get('data', []) if v.get('channel_url', '').strip('/').split('?')[0].lower() != n_url]
+    n_url = norm_url(url)
+    feed_cache['data'] = [v for v in feed_cache.get('data', []) if norm_url(v.get('channel_url', '')) != n_url]
+    forget_channel_state(url)
+
 
 def get_cached_icon(url):
     if not url: return ""
-    n_url = url.strip('/').split('?')[0].lower()
+    n_url = norm_url(url)
     for s in get_subs():
-        if s['url'].strip('/').split('?')[0].lower() == n_url:
+        if norm_url(s['url']) == n_url:
             return s.get('icon', '')
     return CHANNEL_ICON_CACHE.get(n_url, "")
 
@@ -183,18 +261,26 @@ def update_feed_now():
     finally:
         FEED_UPDATE_LOCK.release()
 
-def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
+
+# ----------------------------------------------------
+# Media caching
+# ----------------------------------------------------
+
+def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manual'):
     cache_key = f"{vid_id}_{resolution}"
     manifest = get_cache_manifest()
-    
-    # Track whether this was triggered via auto-preview or manual full-cache
-    is_preview = (size_limit_mb is not None)
-    
-    if cache_key in manifest and manifest[cache_key].get('status') == 'complete':
-        # If it was already cached as a preview, but the user manually requests 
-        # caching for this exact resolution, upgrade the flag so it appears in history.
-        if not is_preview and manifest[cache_key].get('is_preview', False):
-            manifest[cache_key]['is_preview'] = False
+
+    is_preview = (kind == 'preview')
+
+    existing = manifest.get(cache_key)
+    if existing and existing.get('status') == 'complete':
+        # A preview can be "upgraded" in place: a manual or auto request for the same
+        # key means the user actually wants this kept and surfaced in History.
+        current_kind = existing.get('cache_kind') or ('preview' if existing.get('is_preview') else 'manual')
+        if not is_preview and current_kind == 'preview':
+            existing['cache_kind'] = kind
+            existing['is_preview'] = False
+            existing['last_accessed'] = time.time()
             save_cache_manifest(manifest)
         return 
 
@@ -204,6 +290,7 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
         'status': 'downloading',
         'ratio': 0.0,
         'last_accessed': time.time(),
+        'cache_kind': kind,
         'is_preview': is_preview,
         **metadata
     }
@@ -263,7 +350,7 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
         ydl_opts['ffmpeg_location'] = ffmpeg_path
 
     try:
-        print(f"[DEBUG] Starting yt-dlp extraction/download for {vid_id} at <= {resolution}p")
+        print(f"[DEBUG] Starting yt-dlp extraction/download for {vid_id} at <= {resolution}p ({kind})")
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid_id}", download=True)
             
@@ -291,6 +378,7 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
                     manifest[cache_key]['file_path'] = filepath
                     manifest[cache_key]['status'] = 'complete'
                     manifest[cache_key]['ratio'] = 1.0
+                    manifest[cache_key]['last_accessed'] = time.time()
                     print(f"[DEBUG] Caching complete. Final file located at: {filepath}")
                 else:
                     print(f"[DEBUG] Download finished, but couldn't locate file at: {filepath}")
@@ -322,8 +410,93 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None):
             manifest[cache_key]['status'] = 'error'
             save_cache_manifest(manifest)
 
-def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None):
-    threading.Thread(target=_download_task, args=(vid_id, resolution, metadata, size_limit_mb), daemon=True).start()
+
+def _media_worker():
+    while True:
+        try:
+            _prio, _seq, job = MEDIA_QUEUE.get()
+        except Exception:
+            continue
+        try:
+            _download_task(job['vid_id'], job['resolution'], job['metadata'],
+                           job.get('size_limit_mb'), job.get('kind', 'manual'))
+        except Exception as e:
+            print(f"[Cache worker] Unhandled error: {e}")
+        finally:
+            with QUEUE_LOCK:
+                QUEUED_KEYS.discard(job['cache_key'])
+            MEDIA_QUEUE.task_done()
+
+
+def _preview_worker():
+    while True:
+        job = PREVIEW_QUEUE.get()
+        try:
+            _download_task(job['vid_id'], job['resolution'], job['metadata'],
+                           job.get('size_limit_mb'), 'preview')
+        except Exception as e:
+            print(f"[Preview worker] Unhandled error: {e}")
+        finally:
+            with QUEUE_LOCK:
+                QUEUED_KEYS.discard(job['cache_key'])
+            PREVIEW_QUEUE.task_done()
+
+
+def start_cache_workers():
+    global _WORKERS_STARTED
+    if _WORKERS_STARTED:
+        return
+    _WORKERS_STARTED = True
+    threading.Thread(target=_media_worker, daemon=True).start()
+    threading.Thread(target=_preview_worker, daemon=True).start()
+
+
+def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None, kind=None):
+    if not vid_id or not resolution:
+        return
+    if kind is None:
+        kind = 'preview' if size_limit_mb is not None else 'manual'
+
+    cache_key = f"{vid_id}_{resolution}"
+
+    with QUEUE_LOCK:
+        if cache_key in QUEUED_KEYS:
+            return
+        QUEUED_KEYS.add(cache_key)
+
+    job = {
+        'cache_key': cache_key,
+        'vid_id': vid_id,
+        'resolution': resolution,
+        'metadata': metadata or {},
+        'size_limit_mb': size_limit_mb,
+        'kind': kind
+    }
+
+    # Workers may not be running under `flask run` reloader edge cases; be defensive.
+    start_cache_workers()
+
+    if kind == 'preview':
+        PREVIEW_QUEUE.put(job)
+    else:
+        MEDIA_QUEUE.put((PRIORITY.get(kind, 1), next(_JOB_SEQ), job))
+
+
+def queue_auto_cache(vid_id, resolution, metadata):
+    """Entry point for the 'auto-cache watched videos' setting."""
+    if not vid_id or not resolution:
+        return False
+    cache_key = f"{vid_id}_{resolution}"
+    manifest = get_cache_manifest()
+    entry = manifest.get(cache_key)
+    if entry and entry.get('status') in ('complete', 'downloading'):
+        return False
+    with QUEUE_LOCK:
+        if cache_key in QUEUED_KEYS:
+            return False
+    start_caching_media(vid_id, resolution, metadata, kind='auto')
+    return True
+
 
 def remove_from_cache(vid_id, resolution):
     manifest = get_cache_manifest()
@@ -334,7 +507,10 @@ def remove_from_cache(vid_id, resolution):
         del manifest[cache_key]
         save_cache_manifest(manifest)
         print(f"[DEBUG] Marked cache key {cache_key} as cancelled/removed.")
-        
+
+    with QUEUE_LOCK:
+        QUEUED_KEYS.discard(cache_key)
+
     for f in glob.glob(os.path.join(CACHE_DIR, f"{cache_key}*")):
         try:
             if os.path.isfile(f):
@@ -343,45 +519,86 @@ def remove_from_cache(vid_id, resolution):
         except Exception as e: 
             print(f"[DEBUG] Error removing file {f}: {e}")
 
+
+def _entry_kind(entry):
+    return entry.get('cache_kind') or ('preview' if entry.get('is_preview') else 'manual')
+
+
+def _entry_size(entry):
+    path = entry.get('file_path')
+    if path and os.path.exists(path):
+        try:
+            return os.path.getsize(path)
+        except OSError:
+            return 0
+    return 0
+
+
 def sweep_cache():
     manifest = get_cache_manifest()
     settings = get_settings()
     ttl_seconds = settings.get('cache_ttl_hours', 24) * 3600
     max_bytes = settings.get('cache_max_size_gb', 5) * 1024 * 1024 * 1024
-    
+    auto_max_bytes = settings.get('auto_cache_max_size_gb', 3) * 1024 * 1024 * 1024
+
     now = time.time()
     changed = False
-    to_delete = []
-    
+    to_delete = set()
+
+    def is_hot(entry):
+        return (now - entry.get('last_accessed', 0)) < CACHE_HOT_WINDOW_SECS
+
+    # 1. TTL expiry (never touch something that is actively being streamed)
     for h, data in list(manifest.items()):
+        if is_hot(data):
+            continue
         if now - data.get('last_accessed', 0) > ttl_seconds:
-            to_delete.append(h)
-            
-    total_size = 0
-    for h, data in manifest.items():
-        if h not in to_delete:
-            path = data.get('file_path')
-            if path and os.path.exists(path):
-                total_size += os.path.getsize(path)
-                
+            to_delete.add(h)
+
+    # 2. Disposable budget: previews and auto-cached files get their own, smaller cap
+    #    so that turning auto-cache on can't starve manually pinned downloads.
+    disposable = [
+        h for h, d in manifest.items()
+        if h not in to_delete and _entry_kind(d) in ('preview', 'auto')
+    ]
+    disposable_size = sum(_entry_size(manifest[h]) for h in disposable)
+    if disposable_size > auto_max_bytes:
+        disposable.sort(key=lambda x: (
+            KIND_EVICTION_RANK.get(_entry_kind(manifest[x]), 1),
+            manifest[x].get('last_accessed', 0)
+        ))
+        for h in disposable:
+            if disposable_size <= auto_max_bytes:
+                break
+            if is_hot(manifest[h]):
+                continue
+            to_delete.add(h)
+            disposable_size -= _entry_size(manifest[h])
+
+    # 3. Global cap. Evict previews first, then auto-cached, then manual; LRU within group.
+    total_size = sum(_entry_size(d) for h, d in manifest.items() if h not in to_delete)
     if total_size > max_bytes:
         remaining = [h for h in manifest.keys() if h not in to_delete]
-        remaining.sort(key=lambda x: manifest[x].get('last_accessed', 0))
+        remaining.sort(key=lambda x: (
+            KIND_EVICTION_RANK.get(_entry_kind(manifest[x]), 2),
+            manifest[x].get('last_accessed', 0)
+        ))
         for h in remaining:
-            if total_size <= max_bytes: break
-            to_delete.append(h)
-            path = manifest[h].get('file_path')
-            if path and os.path.exists(path):
-                total_size -= os.path.getsize(path)
-            
+            if total_size <= max_bytes:
+                break
+            if is_hot(manifest[h]):
+                continue
+            to_delete.add(h)
+            total_size -= _entry_size(manifest[h])
+
     for h in to_delete:
-        del manifest[h]
-        changed = True
-        
+        if h in manifest:
+            del manifest[h]
+            changed = True
         for f in glob.glob(os.path.join(CACHE_DIR, f"{h}*")):
             try: os.remove(f)
             except: pass
-                
+
     if changed:
         save_cache_manifest(manifest)
 
@@ -437,7 +654,7 @@ def fetch_missing_icons(videos):
         def fetch_icon(curl): return curl, fetch_channel_info(curl).get('icon', '')
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             for curl, icon in executor.map(fetch_icon, channels_to_fetch):
-                if icon: CHANNEL_ICON_CACHE[curl.strip('/').split('?')[0].lower()] = icon
+                if icon: CHANNEL_ICON_CACHE[norm_url(curl)] = icon
     for v in videos:
         c_url = v.get('channel_url') or v.get('uploader_url')
         if c_url:

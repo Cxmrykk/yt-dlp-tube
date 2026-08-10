@@ -15,6 +15,18 @@ body {
     overflow: hidden; 
 }
 
+/* Sprite icons. Rendered from the inline <symbol> set in base.html, so they paint
+   with the document and never produce a network request or an alt-text flash. */
+.ic {
+    display: inline-block;
+    width: 24px;
+    height: 24px;
+    flex-shrink: 0;
+    fill: currentColor;
+    vertical-align: middle;
+    pointer-events: none;
+}
+
 ::-webkit-scrollbar { width: 8px; height: 8px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: rgba(255, 255, 255, 0.2); border-radius: 4px; }
@@ -59,3 +71,11 @@ body {
     align-items: center;
     gap: 10px;
 }
+
+/* Inline links produced by the server-side linkifier (descriptions & comments) */
+.rich-link {
+    color: #3ea6ff;
+    text-decoration: none;
+    word-break: break-word;
+}
+.rich-link:hover { text-decoration: underline; }

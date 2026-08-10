@@ -16,7 +16,7 @@ from proxy import proxy_bp
 from api import api_bp
 from views import views_bp
 from filters import register_filters
-from youtube import bg_worker_loop
+from youtube import bg_worker_loop, start_cache_workers
 
 # Define root directory to find templates and static assets
 ROOT_DIR = os.path.dirname(src_dir)
@@ -30,6 +30,11 @@ app = Flask(
 app.secret_key = init_auth()
 app.config['PERMANENT_SESSION_LIFETIME'] = timedelta(days=365)
 
+# Static assets (icons, css, js) are immutable between deploys. Without this Flask
+# only sends conditional-request headers, forcing a revalidation round-trip on every
+# navigation and a cold-cache fetch on every browser restart.
+app.config['SEND_FILE_MAX_AGE_DEFAULT'] = timedelta(days=365)
+
 # Register Blueprints
 app.register_blueprint(auth_bp)
 app.register_blueprint(proxy_bp)
@@ -39,8 +44,9 @@ app.register_blueprint(views_bp)
 # Register Custom Filters & Context Processors
 register_filters(app)
 
-# Start background sync thread (Prevents running twice in debug auto-reload mode)
+# Start background threads (Prevents running twice in debug auto-reload mode)
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
+    start_cache_workers()
     threading.Thread(target=bg_worker_loop, args=(app,), daemon=True).start()
 
 if __name__ == '__main__':

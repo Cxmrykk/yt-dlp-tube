@@ -25,6 +25,10 @@
         </div>
 
         <div class="desc-box" id="descBox">
+            <div class="desc-pin-badge" id="descPinBadge" title="Unpin description">
+                <svg class="ic" style="width:14px;height:14px;" aria-hidden="true"><use href="#ic-pin"></use></svg>
+                <span>Pinned</span>
+            </div>
             <div class="desc-fade" id="descFade" style="max-height: {{ app_settings.desc_preview_height | default(100) }}px;">
                 <div id="ui-desc-label" style="font-weight: bold; margin-bottom: 8px; color: white; display: none;">Description</div>
                 <div id="ui-desc" style="white-space: pre-wrap;">
@@ -70,9 +74,10 @@
 </div>
 
 <script>
+    // Resume position is delivered by /api/info, not injected here — the player is
+    // constructed by player.html above and would otherwise read this before it exists.
     window.WATCH_CONFIG = {
-        videoUrl: "{{ video_url | safe }}",
-        resumeTime: {{ resume_time | default(0) }}
+        videoUrl: "{{ video_url | safe }}"
     };
 </script>
 <script src="/static/js/pages/watch.js"></script>

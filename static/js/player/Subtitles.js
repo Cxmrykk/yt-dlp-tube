@@ -72,11 +72,11 @@ class Subtitles {
             const bestVal = this.getBestSubVal();
             if (bestVal !== "off") {
                 this.setSubtitleOption(bestVal, true);
-                this.player.showOverlay(`<img src="/static/icons/cc-filled.svg" class="overlay-icon" alt="CC On">`);
+                this.player.showOverlay(window.icon('cc-filled', 'overlay-icon'));
             }
         } else {
             this.setSubtitleOption("off", true);
-            this.player.showOverlay(`<img src="/static/icons/cc-outline.svg" class="overlay-icon" alt="CC Off">`);
+            this.player.showOverlay(window.icon('cc-outline', 'overlay-icon'));
         }
     }
 
@@ -110,7 +110,7 @@ class Subtitles {
             const createOption = (label, val, isSelected, isAuto) => {
                 const div = document.createElement('div');
                 div.className = `submenu-option ${isSelected ? 'selected' : ''}`;
-                div.innerHTML = `<img src="/static/icons/check.svg" class="check-icon" alt="Check"><span>${label}</span>`;
+                div.innerHTML = `${window.icon('check', 'check-icon')}<span>${label}</span>`;
                 div.dataset.val = val;
                 div.dataset.isAuto = isAuto;
                 return div;
@@ -124,10 +124,10 @@ class Subtitles {
                 autoBtn.className = 'settings-item';
                 autoBtn.innerHTML = `
                     <div class="settings-label">
-                        <img src="/static/icons/check.svg" class="check-icon" id="autoCheckIcon" style="opacity: 0; width: 20px; height: 20px; margin-right: -4px;" alt="Check">
+                        ${window.icon('check', 'check-icon', 'opacity: 0; width: 20px; height: 20px; margin-right: -4px;').replace('<svg', '<svg id="autoCheckIcon"')}
                         <span>Auto-generated</span>
                     </div>
-                    <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                    <div class="settings-value">${window.icon('chevron-right', 'settings-chevron')}</div>
                 `;
                 autoBtn.addEventListener('click', (e) => {
                     e.stopPropagation();
@@ -159,10 +159,10 @@ class Subtitles {
             optionsBtn.className = 'settings-item';
             optionsBtn.innerHTML = `
                 <div class="settings-label">
-                    <img src="/static/icons/appearance.svg" style="width:20px; height:20px;" alt="Appearance">
+                    ${window.icon('appearance', '', 'width:20px;height:20px;')}
                     <span>Appearance</span>
                 </div>
-                <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                <div class="settings-value">${window.icon('chevron-right', 'settings-chevron')}</div>
             `;
             optionsBtn.addEventListener('click', (e) => {
                 e.stopPropagation();

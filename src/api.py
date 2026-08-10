@@ -4,22 +4,62 @@ import os
 import urllib.parse
 from flask import Blueprint, request, jsonify, render_template, send_file
 
-from storage import get_history, save_history, get_subs, save_subs, get_settings, get_cache_manifest, save_cache_manifest
+from storage import (
+    get_history, save_history, get_subs, save_subs, get_settings, save_settings,
+    get_cache_manifest, save_cache_manifest
+)
 from youtube import (
     get_cached_icon, fetch_channel_info, purge_channel_from_feed, 
     get_flat_feed, fix_youtube_url, fetch_missing_icons, 
     parse_chapters_from_desc, start_caching_media, remove_from_cache, inject_deno,
     start_bulk_task, cancel_bulk_task, clear_bulk_task, BULK_TASKS,
     start_format_task, cancel_format_task, FORMAT_TASKS,
-    COMMENTS_CACHE, COMMENTS_LOCK
+    COMMENTS_CACHE, COMMENTS_LOCK, mark_channel_seen, queue_auto_cache
 )
-from utils import format_views_str, time_ago_str
+from utils import format_views_str, time_ago_str, linkify_text
 
 api_bp = Blueprint('api', __name__)
 
+
+def _maybe_auto_cache(entry):
+    """Kick off a background cache job once the user has watched enough of a video."""
+    settings = get_settings()
+    if not settings.get('auto_cache_watched'):
+        return
+
+    try:
+        threshold = float(settings.get('auto_cache_threshold_secs', 30))
+    except (TypeError, ValueError):
+        threshold = 30.0
+
+    watched = entry.get('watch_duration') or 0
+    if watched < threshold:
+        return
+
+    # 0 means "whatever the player is currently streaming"
+    configured = settings.get('auto_cache_resolution', 720)
+    try:
+        configured = int(configured)
+    except (TypeError, ValueError):
+        configured = 720
+
+    resolution = configured if configured > 0 else entry.get('last_resolution')
+    if not resolution:
+        return
+
+    metadata = {
+        'title': entry.get('title'),
+        'uploader': entry.get('uploader'),
+        'uploader_url': entry.get('uploader_url'),
+        'channel_icon': entry.get('channel_icon'),
+        'duration': entry.get('duration', 0)
+    }
+    queue_auto_cache(entry['id'], int(resolution), metadata)
+
+
 @api_bp.route('/api/history/update', methods=['POST'])
 def update_history():
-    data = request.get_json()
+    data = request.get_json(silent=True)
     if not data or 'id' not in data:
         return jsonify({"error": "Invalid data"}), 400
         
@@ -39,7 +79,12 @@ def update_history():
         total_dur = data.get('duration') or existing.get('duration') or 0
         if total_dur and new_duration > total_dur:
             new_duration = total_dur
-            
+
+        try:
+            new_duration = max(0.0, float(new_duration))
+        except (TypeError, ValueError):
+            new_duration = 0.0
+
         existing['watch_duration'] = new_duration
         existing['last_viewed'] = now
         existing['title'] = data.get('title', existing.get('title'))
@@ -48,11 +93,14 @@ def update_history():
         existing['thumbnail'] = data.get('thumbnail', existing.get('thumbnail'))
         existing['channel_icon'] = data.get('channel_icon', existing.get('channel_icon'))
         existing['duration'] = total_dur
-        
+        if data.get('resolution'):
+            existing['last_resolution'] = data.get('resolution')
+
         hist.remove(existing)
         hist.insert(0, existing)
+        entry = existing
     else:
-        item = {
+        entry = {
             'id': vid_id,
             'title': data.get('title'),
             'uploader': data.get('uploader'),
@@ -60,15 +108,19 @@ def update_history():
             'thumbnail': data.get('thumbnail'),
             'channel_icon': data.get('channel_icon'),
             'duration': data.get('duration', 0),
-            'watch_duration': data.get('current_time', data.get('watch_time_increment', 0)),
+            'watch_duration': data.get('current_time', data.get('watch_time_increment', 0)) or 0,
+            'last_resolution': data.get('resolution'),
             'last_viewed': now
         }
-        hist.insert(0, item)
+        hist.insert(0, entry)
         
     if len(hist) > 500:
         hist = hist[:500]
         
     save_history(hist)
+
+    _maybe_auto_cache(entry)
+
     return jsonify({"status": "ok"})
 
 @api_bp.route('/api/history/clear', methods=['POST'])
@@ -130,7 +182,10 @@ def api_info():
 
     uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
     channel_icon = get_cached_icon(uploader_url)
-    
+
+    # Opening a video counts as acknowledging that channel's new uploads.
+    mark_channel_seen(uploader_url)
+
     n_url = uploader_url.strip('/').split('?')[0].lower()
     is_subbed = any(s['url'].strip('/').split('?')[0].lower() == n_url for s in get_subs())
 
@@ -179,15 +234,35 @@ def api_info():
                     
     subtitles_list.sort(key=lambda x: (x['is_auto'], x['label']))
 
+    # Resume position is resolved here rather than at page-render time so there is a
+    # single authoritative source and no dependency on script ordering in the client.
+    total_duration = info.get('duration', 0) or 0
+    resume_time = 0
+    hist = get_history()
+    hist_entry = next((item for item in hist if item.get('id') == vid_id), None)
+    if hist_entry:
+        try:
+            watched = float(hist_entry.get('watch_duration') or 0)
+        except (TypeError, ValueError):
+            watched = 0.0
+        known_dur = hist_entry.get('duration') or total_duration or 0
+        if watched > 5 and (not known_dur or (known_dur - watched) > 5):
+            resume_time = watched
+
+    raw_description = info.get('description', '') or ''
+
     return jsonify({
         "id": vid_id, "title": info.get('title', 'Untitled'),
         "uploader": info.get('uploader') or info.get('channel') or 'Unknown', "uploader_url": uploader_url,
         "subscriber_count": format_views_str(info.get('channel_follower_count')), "view_count": format_views_str(info.get('view_count')),
-        "time_ago": time_ago_str(info.get('timestamp') or info.get('upload_date')), "description": info.get('description', ''),
+        "time_ago": time_ago_str(info.get('timestamp') or info.get('upload_date')),
+        "description": raw_description,
+        "description_html": str(linkify_text(raw_description)),
         "channel_icon": channel_icon, "is_subbed": is_subbed, "resolutions": resolutions_list,
         "best_audio": best_audio.get('url') if best_audio else None, "chapters": chapters,
         "subtitles": subtitles_list, "search_query": broad_query,
-        "duration": info.get('duration', 0)
+        "duration": total_duration,
+        "resume_time": resume_time
     })
 
 @api_bp.route('/api/toggle_sub', methods=['POST'])
@@ -214,6 +289,7 @@ def api_toggle_sub():
             icon = icon or c_info['icon']
         subs.append({"name": name, "url": url, "icon": icon, "id": ""})
         save_subs(subs)
+        mark_channel_seen(url)
         return jsonify({"status": "added", "is_subbed": True})
 
 @api_bp.route('/api/channel_info')
@@ -509,4 +585,3 @@ def bulk_download():
         return "File not found", 404
         
     return send_file(zip_file, as_attachment=True, download_name="ytdlp_bulk_download.zip")
-

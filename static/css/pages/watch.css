@@ -9,9 +9,10 @@
 .channel-left img { width: 44px; height: 44px; border-radius: 50%; object-fit: cover; background: #333;}
 
 .desc-box { 
+    position: relative;
     background: var(--card-bg); padding: 15px; border-radius: 12px;
     font-size: 0.95rem; line-height: 1.5; color: #ddd; margin-bottom: 25px; flex-shrink: 0;
-    transition: background 0.2s;
+    transition: background 0.2s, box-shadow 0.2s;
 }
 .desc-box:hover { background: #222; }
 .desc-fade { overflow: hidden; position: relative; }
@@ -21,12 +22,42 @@
     mask-image: none !important;
 }
 
+/* While a long-press is in flight, suppress text selection and the mobile
+   context menu so the gesture doesn't fight the browser. */
+.desc-box.pressing {
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+}
+
+/* Pinned: stays open regardless of clicks, so links inside are usable. */
+.desc-box.pinned {
+    box-shadow: inset 0 0 0 1px rgba(62, 166, 255, 0.45);
+    cursor: auto !important;
+}
+.desc-pin-badge {
+    display: none;
+    position: absolute; top: 10px; right: 10px; z-index: 3;
+    align-items: center; gap: 5px;
+    background: rgba(62, 166, 255, 0.15); color: #3ea6ff;
+    border: 1px solid rgba(62, 166, 255, 0.4); border-radius: 12px;
+    padding: 3px 9px; font-size: 11px; font-weight: bold;
+    cursor: pointer; user-select: none;
+    transition: background 0.2s;
+}
+.desc-pin-badge:hover { background: rgba(62, 166, 255, 0.3); }
+.desc-box.pinned .desc-pin-badge { display: inline-flex; }
+
+/* Links inside the description come from the server-side linkifier */
+.desc-box a { color: #3ea6ff; text-decoration: none; word-break: break-word; }
+.desc-box a:hover { text-decoration: underline; }
+
 .replies-box summary { cursor: pointer; color: #3ea6ff; font-weight: bold; user-select: none; outline: none; list-style: none; display: flex; align-items: center; gap: 4px; }
 .replies-box summary::-webkit-details-marker { display: none; }
 .replies-box .reply-icon { transition: transform 0.2s; }
 .replies-box[open] .reply-icon { transform: rotate(180deg); }
 
-.comment-timestamp { color: #3ea6ff; text-decoration: none; font-weight: 500; }
+.comment-timestamp { color: #3ea6ff; text-decoration: none; font-weight: 500; cursor: pointer; }
 .comment-timestamp:hover { text-decoration: underline; }
 
 .suggested-list { display: flex; flex-direction: column; gap: 15px; overflow-y: auto; height: 100%; padding-right: 10px;}

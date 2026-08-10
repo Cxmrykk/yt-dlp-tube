@@ -58,6 +58,7 @@ class CacheManager {
             this.menuCacheActionText.textContent = "Cancel Caching";
             this.menuCacheDownloadBtn.style.display = 'none';
             this.menuCacheRemoveBtn.style.display = 'none';
+            window.setIcon(document.getElementById('menuCacheActionIcon'), 'download');
             this.cacheIconDefault.style.display = 'block';
             this.cacheIconDone.style.display = 'none';
         } else {
@@ -66,6 +67,7 @@ class CacheManager {
             this.menuCacheActionText.textContent = "Preload/Cache Video";
             this.menuCacheDownloadBtn.style.display = 'none';
             this.menuCacheRemoveBtn.style.display = 'none';
+            window.setIcon(document.getElementById('menuCacheActionIcon'), 'download');
             this.cacheIconDefault.style.display = 'block';
             this.cacheIconDone.style.display = 'none';
         }
@@ -216,32 +218,25 @@ class CacheManager {
             let rawLines = text.split('\n');
             let processedLines = [];
 
-            // 1. Initial Strip & Clean
             for (let line of rawLines) {
                 line = line.trim();
                 if (!line) continue;
                 if (line.startsWith('WEBVTT')) continue;
                 if (line.startsWith('Kind:')) continue;
                 if (line.startsWith('Language:')) continue;
-                if (line.includes('-->')) continue; // Drop timeline
+                if (line.includes('-->')) continue;
 
-                // Strip inline timing tags e.g., <00:00:01.520> and formatting tags <b>
                 line = line.replace(/<[^>]+>/g, '');
                 
-                // Unescape
                 line = line.replace(/&gt;/g, '>').replace(/&lt;/g, '<').replace(/&amp;/g, '&').replace(/&nbsp;/g, ' ');
-                
-                // Strip structural speaker arrows '>> ' for clean continuous reading
                 line = line.replace(/^>>\s*/g, '');
                 
                 line = line.trim();
-                // Prevent capturing solitary VTT block IDs
                 if (line && !/^\d+$/.test(line)) {
                     processedLines.push(line);
                 }
             }
 
-            // 2. Sliding-Window Deduplication (The Fix for YouTube's Rolling Captions)
             let finalLines = [];
             for (let line of processedLines) {
                 if (finalLines.length === 0) {
@@ -250,30 +245,18 @@ class CacheManager {
                 }
                 
                 let last = finalLines[finalLines.length - 1];
-                
-                // Skip exact duplicate
                 if (line === last) continue;
-                
-                // If the new line is an expansion of the last line (typing effect)
-                // e.g. "I went" -> "I went to the store"
                 if (line.startsWith(last)) {
                     finalLines[finalLines.length - 1] = line;
                     continue;
                 }
-                
-                // If the last line already fully contains this string (backwards overlapping cues)
                 if (last.startsWith(line)) {
                     continue;
                 }
-                
                 finalLines.push(line);
             }
-
-            // Join all survived unique statements into a beautiful continuous paragraph
             return finalLines.join(' ');
         }
-        
-        // Fallback (.vtt format returns completely raw & unaltered)
         return text;
     }
 
@@ -281,7 +264,6 @@ class CacheManager {
         let subUrl = null;
         let subLabel = "Subtitle";
         
-        // 1. Check if a track is actively showing
         const tracks = this.player.ui.mainVideo.textTracks;
         for (let i = 0; i < tracks.length; i++) {
             if (tracks[i].mode === 'showing') {
@@ -294,7 +276,6 @@ class CacheManager {
             }
         }
         
-        // 2. If nothing is showing, fallback to our standard 'best fit' default logic
         if (!subUrl) {
             const bestVal = this.player.subtitles.getBestSubVal(); 
             if (bestVal !== "off") {
@@ -323,7 +304,6 @@ class CacheManager {
     }
 
     bindEvents() {
-        // Main Toolbar Button -> Just toggles the menu now
         this.ui.cacheBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if (this.ui.cacheMenu.classList.contains('open')) {
@@ -333,7 +313,6 @@ class CacheManager {
             }
         });
 
-        // 1. Edge Cache Video Action
         this.menuCacheActionBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if(!this.player.state.currentVideoId) return;
@@ -343,7 +322,6 @@ class CacheManager {
             const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
             
             if (this.ui.cacheBtn.classList.contains('active')) {
-                // Cancel ongoing download
                 window.appFetch('/api/cache/remove', {
                     method: 'POST',
                     headers: {'Content-Type': 'application/json'},
@@ -383,7 +361,6 @@ class CacheManager {
             });
         });
 
-        // Download Complete Cache to Device
         this.menuCacheDownloadBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if(!this.player.state.currentVideoId) return;
@@ -399,7 +376,6 @@ class CacheManager {
             this.closeCacheMenu();
         });
 
-        // Remove from Edge Cache
         this.menuCacheRemoveBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             if (!this.player.state.currentVideoId) return;
@@ -423,7 +399,6 @@ class CacheManager {
                 this.player.container.classList.remove('is-cached');
                 this.updateCacheUI();
                 
-                // Downgrade playing track off of localhost immediately
                 const resObj = this.player.state.resolutionsList.find(r => r.height === targetRes);
                 if (resObj && resObj.original_url && this.ui.mainVideo.src.includes('/proxy/local')) {
                     const proxyUrl = PlayerUtils.getMediaProxyUrl(resObj.original_url);
@@ -454,8 +429,6 @@ class CacheManager {
             }
         });
 
-        // --- Subtitle Menu Navigation & Actions ---
-
         this.menuSubtitlesBtn.addEventListener('click', (e) => {
             e.stopPropagation();
             this.ui.cacheMenu.classList.add('show-format');
@@ -473,7 +446,6 @@ class CacheManager {
                 e.stopPropagation();
                 this.selectedSubFormat = opt.getAttribute('data-format');
                 
-                // Update checkmarks visually
                 document.querySelectorAll('#cacheFormatPane .submenu-option').forEach(o => o.classList.remove('selected'));
                 opt.classList.add('selected');
 
@@ -488,7 +460,6 @@ class CacheManager {
             this.player.menus.setMenuHeight(document.getElementById('cacheFormatPane'), this.ui.cacheMenu);
         });
 
-        // Action: Copy to Clipboard
         document.getElementById('cacheCopyBtn').addEventListener('click', async (e) => {
             e.stopPropagation();
             const textSpan = e.currentTarget.querySelector('span');
@@ -509,7 +480,6 @@ class CacheManager {
             setTimeout(() => { textSpan.textContent = origText; }, 2000);
         });
 
-        // Action: Download File
         document.getElementById('cacheDownloadFileBtn').addEventListener('click', async (e) => {
             e.stopPropagation();
             const textSpan = e.currentTarget.querySelector('span');
@@ -539,7 +509,6 @@ class CacheManager {
             setTimeout(() => { textSpan.textContent = origText; }, 2000);
         });
 
-        // Global Body Click to Close
         this.bodyClick = (e) => {
             if (!this.ui.cacheMenu.contains(e.target) && !this.ui.cacheBtn.contains(e.target)) {
                 if (this.ui.cacheMenu.classList.contains('open')) {

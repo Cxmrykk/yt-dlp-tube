@@ -5,7 +5,12 @@
     <div id="video-skeleton" class="skeleton-loader"></div>
     <div class="buffering-spinner"></div>
     <div class="shortcut-overlay" id="shortcutOverlay"></div>
-    
+
+    <button type="button" class="unmute-btn" id="unmuteBtn">
+        <svg class="ic" style="width:20px;height:20px;" aria-hidden="true"><use href="#ic-vol-muted"></use></svg>
+        <span>Tap to unmute</span>
+    </button>
+
     <video id="vid-player" class="main-video" playsinline preload="metadata" crossorigin="anonymous" style="display:none;"></video>
     <audio id="aud-player" preload="metadata" style="display:none;"></audio>
     
@@ -14,63 +19,61 @@
             <div class="settings-pane" id="cacheMainPane">
                 <div class="settings-item" id="menuCacheActionBtn">
                     <div class="settings-label">
-                        <img src="/static/icons/download.svg" id="menuCacheActionIcon" alt="Cache">
+                        <svg class="ic" id="menuCacheActionIcon" aria-hidden="true"><use href="#ic-download"></use></svg>
                         <span id="menuCacheActionText">Preload/Cache Video</span>
                     </div>
                 </div>
                 <div class="settings-item" id="menuCacheDownloadBtn" style="display:none;">
                     <div class="settings-label">
-                        <img src="/static/icons/download.svg" alt="Download">
+                        <svg class="ic" aria-hidden="true"><use href="#ic-download"></use></svg>
                         <span>Download to Device</span>
                     </div>
                 </div>
                 <div class="settings-item" id="menuCacheRemoveBtn" style="display:none;">
                     <div class="settings-label">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ff4a4a" style="width: 20px; height: 20px;"><path d="M6 19c0 1.1.9 2 2 2h8c1.1 0 2-.9 2-2V7H6v12zM19 4h-3.5l-1-1h-5l-1 1H5v2h14V4z"/></svg>
+                        <svg class="ic" style="width:20px;height:20px;color:#ff4a4a;" aria-hidden="true"><use href="#ic-trash"></use></svg>
                         <span style="color: #ff4a4a; font-weight: 500;">Remove from Cache</span>
                     </div>
                 </div>
                 <div style="height: 1px; background: rgba(255,255,255,0.1); margin: 4px 0;"></div>
                 <div class="settings-item" id="menuSubtitlesBtn">
                     <div class="settings-label">
-                        <img src="/static/icons/cc-outline.svg" style="width:20px; height:20px;" alt="Subtitles">
+                        <svg class="ic" style="width:20px;height:20px;" aria-hidden="true"><use href="#ic-cc-outline"></use></svg>
                         <span>Download Subtitles</span>
                     </div>
-                    <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                    <div class="settings-value"><svg class="ic settings-chevron" aria-hidden="true"><use href="#ic-chevron-right"></use></svg></div>
                 </div>
             </div>
 
             <div class="settings-pane" id="cacheFormatPane">
                 <div class="submenu-header" id="cacheFormatBackBtn">
-                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                     <span>Select Format</span>
                 </div>
                 <div class="submenu-option selected" data-format="vtt">
-                    <img src="/static/icons/check.svg" class="check-icon" alt="Check">
+                    <svg class="ic check-icon" aria-hidden="true"><use href="#ic-check"></use></svg>
                     <span>.vtt (Original WebVTT)</span>
                 </div>
                 <div class="submenu-option" data-format="txt">
-                    <img src="/static/icons/check.svg" class="check-icon" alt="Check">
+                    <svg class="ic check-icon" aria-hidden="true"><use href="#ic-check"></use></svg>
                     <span>.txt (Continuous Text)</span>
                 </div>
             </div>
 
             <div class="settings-pane" id="cacheActionPane">
                 <div class="submenu-header" id="cacheActionBackBtn">
-                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                     <span>Output Action</span>
                 </div>
                 <div class="settings-item" id="cacheCopyBtn">
                     <div class="settings-label">
-                        <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" style="width:20px;height:20px;">
-                            <path d="M16 1H4c-1.1 0-2 .9-2 2v14h2V3h12V1zm3 4H8c-1.1 0-2 .9-2 2v14c0 1.1.9 2 2 2h11c1.1 0 2-.9 2-2V7c0-1.1-.9-2-2-2zm0 16H8V7h11v14z"/>
-                        </svg>
+                        <svg class="ic" style="width:20px;height:20px;" aria-hidden="true"><use href="#ic-copy"></use></svg>
                         <span style="margin-left:4px;">Copy to Clipboard</span>
                     </div>
                 </div>
                 <div class="settings-item" id="cacheDownloadFileBtn">
                     <div class="settings-label">
-                        <img src="/static/icons/download.svg" style="width:20px;height:20px;" alt="Download">
+                        <svg class="ic" style="width:20px;height:20px;" aria-hidden="true"><use href="#ic-download"></use></svg>
                         <span style="margin-left:4px;">Download File</span>
                     </div>
                 </div>
@@ -83,7 +86,7 @@
             <div class="settings-pane" id="sbMainPane"></div>
             <div class="settings-pane" id="sbSubmitPane">
                 <div class="submenu-header" id="sbSubmitBackBtn">
-                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                     <span>Submit Segment</span>
                 </div>
                 <div id="sbSubmitContent" style="padding: 10px 15px;">
@@ -111,7 +114,7 @@
             </div>
             <div class="settings-pane" id="sbRatePane">
                 <div class="submenu-header" id="sbRateBackBtn">
-                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                     <span>Rate Segment</span>
                 </div>
                 <div id="sbRateContent"></div>
@@ -124,14 +127,14 @@
             <div class="settings-pane" id="ccMainPane"></div>
             <div class="settings-pane" id="ccSubPane">
                 <div class="submenu-header" id="ccSubmenuBackBtn">
-                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                     <span>Auto-generated</span>
                 </div>
                 <div id="ccSubmenuContent"></div>
             </div>
             <div class="settings-pane" id="ccOptionsPane">
                 <div class="submenu-header" id="ccOptionsBackBtn">
-                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                     <span>Appearance</span>
                 </div>
                 <div id="ccOptionsContent" style="padding-bottom: 5px;">
@@ -186,22 +189,22 @@
             <div class="settings-pane" id="mainPane">
                 <div class="settings-item" data-menu="speed">
                     <div class="settings-label">
-                        <img src="/static/icons/speed.svg" alt="Speed">
+                        <svg class="ic" aria-hidden="true"><use href="#ic-speed"></use></svg>
                         <span>Playback speed</span>
                     </div>
-                    <div class="settings-value"><span id="lbl-speed">Normal</span> <img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                    <div class="settings-value"><span id="lbl-speed">Normal</span> <svg class="ic settings-chevron" aria-hidden="true"><use href="#ic-chevron-right"></use></svg></div>
                 </div>
                 <div class="settings-item" data-menu="quality">
                     <div class="settings-label">
-                        <img src="/static/icons/quality.svg" alt="Quality">
+                        <svg class="ic" aria-hidden="true"><use href="#ic-quality"></use></svg>
                         <span>Quality</span>
                     </div>
-                    <div class="settings-value"><span id="lbl-quality">Loading...</span> <img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                    <div class="settings-value"><span id="lbl-quality">Loading...</span> <svg class="ic settings-chevron" aria-hidden="true"><use href="#ic-chevron-right"></use></svg></div>
                 </div>
             </div>
             <div class="settings-pane" id="subPane">
                 <div class="submenu-header" id="submenuBackBtn">
-                    <img src="/static/icons/chevron-left.svg" alt="Back">
+                    <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                     <span id="submenuTitle">Menu</span>
                 </div>
                 <div id="submenuContent"></div>
@@ -211,7 +214,7 @@
 
     <div class="sb-skip-container" id="sbSkipContainer" style="display: none;">
         <button class="sb-skip-btn" id="sbSkipBtn">
-            <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="18px" height="18px"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg>
+            <svg class="ic" style="width:18px;height:18px;" aria-hidden="true"><use href="#ic-fwd"></use></svg>
             Skip Segment (Enter)
         </button>
     </div>
@@ -234,37 +237,37 @@
         <div class="controls-row">
             <div class="controls-left">
                 <button id="playPauseBtn" title="Play/Pause">
-                    <img id="playIcon" src="/static/icons/play.svg" class="control-icon" alt="Play">
-                    <img id="pauseIcon" src="/static/icons/pause.svg" class="control-icon" style="display: none;" alt="Pause">
+                    <svg class="ic control-icon" id="playIcon" aria-hidden="true"><use href="#ic-play"></use></svg>
+                    <svg class="ic control-icon" id="pauseIcon" style="display:none;" aria-hidden="true"><use href="#ic-pause"></use></svg>
                 </button>
                 <div class="volume-container">
                     <button id="muteBtn" title="Mute/Unmute">
-                        <img id="volHighIcon" src="/static/icons/vol-high.svg" class="control-icon" alt="Vol High">
-                        <img id="volLowIcon" src="/static/icons/vol-low.svg" class="control-icon" style="display: none;" alt="Vol Low">
-                        <img id="volMutedIcon" src="/static/icons/vol-muted.svg" class="control-icon" style="display: none;" alt="Vol Mute">
+                        <svg class="ic control-icon" id="volHighIcon" aria-hidden="true"><use href="#ic-vol-high"></use></svg>
+                        <svg class="ic control-icon" id="volLowIcon" style="display:none;" aria-hidden="true"><use href="#ic-vol-low"></use></svg>
+                        <svg class="ic control-icon" id="volMutedIcon" style="display:none;" aria-hidden="true"><use href="#ic-vol-muted"></use></svg>
                     </button>
                     <input type="range" class="volume-slider" id="volumeSlider" min="0" max="1" step="0.05" value="1">
                 </div>
                 <div class="time-display"><span id="currentTime">0:00</span> / <span id="duration">0:00</span></div>
             </div>
             <div class="controls-right">
-                <button id="cacheBtn" title="Download & Subtitles">
-                    <img src="/static/icons/download.svg" id="cacheIconDefault" class="control-icon" alt="Cache">
-                    <img src="/static/icons/cloud-check.svg" id="cacheIconDone" class="control-icon" style="display:none;" alt="Cached">
+                <button id="cacheBtn" title="Download &amp; Subtitles">
+                    <svg class="ic control-icon" id="cacheIconDefault" aria-hidden="true"><use href="#ic-download"></use></svg>
+                    <svg class="ic control-icon" id="cacheIconDone" style="display:none;color:#4aff4a;" aria-hidden="true"><use href="#ic-cloud-check"></use></svg>
                 </button>
                 <button id="sbBtn" title="SponsorBlock">
-                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" class="control-icon" style="width: 26px; height: 26px;"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                    <svg class="ic control-icon" style="width:26px;height:26px;" aria-hidden="true"><use href="#ic-shield"></use></svg>
                 </button>
                 <button id="ccBtn" title="Subtitles/CC" style="display:none;">
-                    <img src="/static/icons/cc-outline.svg" id="ccIconOutline" class="control-icon" alt="CC">
-                    <img src="/static/icons/cc-filled.svg" id="ccIconFilled" class="control-icon" alt="CC On">
+                    <svg class="ic control-icon" id="ccIconOutline" aria-hidden="true"><use href="#ic-cc-outline"></use></svg>
+                    <svg class="ic control-icon" id="ccIconFilled" aria-hidden="true"><use href="#ic-cc-filled"></use></svg>
                 </button>
                 <button id="settingsBtn" title="Settings">
-                    <img src="/static/icons/settings.svg" class="control-icon" alt="Settings">
+                    <svg class="ic control-icon" aria-hidden="true"><use href="#ic-settings"></use></svg>
                 </button>
                 <button id="fullscreenBtn" title="Fullscreen">
-                    <img id="fsIconEnter" src="/static/icons/fs-enter.svg" class="control-icon" alt="Enter Fullscreen">
-                    <img id="fsIconExit" src="/static/icons/fs-exit.svg" class="control-icon" style="display: none;" alt="Exit Fullscreen">
+                    <svg class="ic control-icon" id="fsIconEnter" aria-hidden="true"><use href="#ic-fs-enter"></use></svg>
+                    <svg class="ic control-icon" id="fsIconExit" style="display:none;" aria-hidden="true"><use href="#ic-fs-exit"></use></svg>
                 </button>
             </div>
         </div>

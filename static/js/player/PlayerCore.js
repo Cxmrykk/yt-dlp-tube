@@ -34,6 +34,7 @@ class PlayerCore {
             cacheMenu: document.getElementById('cacheMenu'),
             sbBtn: document.getElementById('sbBtn'),
             sbMenu: document.getElementById('sbMenu'),
+            unmuteBtn: document.getElementById('unmuteBtn'),
         };
 
         this.state = {
@@ -44,9 +45,19 @@ class PlayerCore {
             bestAudioUrl: '',
             isCurrentResCached: false,
             isScrubbing: false,
-            resumeTime: window.resumeTime || 0,
-            currentVideoHeight: 0
+            // Resume position arrives with the video payload (see loadVideoData).
+            // It is deliberately NOT read from a global at construction time —
+            // the player is constructed before the page script that used to set it.
+            resumeTime: 0,
+            currentVideoHeight: 0,
+            currentResolution: null,
+            // Authoritative "the user wants this paused" flag. The `paused` CSS class
+            // is presentation only and can't be trusted by the sync layer.
+            userPaused: false
         };
+
+        this._pendingPreview = null;
+        this._previewInitialised = false;
 
         this.sync = new MediaSync(this);
         this.progress = new ProgressControls(this);
@@ -75,10 +86,64 @@ class PlayerCore {
         this.ui.mainVideo.addEventListener('waiting', () => this.container.classList.add('buffering'));
         this.ui.mainVideo.addEventListener('playing', () => this.container.classList.remove('buffering'));
         this.ui.mainVideo.addEventListener('canplay', () => this.container.classList.remove('buffering'));
+
+        if (this.ui.unmuteBtn) {
+            this.ui.unmuteBtn.addEventListener('click', (e) => {
+                e.stopPropagation();
+                this.ui.mainVideo.muted = false;
+                this.ui.audio.muted = false;
+                if (this.ui.mainVideo.volume === 0) {
+                    this.ui.mainVideo.volume = 1;
+                    this.ui.audio.volume = 1;
+                    this.ui.volumeSlider.value = 1;
+                }
+                this.container.classList.remove('autoplay-muted');
+                this.updateVolumeIcons();
+            });
+        }
+    }
+
+    isAborted() {
+        return window.pageAbortController && window.pageAbortController.signal.aborted;
     }
 
     getValidDuration() {
         return PlayerUtils.getValidDuration(this.ui.mainVideo);
+    }
+
+    /**
+     * Resolve once the element reaches `level` readiness.
+     *
+     * Critically this checks readyState *first*. The previous code attached
+     * `loadedmetadata` listeners after assigning `src`, which silently never fired
+     * for locally cached files that were already parsed — that was the real cause
+     * of "sometimes it just doesn't autoplay".
+     */
+    waitReady(el, level, timeout = 15000) {
+        return new Promise(resolve => {
+            if (!el) return resolve(false);
+            if (el.readyState >= level) return resolve(true);
+
+            let settled = false;
+            const events = ['loadedmetadata', 'loadeddata', 'canplay', 'canplaythrough', 'progress'];
+
+            function cleanup() {
+                clearTimeout(timer);
+                events.forEach(ev => el.removeEventListener(ev, check));
+            }
+            function finish(ok) {
+                if (settled) return;
+                settled = true;
+                cleanup();
+                resolve(ok);
+            }
+            function check() {
+                if (el.readyState >= level) finish(true);
+            }
+
+            const timer = setTimeout(() => finish(false), timeout);
+            events.forEach(ev => el.addEventListener(ev, check));
+        });
     }
 
     showOverlay(htmlContent) {
@@ -98,30 +163,140 @@ class PlayerCore {
         this.ui.volMutedIcon.style.display = vol === 0 ? 'block' : 'none';
     }
 
+    setPlayingUI() {
+        this.state.userPaused = false;
+        this.ui.playIcon.style.display = 'none';
+        this.ui.pauseIcon.style.display = 'block';
+        this.container.classList.remove('paused');
+        this.input.resetInactivity();
+    }
+
+    setPausedUI() {
+        this.ui.playIcon.style.display = 'block';
+        this.ui.pauseIcon.style.display = 'none';
+        this.container.classList.add('paused');
+    }
+
+    toggleMute() {
+        this.ui.mainVideo.muted = !this.ui.mainVideo.muted;
+        this.ui.audio.muted = this.ui.mainVideo.muted;
+        if (!this.ui.mainVideo.muted) this.container.classList.remove('autoplay-muted');
+        this.updateVolumeIcons();
+    }
+
+    seekTo(secs) {
+        if (!isFinite(secs)) return;
+        this.ui.mainVideo.currentTime = secs;
+        if (this.state.isDualAudio) this.ui.audio.currentTime = secs;
+        if (this.state.userPaused) return;
+        this.ui.mainVideo.play().catch(() => {});
+        if (this.state.isDualAudio) this.ui.audio.play().catch(() => {});
+    }
+
+    /**
+     * Single entry point for starting playback.
+     *
+     * Both elements are brought to a known-ready state and seeked before either is
+     * told to play, which removes the window where video runs and audio is still
+     * buffering — the "momentary desync" that could become permanent.
+     */
+    async startPlayback(seekTo) {
+        const v = this.ui.mainVideo;
+        const a = this.ui.audio;
+
+        this.container.classList.add('buffering');
+
+        const gotMeta = await this.waitReady(v, 1);
+        if (this.isAborted()) return;
+        if (!gotMeta) {
+            this.container.classList.remove('buffering');
+            this.setPausedUI();
+            return;
+        }
+
+        if (seekTo && seekTo > 0 && isFinite(seekTo)) {
+            v.currentTime = seekTo;
+            v.dispatchEvent(new Event('timeupdate'));
+        }
+
+        if (this.state.isDualAudio && a.src) {
+            await this.waitReady(a, 1);
+            if (this.isAborted()) return;
+            a.currentTime = v.currentTime;
+            a.muted = v.muted;
+            a.volume = v.volume;
+            a.playbackRate = v.playbackRate;
+
+            // Wait for BOTH to have enough data before starting either.
+            await Promise.all([
+                this.waitReady(v, 3, 12000),
+                this.waitReady(a, 3, 12000)
+            ]);
+            if (this.isAborted()) return;
+            a.currentTime = v.currentTime;
+        }
+
+        this.container.classList.remove('buffering');
+
+        try {
+            await v.play();
+            if (this.state.isDualAudio && a.src) {
+                a.currentTime = v.currentTime;
+                await a.play().catch(() => {});
+            }
+            this.setPlayingUI();
+        } catch (err) {
+            if (err && err.name === 'NotAllowedError') {
+                // Browser blocked unmuted autoplay. Fall back to muted playback and
+                // surface an explicit unmute affordance rather than silently sitting paused.
+                v.muted = true;
+                a.muted = true;
+                try {
+                    await v.play();
+                    if (this.state.isDualAudio && a.src) await a.play().catch(() => {});
+                    this.container.classList.add('autoplay-muted');
+                    this.updateVolumeIcons();
+                    this.setPlayingUI();
+                    return;
+                } catch (e2) {
+                    this.state.userPaused = true;
+                    this.setPausedUI();
+                    return;
+                }
+            }
+            this.state.userPaused = true;
+            this.setPausedUI();
+        }
+    }
+
     togglePlay() {
         if (this.ui.mainVideo.paused) {
-            let p1 = this.ui.mainVideo.play();
-            let p2;
-            if (this.state.isDualAudio && this.ui.audio.paused && this.ui.audio.readyState >= 3) {
-                this.ui.audio.currentTime = this.ui.mainVideo.currentTime;
-                p2 = this.ui.audio.play();
-            }
-            
-            if(p1) p1.catch(()=>{});
-            if(p2) p2.catch((e)=>{ console.warn("Background audio suppressed", e); });
-
-            this.ui.playIcon.style.display = 'none'; 
-            this.ui.pauseIcon.style.display = 'block';
-            this.container.classList.remove('paused'); 
-            this.input.resetInactivity();
+            this.state.userPaused = false;
+            this.startPlayback(0);
         } else {
+            this.state.userPaused = true;
             this.ui.mainVideo.pause(); 
             if (this.state.isDualAudio) this.ui.audio.pause();
-            
-            this.ui.playIcon.style.display = 'block'; 
-            this.ui.pauseIcon.style.display = 'none';
-            this.container.classList.add('paused'); 
+            this.setPausedUI();
             this.input.resetInactivity();
+        }
+    }
+
+    /**
+     * The scrub preview stream and the background preview-cache job both compete for
+     * bandwidth with the stream we're actually trying to start. Defer them until
+     * playback is under way.
+     */
+    initPreview() {
+        if (this._previewInitialised || !this._pendingPreview || this.isAborted()) return;
+        this._previewInitialised = true;
+
+        const p = this._pendingPreview;
+        this._pendingPreview = null;
+
+        if (p.src) this.ui.previewVideo.src = p.src;
+        if (p.startCache) {
+            this.cache.startAutoPreviewCache(this.state.currentVideoId, p.cacheHeight);
         }
     }
 
@@ -132,17 +307,24 @@ class PlayerCore {
         const isCached = url.includes('/proxy/local');
         const resObj = this.state.resolutionsList.find(r => (isCached ? r.url : PlayerUtils.getMediaProxyUrl(r.url)) === url);
         this.state.isDualAudio = resObj ? !resObj.has_audio : false;
+        this.state.currentResolution = targetRes;
         
         if (isCached) this.container.classList.add('is-cached');
         else this.container.classList.remove('is-cached');
         
         const currentTime = this.ui.mainVideo.currentTime;
-        const isPaused = this.ui.mainVideo.paused;
+        const wasPlaying = !this.ui.mainVideo.paused;
         const currentRate = this.ui.mainVideo.playbackRate;
         const currentSub = this.subtitles.currentSubVal;
         
         this.container.classList.add('buffering');
         this.ui.mainVideo.src = url;
+
+        if (this.state.isDualAudio && this.state.bestAudioUrl) {
+            if (!this.ui.audio.src) this.ui.audio.src = this.state.bestAudioUrl;
+        } else {
+            this.ui.audio.pause();
+        }
 
         document.getElementById('progressCached').style.width = '0%';
         this.ui.cacheBtn.classList.remove('active');
@@ -150,15 +332,17 @@ class PlayerCore {
         document.getElementById('cacheIconDone').style.display = 'none';
         
         if(this.state.currentVideoId) this.cache.startCachePolling(this.state.currentVideoId, targetRes);
-        
-        this.ui.mainVideo.addEventListener('loadedmetadata', () => {
-            if (isFinite(currentTime)) {
+
+        // readyState-first, so a cached file that is already parsed doesn't strand us.
+        this.waitReady(this.ui.mainVideo, 1).then(ok => {
+            if (this.isAborted()) return;
+
+            if (ok && isFinite(currentTime)) {
                 this.ui.mainVideo.currentTime = currentTime; 
                 this.ui.mainVideo.dispatchEvent(new Event('timeupdate'));
-                
                 this.ui.mainVideo.playbackRate = currentRate;
+
                 if (this.state.isDualAudio) {
-                    if (!this.ui.audio.src) this.ui.audio.src = this.state.bestAudioUrl;
                     this.ui.audio.currentTime = currentTime; 
                     this.ui.audio.dispatchEvent(new Event('timeupdate'));
                     this.ui.audio.muted = this.ui.mainVideo.muted;
@@ -173,8 +357,7 @@ class PlayerCore {
                 for (let i = 0; i < this.ui.mainVideo.textTracks.length; i++) {
                     const t = this.ui.mainVideo.textTracks[i];
                     const tVal = `${t.language}|${t.label}`;
-                    if (tVal === currentSub) t.mode = 'showing';
-                    else t.mode = 'disabled';
+                    t.mode = (tVal === currentSub) ? 'showing' : 'disabled';
                 }
             } else {
                 for (let i = 0; i < this.ui.mainVideo.textTracks.length; i++) {
@@ -183,15 +366,13 @@ class PlayerCore {
             }
             
             document.getElementById('lbl-quality').textContent = label;
-            if (!isPaused) { 
-                let p1 = this.ui.mainVideo.play(); 
-                let p2; 
-                if (this.state.isDualAudio) p2 = this.ui.audio.play();
-                if(p1) p1.catch(()=>{});
-                if(p2) p2.catch(()=>{});
+            if (!wasPlaying && this.state.userPaused) { 
+                this.setPausedUI();
+                this.container.classList.remove('buffering');
+            } else {
+                this.startPlayback(currentTime);
             }
-            this.container.classList.remove('buffering');
-        }, { once: true });
+        });
     }
 
     loadVideoData(data) {
@@ -199,6 +380,7 @@ class PlayerCore {
         this.state.resolutionsList = data.resolutions;
         this.state.videoChapters = data.chapters || [];
         this.state.bestAudioUrl = data.best_audio ? PlayerUtils.getMediaProxyUrl(data.best_audio) : '';
+        this.state.resumeTime = data.resume_time || 0;
         
         this.sponsorBlock.load(data.id);
         
@@ -239,17 +421,22 @@ class PlayerCore {
         }
 
         const lowestResObj = this.state.resolutionsList.length > 0 ? this.state.resolutionsList[this.state.resolutionsList.length - 1] : null;
+        
+        // Defer preview loading so it doesn't fight with the main video stream
+        this._previewInitialised = false;
         if (lowestResObj && (lowestResObj.is_cached || lowestResObj.url.includes('/proxy/local'))) {
-            this.ui.previewVideo.src = lowestResObj.url;
+            this._pendingPreview = { src: lowestResObj.url, startCache: false };
         } else if (highestCachedMatch && highestCachedMatch.height === lowestResObj.height) {
-            this.ui.previewVideo.src = highestCachedMatch.url;
+            this._pendingPreview = { src: highestCachedMatch.url, startCache: false };
         } else if (lowestResObj) {
-            this.ui.previewVideo.src = PlayerUtils.getMediaProxyUrl(lowestResObj.url);
-            this.cache.startAutoPreviewCache(this.state.currentVideoId, lowestResObj.height);
+            this._pendingPreview = { src: PlayerUtils.getMediaProxyUrl(lowestResObj.url), startCache: true, cacheHeight: lowestResObj.height };
+        } else {
+            this._pendingPreview = null;
         }
 
         if (bestMatch) {
             this.state.isDualAudio = !bestMatch.has_audio;
+            this.state.currentResolution = bestMatch.height;
             this.menus.menuData.quality.current = bestMatch.url;
             document.getElementById('lbl-quality').textContent = bestMatch.label;
             
@@ -275,53 +462,12 @@ class PlayerCore {
 
         this.updateVolumeIcons();
 
-        this.ui.mainVideo.addEventListener('loadedmetadata', () => {
-            if (this.state.resumeTime && this.state.resumeTime > 0) {
-                const targetTime = this.state.resumeTime;
-                this.ui.mainVideo.currentTime = targetTime;
-                this.ui.mainVideo.dispatchEvent(new Event('timeupdate'));
-                
-                if (this.state.isDualAudio) {
-                    const syncInit = () => { 
-                        this.ui.audio.currentTime = targetTime; 
-                        this.ui.audio.dispatchEvent(new Event('timeupdate'));
-                    };
-                    if (this.ui.audio.readyState >= 1) syncInit();
-                    else this.ui.audio.addEventListener('loadedmetadata', syncInit, {once: true});
-                }
-                this.state.resumeTime = 0; 
-            }
-            
-            let p1 = this.ui.mainVideo.play();
-            let p2;
-            if (this.state.isDualAudio && this.ui.audio.readyState >= 3) {
-                p2 = this.ui.audio.play();
-            }
-
-            const setPlayingUI = () => {
-                this.ui.playIcon.style.display = 'none';
-                this.ui.pauseIcon.style.display = 'block';
-                this.container.classList.remove('paused');
-                this.input.resetInactivity();
-            };
-
-            const setPausedUI = () => {
-                this.ui.playIcon.style.display = 'block';
-                this.ui.pauseIcon.style.display = 'none';
-                this.container.classList.add('paused');
-            };
-
-            if (p1 !== undefined) {
-                p1.then(() => {
-                    if (p2) p2.catch(()=>{});
-                    setPlayingUI();
-                }).catch(() => {
-                    setPausedUI();
-                });
-            } else {
-                setPlayingUI();
-            }
-        }, {once: true});
+        // Autoplay!
+        this.state.userPaused = false;
+        this.startPlayback(this.state.resumeTime).then(() => {
+            // Once playback begins (or fails into paused), initialize the preview video
+            this.initPreview();
+        });
     }
 
     destroy() {

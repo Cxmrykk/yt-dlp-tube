@@ -221,7 +221,7 @@ class SponsorBlock {
     showSkipButton(seg) {
         const btn = this.ui.skipBtn;
         const catName = seg.category.charAt(0).toUpperCase() + seg.category.slice(1);
-        btn.innerHTML = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="white" width="18px" height="18px"><path d="M4 18l8.5-6L4 6v12zm9-12v12l8.5-6L13 6z"/></svg> Skip ${catName} (Enter)`;
+        btn.innerHTML = `${window.icon('fwd', '', 'width:18px;height:18px;')} Skip ${catName} (Enter)`;
         this.ui.skipBtnContainer.style.display = 'block';
     }
 

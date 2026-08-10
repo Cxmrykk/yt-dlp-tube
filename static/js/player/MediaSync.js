@@ -51,7 +51,7 @@ class MediaSync {
 
         // When main video naturally resumes, resume audio
         mainVideo.addEventListener('playing', () => { 
-            if (this.player.state.isDualAudio && audio.paused && !mainVideo.paused) {
+            if (this.player.state.isDualAudio && audio.paused && !mainVideo.paused && !this.player.state.userPaused) {
                 audio.play().catch(()=>{});
             }
         });
@@ -66,7 +66,7 @@ class MediaSync {
 
         // When audio regains its buffer, unlock the video and resume both
         audio.addEventListener('canplay', () => {
-            if (this.player.state.isDualAudio && mainVideo.paused && !this.player.container.classList.contains('paused') && !this.player.state.isScrubbing) {
+            if (this.player.state.isDualAudio && mainVideo.paused && !this.player.state.userPaused && !this.player.state.isScrubbing) {
                 this.player.container.classList.remove('buffering');
                 mainVideo.play().catch(()=>{});
                 audio.play().catch(()=>{});
@@ -74,8 +74,17 @@ class MediaSync {
         });
 
         this.syncInterval = setInterval(() => {
-            if (this.player.state.isDualAudio && !mainVideo.paused && !this.player.state.isScrubbing) {
-                this.syncAudio();
+            if (this.player.state.isDualAudio) {
+                // Watchdog: If video is playing but audio has fallen asleep or stalled,
+                // and the user hasn't explicitly requested a pause, force audio to play.
+                if (!mainVideo.paused && audio.paused && !this.player.state.userPaused) {
+                    audio.currentTime = mainVideo.currentTime;
+                    audio.play().catch(() => {});
+                }
+
+                if (!mainVideo.paused && !this.player.state.isScrubbing) {
+                    this.syncAudio();
+                }
             }
         }, 500);
     }

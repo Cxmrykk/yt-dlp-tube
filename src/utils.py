@@ -1,4 +1,8 @@
+import re
+import html
 from datetime import datetime
+from urllib.parse import urlparse, parse_qs, quote
+from markupsafe import Markup, escape
 
 def format_time_str(s):
     if not s: return "0:00"
@@ -48,3 +52,147 @@ def time_ago_str(timestamp):
         return f"{val} year{'s' if val != 1 else ''} ago"
     except: 
         return ""
+
+
+# ----------------------------------------------------
+# URL normalisation & rich-text linkification
+# ----------------------------------------------------
+
+YOUTUBE_HOSTS = (
+    'youtube.com', 'www.youtube.com', 'm.youtube.com',
+    'music.youtube.com', 'youtube-nocookie.com', 'www.youtube-nocookie.com'
+)
+YOUTU_BE_HOSTS = ('youtu.be', 'www.youtu.be')
+
+
+def unwrap_yt_redirect(url):
+    """YouTube descriptions wrap outbound links in /redirect?...&q=<encoded>."""
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        if host in YOUTUBE_HOSTS and parsed.path.rstrip('/') == '/redirect':
+            q = parse_qs(parsed.query).get('q')
+            if q and q[0]:
+                return q[0]
+    except Exception:
+        pass
+    return url
+
+
+def to_internal_path(url):
+    """Rewrite a YouTube URL into an in-app path so PJAX can handle it.
+
+    Returns the original URL untouched when it isn't a YouTube link.
+    """
+    if not url:
+        return "/"
+    try:
+        parsed = urlparse(url)
+        host = parsed.netloc.lower()
+        if host in YOUTU_BE_HOSTS:
+            video_id = parsed.path.strip('/')
+            if video_id:
+                return f"/watch?v={video_id}"
+            return url
+        if host in YOUTUBE_HOSTS:
+            path = parsed.path
+            # /shorts/<id> is served by a redirect route, but link straight to /watch
+            if path.startswith('/shorts/'):
+                vid = path.split('/shorts/', 1)[1].strip('/')
+                if vid:
+                    return f"/watch?v={vid}"
+            res = path or '/'
+            if parsed.query:
+                res += '?' + parsed.query
+            return res
+    except Exception:
+        pass
+    return url
+
+
+def is_internal_target(url):
+    try:
+        host = urlparse(url).netloc.lower()
+        return host in YOUTUBE_HOSTS or host in YOUTU_BE_HOSTS
+    except Exception:
+        return False
+
+
+# Order matters: URLs are matched first so timestamps/handles inside a URL
+# are swallowed by the URL alternative rather than matched separately.
+_LINK_TOKEN_RE = re.compile(
+    r'(?P<url>https?://[^\s<>"\'\)\]]+)'
+    r'|(?P<ts>(?<![\d:])(?:\d{1,3}:)?\d{1,2}:\d{2}(?![\d:]))'
+    r'|(?P<handle>(?<![\w@./-])@[A-Za-z0-9._-]{3,30}(?![\w.]))'
+    r'|(?P<tag>(?<![\w#])#[A-Za-z0-9_\-]{1,50})'
+)
+
+# Trailing punctuation that is almost never part of the intended URL
+_URL_TRAILING = '.,;:!?\'"'
+
+
+def _build_url_anchor(raw_url):
+    trailing = ''
+    while raw_url and raw_url[-1] in _URL_TRAILING:
+        trailing = raw_url[-1] + trailing
+        raw_url = raw_url[:-1]
+    if not raw_url:
+        return escape(trailing)
+
+    target = unwrap_yt_redirect(raw_url)
+    label = raw_url
+
+    if is_internal_target(target):
+        href = to_internal_path(target)
+        attrs = ''
+    else:
+        href = target
+        attrs = ' target="_blank" rel="noopener noreferrer nofollow"'
+
+    return Markup(
+        f'<a href="{escape(href)}" class="rich-link"{attrs}>{escape(label)}</a>'
+    ) + escape(trailing)
+
+
+def linkify_text(text, urls=True, timestamps=True, handles=True, hashtags=True):
+    """Convert plain text into safe HTML with clickable links.
+
+    The raw text is tokenised *before* escaping, so every literal span and every
+    generated attribute is escaped exactly once. Nothing attacker-controlled ever
+    reaches the output unescaped.
+    """
+    if not text:
+        return Markup("")
+
+    out = []
+    pos = 0
+    for m in _LINK_TOKEN_RE.finditer(text):
+        kind = m.lastgroup
+        if kind == 'url' and not urls: continue
+        if kind == 'ts' and not timestamps: continue
+        if kind == 'handle' and not handles: continue
+        if kind == 'tag' and not hashtags: continue
+
+        out.append(escape(text[pos:m.start()]))
+        token = m.group(0)
+
+        if kind == 'url':
+            out.append(_build_url_anchor(token))
+        elif kind == 'ts':
+            out.append(Markup(
+                f'<a href="javascript:void(0)" class="comment-timestamp">{escape(token)}</a>'
+            ))
+        elif kind == 'handle':
+            out.append(Markup(
+                f'<a href="/{escape(token)}" class="rich-link">{escape(token)}</a>'
+            ))
+        elif kind == 'tag':
+            q = quote(token, safe='')
+            out.append(Markup(
+                f'<a href="/search?q={q}" class="rich-link">{escape(token)}</a>'
+            ))
+
+        pos = m.end()
+
+    out.append(escape(text[pos:]))
+    return Markup(''.join(str(p) for p in out))

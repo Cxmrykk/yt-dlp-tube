@@ -4,6 +4,23 @@ window.appFetch = function(url, options = {}) {
     return fetch(url, { ...options, signal: window.pageAbortController.signal });
 };
 
+/**
+ * Build an inline sprite icon. Used everywhere JS injects markup so dynamically
+ * created icons behave identically to server-rendered ones — no request, no flicker.
+ */
+window.icon = function(name, cls, style) {
+    const classes = 'ic' + (cls ? ' ' + cls : '');
+    const styleAttr = style ? ` style="${style}"` : '';
+    return `<svg class="${classes}"${styleAttr} aria-hidden="true"><use href="#ic-${name}"></use></svg>`;
+};
+
+/** Swap which symbol an existing sprite <svg> points at. */
+window.setIcon = function(el, name) {
+    if (!el) return;
+    const use = el.querySelector('use');
+    if (use) use.setAttribute('href', '#ic-' + name);
+};
+
 document.addEventListener('DOMContentLoaded', () => {
     const logo = document.querySelector('nav a.logo');
     const sidebar = document.getElementById('sidebar');

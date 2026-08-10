@@ -1,8 +1,11 @@
 (function() {
     const videoUrl = window.WATCH_CONFIG.videoUrl;
-    window.resumeTime = window.WATCH_CONFIG.resumeTime;
     let currentChannel = {};
-    const checkIcon = `<img src="/static/icons/check.svg" style="width: 18px; height: 18px; margin-left: 4px;" alt="Subscribed">`;
+    const checkIcon = window.icon('check', '', 'width:18px;height:18px;margin-left:4px;');
+
+    // How long a press must be held before it pins the description open.
+    const LONG_PRESS_MS = 450;
+    const LONG_PRESS_MOVE_TOLERANCE = 10;
 
     function getImgProxyUrl(url) {
         if(!url) return '';
@@ -10,18 +13,148 @@
         return `/proxy/image?url=${encodeURIComponent(url)}`;
     }
 
+    // ------------------------------------------------------------------
+    // Description: expand / collapse, long-press pin, and rich links
+    // ------------------------------------------------------------------
+    const descBox = document.getElementById('descBox');
+    const descFade = document.getElementById('descFade');
+    const descPinBadge = document.getElementById('descPinBadge');
+
+    let descPinned = false;
+    let descOverflowing = false;
+    let pressTimer = null;
+    let longPressFired = false;
+    let pressStartX = 0;
+    let pressStartY = 0;
+
     function initDescription() {
-        const fade = document.getElementById('descFade');
-        if (fade.scrollHeight <= fade.clientHeight + 2) {
-            fade.style.webkitMaskImage = 'none';
-            fade.style.maskImage = 'none';
-            fade.parentElement.style.cursor = 'auto';
-            fade.parentElement.onclick = null;
+        descOverflowing = descFade.scrollHeight > descFade.clientHeight + 2;
+
+        if (!descOverflowing) {
+            descFade.style.webkitMaskImage = 'none';
+            descFade.style.maskImage = 'none';
+            descBox.style.cursor = 'auto';
         } else {
-            fade.style.webkitMaskImage = 'linear-gradient(to bottom, black calc(100% - 40px), transparent 100%)';
-            fade.style.maskImage = 'linear-gradient(to bottom, black calc(100% - 40px), transparent 100%)';
-            fade.parentElement.style.cursor = 'pointer';
-            fade.parentElement.onclick = function() { this.classList.toggle('expanded'); };
+            descFade.style.webkitMaskImage = 'linear-gradient(to bottom, black calc(100% - 40px), transparent 100%)';
+            descFade.style.maskImage = 'linear-gradient(to bottom, black calc(100% - 40px), transparent 100%)';
+            descBox.style.cursor = 'pointer';
+        }
+    }
+
+    function setPinned(state) {
+        descPinned = state;
+        if (state) {
+            descBox.classList.add('pinned', 'expanded');
+            descBox.style.cursor = 'auto';
+            if (navigator.vibrate) { try { navigator.vibrate(15); } catch (e) {} }
+        } else {
+            descBox.classList.remove('pinned');
+            descBox.classList.remove('expanded');
+            descBox.style.cursor = descOverflowing ? 'pointer' : 'auto';
+        }
+    }
+
+    function clearPressTimer() {
+        if (pressTimer) {
+            clearTimeout(pressTimer);
+            pressTimer = null;
+        }
+        descBox.classList.remove('pressing');
+    }
+
+    const onDescPointerDown = (e) => {
+        // Never hijack a press that starts on a link or the unpin badge.
+        if (e.target.closest('a') || e.target.closest('.desc-pin-badge')) return;
+        if (e.pointerType === 'mouse' && e.button !== 0) return;
+
+        pressStartX = e.clientX;
+        pressStartY = e.clientY;
+        longPressFired = false;
+        descBox.classList.add('pressing');
+
+        clearPressTimer();
+        pressTimer = setTimeout(() => {
+            longPressFired = true;
+            descBox.classList.remove('pressing');
+            setPinned(!descPinned);
+            pressTimer = null;
+        }, LONG_PRESS_MS);
+    };
+
+    const onDescPointerMove = (e) => {
+        if (!pressTimer) return;
+        const dx = Math.abs(e.clientX - pressStartX);
+        const dy = Math.abs(e.clientY - pressStartY);
+        // Scrolling on touch must not count as a long press.
+        if (dx > LONG_PRESS_MOVE_TOLERANCE || dy > LONG_PRESS_MOVE_TOLERANCE) {
+            clearPressTimer();
+        }
+    };
+
+    const onDescPointerEnd = () => clearPressTimer();
+
+    // Capture phase: swallow the click the browser fires after a long press,
+    // otherwise it would immediately toggle away what we just pinned.
+    const onDescClickCapture = (e) => {
+        if (longPressFired) {
+            longPressFired = false;
+            e.preventDefault();
+            e.stopPropagation();
+            return;
+        }
+
+        if (e.target.closest('.desc-pin-badge')) {
+            e.preventDefault();
+            e.stopPropagation();
+            setPinned(false);
+            return;
+        }
+
+        if (e.target.closest('.comment-timestamp')) {
+            e.preventDefault();
+            e.stopPropagation();
+            seekToTimestampText(e.target.innerText);
+            return;
+        }
+
+        // Real links navigate normally (PJAX handles same-origin ones).
+        if (e.target.closest('a')) return;
+
+        if (descPinned) return;
+        if (!descOverflowing) return;
+
+        descBox.classList.toggle('expanded');
+    };
+
+    descBox.addEventListener('pointerdown', onDescPointerDown);
+    descBox.addEventListener('pointermove', onDescPointerMove);
+    descBox.addEventListener('pointerup', onDescPointerEnd);
+    descBox.addEventListener('pointercancel', onDescPointerEnd);
+    descBox.addEventListener('pointerleave', onDescPointerEnd);
+    descBox.addEventListener('click', onDescClickCapture, true);
+    descBox.addEventListener('contextmenu', (e) => {
+        // Suppress the mobile long-press context menu on the body of the box.
+        if (!e.target.closest('a')) e.preventDefault();
+    });
+
+    function seekToTimestampText(text) {
+        const parts = String(text).split(':').map(Number);
+        let secs = 0;
+        if (parts.length === 3) {
+            secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
+        } else if (parts.length === 2) {
+            secs = parts[0] * 60 + parts[1];
+        } else {
+            return;
+        }
+        if (!isFinite(secs)) return;
+
+        if (window.ytPlayer) {
+            window.ytPlayer.seekTo(secs);
+            const vidContainer = document.getElementById('videoContainer');
+            if (vidContainer) {
+                vidContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
+            }
         }
     }
 
@@ -38,31 +171,65 @@
     let suggestedPage = 0; let suggestedLoading = false; let suggestedQuery = ""; let currentVideoId = "";
     const suggestedSentinel = document.getElementById('suggested-sentinel');
     const commentsSentinel = document.getElementById('comments-sentinel');
-    
-    function pingHistory() {
-        if (!window.ytPlayer || !window.ytPlayer.ui || !window.ytPlayer.ui.mainVideo) return;
+
+    // ------------------------------------------------------------------
+    // Watch history
+    //
+    // The old code only flushed on a 10s interval and on PJAX teardown, so
+    // closing the tab or hard-reloading discarded up to 10 seconds of position.
+    // Now we also flush on pause, on tab hide and on pagehide via sendBeacon.
+    // ------------------------------------------------------------------
+    function buildHistoryPayload() {
+        if (!window.ytPlayer || !window.ytPlayer.ui || !window.ytPlayer.ui.mainVideo) return null;
         const p = window.ytPlayer;
-        if (p.ui.mainVideo.readyState >= 1 && currentVideoId) {
-            const th_url = `https://i.ytimg.com/vi/${currentVideoId}/hqdefault.jpg`;
-            const duration = p.getValidDuration() || 0;
-            
-            fetch('/api/history/update', {
-                method: 'POST',
-                headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({
-                    id: currentVideoId,
-                    title: document.getElementById('ui-title').innerText,
-                    uploader: document.getElementById('ui-channel-name').innerText,
-                    uploader_url: document.getElementById('ui-channel-link').href,
-                    channel_icon: currentChannel.icon,
-                    thumbnail: th_url,
-                    duration: duration,
-                    current_time: p.ui.mainVideo.currentTime
-                }),
-                keepalive: true
-            }).catch(()=>{});
-        }
+        if (p.ui.mainVideo.readyState < 1 || !currentVideoId) return null;
+
+        const currentTime = p.ui.mainVideo.currentTime;
+        if (!isFinite(currentTime)) return null;
+
+        return {
+            id: currentVideoId,
+            title: document.getElementById('ui-title').innerText,
+            uploader: document.getElementById('ui-channel-name').innerText,
+            uploader_url: document.getElementById('ui-channel-link').href,
+            channel_icon: currentChannel.icon,
+            thumbnail: `https://i.ytimg.com/vi/${currentVideoId}/hqdefault.jpg`,
+            duration: p.getValidDuration() || 0,
+            current_time: currentTime,
+            resolution: p.state.currentResolution || null
+        };
     }
+
+    function pingHistory(useBeacon) {
+        const payload = buildHistoryPayload();
+        if (!payload) return;
+
+        const body = JSON.stringify(payload);
+
+        if (useBeacon && navigator.sendBeacon) {
+            try {
+                navigator.sendBeacon('/api/history/update', new Blob([body], { type: 'application/json' }));
+                return;
+            } catch (e) { /* fall through to fetch */ }
+        }
+
+        fetch('/api/history/update', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: body,
+            keepalive: true
+        }).catch(() => {});
+    }
+
+    const onVisibilityChange = () => {
+        if (document.visibilityState === 'hidden') pingHistory(true);
+    };
+    const onPageHide = () => pingHistory(true);
+
+    document.addEventListener('visibilitychange', onVisibilityChange);
+    window.addEventListener('pagehide', onPageHide);
+
+    let onPlayerPause = null;
 
     window.appFetch(`/api/info?url=${encodeURIComponent(videoUrl)}`)
         .then(r => r.json())
@@ -143,7 +310,14 @@
             statsEl.style.background = '#222';
             statsEl.style.padding = '6px 12px';
 
-            document.getElementById('ui-desc').innerText = data.description || "No description provided.";
+            // description_html is built and escaped server-side, so URLs, @handles,
+            // #hashtags and timestamps are all clickable without any XSS surface here.
+            const descEl = document.getElementById('ui-desc');
+            if (data.description_html && data.description_html.trim() !== '') {
+                descEl.innerHTML = data.description_html;
+            } else {
+                descEl.innerText = "No description provided.";
+            }
             initDescription();
 
             if (typeof window.initializePlayer === 'function') window.initializePlayer(data);
@@ -157,13 +331,20 @@
             if (!suggestedLoading) loadSuggestedVideos();
             if (!commentsLoading && !commentsFinished) loadComments();
 
+            // Flush the exact position the moment the user pauses, rather than
+            // waiting for the next interval tick.
+            if (window.ytPlayer && window.ytPlayer.ui.mainVideo) {
+                onPlayerPause = () => pingHistory(false);
+                window.ytPlayer.ui.mainVideo.addEventListener('pause', onPlayerPause);
+            }
+
             if (window.historyInterval) clearInterval(window.historyInterval);
             window.historyInterval = setInterval(() => {
                 const p = window.ytPlayer;
                 if (p && p.ui && p.ui.mainVideo && !p.ui.mainVideo.paused && !p.state.isScrubbing) {
-                    pingHistory();
+                    pingHistory(false);
                 }
-            }, 10000);
+            }, 5000);
         })
         .catch(err => {
             if (err.name === 'AbortError') return;
@@ -246,7 +427,7 @@
                 } else { 
                     suggestedSentinel.innerHTML = `
                         <div class="s-thumb" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <img src="/static/icons/no-more.svg" style="width: 32px; height: 32px;" alt="No more">
+                            ${window.icon('no-more', '', 'width:32px;height:32px;color:#444;')}
                         </div>
                         <div class="s-info" style="justify-content: center;">
                             <span class="s-channel" style="color: #555; font-weight: bold;">No more videos</span>
@@ -432,34 +613,36 @@
     
     document.addEventListener('mouseover', handleCardHover);
 
-    document.getElementById('comments-scroll').addEventListener('click', function(e) {
+    const commentsScroll = document.getElementById('comments-scroll');
+    const onCommentsClick = function(e) {
         if (e.target && e.target.classList.contains('comment-timestamp')) {
             e.preventDefault();
-            let parts = e.target.innerText.split(':').map(Number);
-            let secs = 0;
-            if (parts.length === 3) {
-                secs = parts[0] * 3600 + parts[1] * 60 + parts[2];
-            } else if (parts.length === 2) {
-                secs = parts[0] * 60 + parts[1];
-            }
-            if (window.ytPlayer) {
-                window.ytPlayer.ui.mainVideo.currentTime = secs;
-                if (window.ytPlayer.state.isDualAudio) {
-                    window.ytPlayer.ui.audio.currentTime = secs;
-                }
-                window.ytPlayer.ui.mainVideo.play().catch(()=>{});
-                
-                const vidContainer = document.getElementById('videoContainer');
-                if (vidContainer) {
-                    vidContainer.scrollIntoView({ behavior: 'smooth', block: 'start' });
-                }
-            }
+            seekToTimestampText(e.target.innerText);
         }
-    });
+    };
+    commentsScroll.addEventListener('click', onCommentsClick);
 
     window.pageTeardown = function() {
-        pingHistory(); 
+        pingHistory(false);
         if (window.historyInterval) clearInterval(window.historyInterval);
+
+        document.removeEventListener('visibilitychange', onVisibilityChange);
+        window.removeEventListener('pagehide', onPageHide);
+
+        if (onPlayerPause && window.ytPlayer && window.ytPlayer.ui && window.ytPlayer.ui.mainVideo) {
+            window.ytPlayer.ui.mainVideo.removeEventListener('pause', onPlayerPause);
+        }
+
+        clearPressTimer();
+        descBox.removeEventListener('pointerdown', onDescPointerDown);
+        descBox.removeEventListener('pointermove', onDescPointerMove);
+        descBox.removeEventListener('pointerup', onDescPointerEnd);
+        descBox.removeEventListener('pointercancel', onDescPointerEnd);
+        descBox.removeEventListener('pointerleave', onDescPointerEnd);
+        descBox.removeEventListener('click', onDescClickCapture, true);
+
+        commentsScroll.removeEventListener('click', onCommentsClick);
+
         suggObserver.disconnect();
         commentsObserver.disconnect();
         document.removeEventListener('mouseover', handleCardHover);

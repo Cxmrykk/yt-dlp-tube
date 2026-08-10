@@ -2,7 +2,7 @@
     const config = window.CHANNEL_CONFIG;
     let currentChannel = { url: config.url, name: config.name, icon: config.icon };
     let isSubbed = config.isSubbed;
-    const checkIcon = `<img src="/static/icons/check.svg" style="width: 18px; height: 18px; margin-left: 4px;" alt="Subscribed">`;
+    const checkIcon = window.icon('check', '', 'width:18px;height:18px;margin-left:4px;');
 
     function getImgProxyUrl(url) {
         if(!url) return '';

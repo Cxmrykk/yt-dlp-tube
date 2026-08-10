@@ -9,9 +9,11 @@ SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
 VIDEO_DATES_FILE = os.path.join(DATA_DIR, 'video_dates.json')
 HISTORY_FILE = os.path.join(DATA_DIR, 'history.json')
 CACHE_MANIFEST_FILE = os.path.join(DATA_DIR, 'cache_manifest.json')
+FEED_STATE_FILE = os.path.join(DATA_DIR, 'feed_state.json')
 
 FILE_LOCK = threading.Lock()
 _CACHE_MANIFEST = None
+_FEED_STATE = None
 
 DEFAULT_SETTINGS = {
     'background_interval_mins': 30,
@@ -22,6 +24,10 @@ DEFAULT_SETTINGS = {
     'cache_max_size_gb': 5,
     'preview_cache_size_mb': 100,
     'cache_auto_switch_threshold': 720,
+    'auto_cache_watched': False,
+    'auto_cache_resolution': 720,
+    'auto_cache_threshold_secs': 30,
+    'auto_cache_max_size_gb': 3,
     'shortcut_pause': 'Space',
     'shortcut_seek_fwd': 'ArrowRight',
     'shortcut_seek_bwd': 'ArrowLeft',
@@ -71,21 +77,21 @@ def get_settings():
                     for k, v in file_data.items():
                         data[k] = v
             except: pass
-            
+
         needs_save = False
         if 'sb_userid' not in data:
             data['sb_userid'] = secrets.token_hex(16)
             needs_save = True
-            
+
         if 'sb_colors' not in data or not isinstance(data['sb_colors'], dict):
             data['sb_colors'] = DEFAULT_SETTINGS['sb_colors'].copy()
             needs_save = True
-            
+
         if needs_save:
             tmp_file = SETTINGS_FILE + '.tmp'
             with open(tmp_file, 'w') as f: json.dump(data, f)
             os.replace(tmp_file, SETTINGS_FILE)
-            
+
         return data
 
 def save_settings(settings):
@@ -157,3 +163,30 @@ def save_cache_manifest(manifest):
         tmp_file = CACHE_MANIFEST_FILE + '.tmp'
         with open(tmp_file, 'w') as f: json.dump(manifest, f)
         os.replace(tmp_file, CACHE_MANIFEST_FILE)
+
+def get_feed_state():
+    """Per-channel 'last seen' watermarks, used to drive the new-upload dot.
+
+    Stored server-side so the indicator survives cookie loss and is shared
+    across every device pointed at this server.
+    """
+    global _FEED_STATE
+    with FILE_LOCK:
+        if _FEED_STATE is None:
+            if os.path.exists(FEED_STATE_FILE):
+                try:
+                    with open(FEED_STATE_FILE, 'r') as f:
+                        _FEED_STATE = json.load(f)
+                except:
+                    _FEED_STATE = {}
+            else:
+                _FEED_STATE = {}
+        return _FEED_STATE
+
+def save_feed_state(state):
+    global _FEED_STATE
+    with FILE_LOCK:
+        _FEED_STATE = state
+        tmp_file = FEED_STATE_FILE + '.tmp'
+        with open(tmp_file, 'w') as f: json.dump(state, f)
+        os.replace(tmp_file, FEED_STATE_FILE)

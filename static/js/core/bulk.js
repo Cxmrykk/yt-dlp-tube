@@ -188,9 +188,9 @@ window.bulkShowFormats = function(type) {
     const items = window.bulkFormatData[type] || [];
     let hasWarnings = false;
     
-    let iconSrc = '/static/icons/quality.svg';
-    if (type === 'audio') iconSrc = '/static/icons/vol-high.svg';
-    if (type === 'subtitles') iconSrc = '/static/icons/cc-outline.svg';
+    let iconName = 'quality';
+    if (type === 'audio') iconName = 'vol-high';
+    if (type === 'subtitles') iconName = 'cc-outline';
     
     if (items.length === 0) {
         formatDiv.innerHTML = '<div style="padding: 15px; color: #aaa; text-align: center;">No formats available.</div>';
@@ -207,7 +207,7 @@ window.bulkShowFormats = function(type) {
             
             btn.innerHTML = `
                 <div class="settings-label">
-                    <img src="${iconSrc}" alt="${type}">
+                    ${window.icon(iconName)}
                     <span>${f.label}</span>
                 </div>
                 ${availabilityHtml}
@@ -250,12 +250,12 @@ window.submitBulkTask = function(type, format) {
     document.getElementById('bulkProgressHeaderTxt').innerText = 'Compiling Archive...';
     
     const headerIcon = document.getElementById('bulkProgressHeaderIcon');
-    headerIcon.src = '/static/icons/spinner.svg';
+    window.setIcon(headerIcon, 'spinner');
     headerIcon.classList.add('nav-spinner');
     
     const activeBtn = document.getElementById('bulk-active-btn');
     activeBtn.style.display = 'flex';
-    activeBtn.innerHTML = '<img src="/static/icons/spinner.svg" class="nav-spinner" alt="Downloading">';
+    activeBtn.innerHTML = window.icon('spinner', 'nav-spinner');
     
     const ids = Array.from(window.bulkSelection);
     window.cancelBulkMode(); 
@@ -355,15 +355,16 @@ window.pollBulkTask = function() {
                 if (errs.length > 0 || warns.length > 0) {
                     detCont.style.display = 'block';
                     document.getElementById('bulkProgressHeaderTxt').innerText = errs.length > 0 ? 'Completed with Errors' : 'Completed with Warnings';
-                    headerIcon.src = errs.length > 0 ? '/static/icons/warning.svg' : '/static/icons/cloud-check.svg';
+                    window.setIcon(headerIcon, errs.length > 0 ? 'warning' : 'cloud-check');
+                    headerIcon.style.color = errs.length > 0 ? '#f39c12' : '#4aff4a';
                     
                     if (errs.length > 0) {
                         errCont.style.display = 'block';
                         errCont.innerHTML = '<strong style="color:#ff4a4a; font-size:12px; display:block; margin-bottom:4px;">Errors:</strong>' + errs.map(e => `<div style="font-size:11px; color:#ffb3b3; margin-bottom:4px; line-height:1.3;"><strong>${e.title}</strong>: ${e.reason}</div>`).join('');
-                        activeBtn.innerHTML = '<img src="/static/icons/warning.svg" style="width:24px; height:24px;" alt="Warning">';
+                        activeBtn.innerHTML = window.icon('warning', '', 'width:24px;height:24px;color:#f39c12;');
                     } else {
                         errCont.style.display = 'none';
-                        activeBtn.innerHTML = '<img src="/static/icons/cloud-check.svg" style="width:24px; height:24px;" alt="Ready">';
+                        activeBtn.innerHTML = window.icon('cloud-check', '', 'width:24px;height:24px;color:#4aff4a;');
                     }
                     
                     if (warns.length > 0) {
@@ -375,10 +376,11 @@ window.pollBulkTask = function() {
                     warnDiv.style.display = 'none';
                 } else {
                     document.getElementById('bulkProgressHeaderTxt').innerText = 'Zip Archive Ready';
-                    headerIcon.src = '/static/icons/cloud-check.svg';
+                    window.setIcon(headerIcon, 'cloud-check');
+                    headerIcon.style.color = '#4aff4a';
                     detCont.style.display = 'none';
                     warnDiv.style.display = 'none';
-                    activeBtn.innerHTML = '<img src="/static/icons/cloud-check.svg" style="width:24px; height:24px;" alt="Ready">';
+                    activeBtn.innerHTML = window.icon('cloud-check', '', 'width:24px;height:24px;color:#4aff4a;');
                 }
                 
                 activeBtn.style.animation = 'none'; 

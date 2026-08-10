@@ -126,7 +126,7 @@ class MenuSystem {
         toggleDiv.className = 'settings-item';
         toggleDiv.innerHTML = `
             <div class="settings-label">
-                <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#ffffff" width="20px" height="20px"><path d="M12 1L3 5v6c0 5.55 3.84 10.74 9 12 5.16-1.26 9-6.45 9-12V5l-9-4zm0 10.99h7c-.53 4.12-3.28 7.79-7 8.94V12H5V6.3l7-3.11v8.8z"/></svg>
+                ${window.icon('shield', '', 'width:20px;height:20px;')}
                 <span>SponsorBlock</span>
             </div>
             <div class="settings-value">${sb.sessionEnabled ? 'Enabled' : 'Disabled'}</div>
@@ -152,7 +152,7 @@ class MenuSystem {
             <div class="settings-label">
                 <span style="margin-left: 32px;">${submitText}</span>
             </div>
-            <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+            <div class="settings-value">${window.icon('chevron-right', 'settings-chevron')}</div>
         `;
         submitDiv.addEventListener('click', (e) => {
             e.stopPropagation();
@@ -186,7 +186,7 @@ class MenuSystem {
                 <div class="settings-label">
                     <span style="margin-left: 32px;">Rate Segment</span>
                 </div>
-                <div class="settings-value"><img src="/static/icons/chevron-right.svg" class="settings-chevron" alt=">"></div>
+                <div class="settings-value">${window.icon('chevron-right', 'settings-chevron')}</div>
             `;
             rateDiv.addEventListener('click', (e) => {
                 e.stopPropagation();
@@ -220,13 +220,11 @@ class MenuSystem {
         const createVoteBtn = (isUpvote) => {
             const btn = document.createElement('div');
             btn.className = 'settings-item';
-            const svg = isUpvote 
-                ? `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#fff" width="20px" height="20px"><path d="M1 21h4V9H1v12zm22-11c0-1.1-.9-2-2-2h-6.31l.95-4.57.03-.32c0-.41-.17-.79-.44-1.06L14.17 1 7.59 7.59C7.22 7.95 7 8.45 7 9v10c0 1.1.9 2 2 2h9c.83 0 1.54-.5 1.84-1.22l3.02-7.05c.09-.23.14-.47.14-.73v-2z"/></svg>`
-                : `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="#fff" width="20px" height="20px"><path d="M15 3H6c-.83 0-1.54.5-1.84 1.22l-3.02 7.05c-.09.23-.14.47-.14.73v2c0 1.1.9 2 2 2h6.31l-.95 4.57-.03.32c0 .41.17.79.44 1.06L9.83 23l6.59-6.59c.36-.36.58-.86.58-1.41V5c0-1.1-.9-2-2-2zm4 0v12h4V3h-4z"/></svg>`;
+            const svgIcon = isUpvote ? window.icon('like', '', 'width:20px;height:20px;') : window.icon('dislike', '', 'width:20px;height:20px;');
             
             btn.innerHTML = `
                 <div class="settings-label">
-                    ${svg}
+                    ${svgIcon}
                     <span>${isUpvote ? 'Upvote' : 'Downvote'}</span>
                 </div>
             `;
@@ -331,7 +329,7 @@ class MenuSystem {
                     const isSelected = data.current === opt.value;
                     const optionDiv = document.createElement('div');
                     optionDiv.className = `submenu-option ${isSelected ? 'selected' : ''}`;
-                    optionDiv.innerHTML = `<img src="/static/icons/check.svg" class="check-icon" alt="Check"><span>${opt.label}</span>`;
+                    optionDiv.innerHTML = `${window.icon('check', 'check-icon')}<span>${opt.label}</span>`;
                     optionDiv.addEventListener('click', (eClick) => {
                         eClick.stopPropagation(); 
                         data.current = opt.value; 
@@ -369,6 +367,7 @@ class MenuSystem {
             this.ui.audio.volume = e.target.value;
             this.ui.mainVideo.muted = e.target.value === '0'; 
             this.ui.audio.muted = this.ui.mainVideo.muted; 
+            if (!this.ui.mainVideo.muted) this.player.container.classList.remove('autoplay-muted');
             this.player.updateVolumeIcons();
         });
 

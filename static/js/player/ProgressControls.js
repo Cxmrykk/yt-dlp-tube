@@ -28,7 +28,7 @@ class ProgressControls {
 
         this.ui.progressArea.addEventListener('mousedown', (e) => {
             this.player.state.isScrubbing = true;
-            this.wasPausedBeforeScrub = this.ui.mainVideo.paused;
+            this.wasPausedBeforeScrub = this.player.state.userPaused || this.ui.mainVideo.paused;
             this.player.container.classList.add('scrubbing');
             this.ui.mainVideo.pause();
             if (this.player.state.isDualAudio) this.ui.audio.pause();
@@ -43,14 +43,7 @@ class ProgressControls {
                 this.player.state.isScrubbing = false;
                 this.player.container.classList.remove('scrubbing');
                 if (!this.wasPausedBeforeScrub) {
-                    let p1 = this.ui.mainVideo.play();
-                    let p2;
-                    if (this.player.state.isDualAudio) p2 = this.ui.audio.play();
-                    if (p1) p1.catch(()=>{});
-                    if (p2) p2.catch(()=>{});
-                    this.ui.playIcon.style.display = 'none';
-                    this.ui.pauseIcon.style.display = 'block';
-                    this.player.container.classList.remove('paused');
+                    this.player.startPlayback(0);
                 }
             }
         };

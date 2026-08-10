@@ -50,7 +50,7 @@
                 } else {
                     sentinel.innerHTML = `
                         <div class="thumbnail" style="background: transparent; border: 2px dashed #333; display: flex; flex-direction: column; align-items: center; justify-content: center;">
-                            <img src="/static/icons/no-more.svg" style="width: 48px; height: 48px; margin-bottom: 8px;" alt="No more">
+                            ${window.icon('no-more', '', 'width:48px;height:48px;margin-bottom:8px;color:#444;')}
                             <span style="color: #555; font-weight: bold; font-size: 1.1rem; text-align: center;">No more videos</span>
                         </div>
                     `;

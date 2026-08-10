@@ -38,14 +38,14 @@ class InputHandler {
         if (key && key === this.shortcuts.pause) {
             e.preventDefault(); 
             this.player.togglePlay(); 
-            this.player.showOverlay(mainVideo.paused ? `<img src="/static/icons/pause.svg" class="overlay-icon" alt="Pause">` : `<img src="/static/icons/play.svg" class="overlay-icon" alt="Play">`);
+            this.player.showOverlay(mainVideo.paused ? window.icon('pause', 'overlay-icon') : window.icon('play', 'overlay-icon'));
         } else if (key && key === this.shortcuts.seekFwd) {
             e.preventDefault(); 
             const dur = this.player.getValidDuration();
             if (dur > 0) { 
                 mainVideo.currentTime = Math.min(dur, mainVideo.currentTime + 10); 
                 if(this.player.state.isDualAudio) this.player.ui.audio.currentTime = mainVideo.currentTime; 
-                this.player.showOverlay(`<img src="/static/icons/fwd.svg" class="overlay-icon" alt="Fwd">`); 
+                this.player.showOverlay(window.icon('fwd', 'overlay-icon')); 
             }
         } else if (key && key === this.shortcuts.seekBwd) {
             e.preventDefault(); 
@@ -53,14 +53,14 @@ class InputHandler {
             if (dur > 0) { 
                 mainVideo.currentTime = Math.max(0, mainVideo.currentTime - 10); 
                 if(this.player.state.isDualAudio) this.player.ui.audio.currentTime = mainVideo.currentTime; 
-                this.player.showOverlay(`<img src="/static/icons/bwd.svg" class="overlay-icon" alt="Bwd">`); 
+                this.player.showOverlay(window.icon('bwd', 'overlay-icon')); 
             }
         } else if (key && key === this.shortcuts.mute) {
             e.preventDefault(); 
             this.player.toggleMute();
-            if (mainVideo.muted || mainVideo.volume === 0) this.player.showOverlay(`<img src="/static/icons/vol-muted.svg" class="overlay-icon" alt="Mute">`);
-            else if (mainVideo.volume > 0.5) this.player.showOverlay(`<img src="/static/icons/vol-high.svg" class="overlay-icon" alt="Vol">`); 
-            else this.player.showOverlay(`<img src="/static/icons/vol-low.svg" class="overlay-icon" alt="Vol Low">`);
+            if (mainVideo.muted || mainVideo.volume === 0) this.player.showOverlay(window.icon('vol-muted', 'overlay-icon'));
+            else if (mainVideo.volume > 0.5) this.player.showOverlay(window.icon('vol-high', 'overlay-icon')); 
+            else this.player.showOverlay(window.icon('vol-low', 'overlay-icon'));
         } else if (key && key === this.shortcuts.cc) {
             e.preventDefault(); 
             this.player.subtitles.toggleCc();
@@ -80,7 +80,7 @@ class InputHandler {
                 if (nextCh) {
                     mainVideo.currentTime = nextCh.start_time;
                     if(this.player.state.isDualAudio) this.player.ui.audio.currentTime = nextCh.start_time;
-                    this.player.showOverlay(`<img src="/static/icons/fwd.svg" class="overlay-icon" alt="Fwd">`);
+                    this.player.showOverlay(window.icon('fwd', 'overlay-icon'));
                 } else if (dur > 0) {
                     mainVideo.currentTime = dur;
                     if(this.player.state.isDualAudio) this.player.ui.audio.currentTime = dur;
@@ -102,7 +102,7 @@ class InputHandler {
                     mainVideo.currentTime = chapters[prevChIdx].start_time;
                 }
                 if(this.player.state.isDualAudio) this.player.ui.audio.currentTime = mainVideo.currentTime;
-                this.player.showOverlay(`<img src="/static/icons/bwd.svg" class="overlay-icon" alt="Bwd">`);
+                this.player.showOverlay(window.icon('bwd', 'overlay-icon'));
             }
         }
     }
