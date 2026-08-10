@@ -11,16 +11,22 @@ from storage import (
 )
 from youtube import (
     feed_cache, fetch_channel_info, purge_channel_from_feed,
-    update_feed_now, mark_channel_seen
+    update_feed_now, mark_channel_seen, get_new_channel_urls
 )
 
 views_bp = Blueprint('views', __name__)
 
 @views_bp.route('/')
 def feed():
-    # The new-upload dot is now per-channel and cleared by visiting that channel or
-    # watching one of its videos, so simply loading the feed no longer wipes it.
-    return render_template('feed.html', title="New Uploads", type="feed", query="")
+    # Render the template first so the dots appear for this initial load
+    rendered = render_template('feed.html', title="New Uploads", type="feed", query="")
+    
+    # Mark all channels that currently have new videos as seen
+    new_urls = get_new_channel_urls()
+    for url in new_urls:
+        mark_channel_seen(url)
+        
+    return rendered
 
 @views_bp.route('/history')
 def history_page():
