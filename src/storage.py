@@ -6,20 +6,30 @@ from config import DATA_DIR
 
 SUBS_FILE = os.path.join(DATA_DIR, 'subscriptions.json')
 SETTINGS_FILE = os.path.join(DATA_DIR, 'settings.json')
-VIDEO_DATES_FILE = os.path.join(DATA_DIR, 'video_dates.json')
 HISTORY_FILE = os.path.join(DATA_DIR, 'history.json')
 CACHE_MANIFEST_FILE = os.path.join(DATA_DIR, 'cache_manifest.json')
 FEED_STATE_FILE = os.path.join(DATA_DIR, 'feed_state.json')
 
+# Retired in favour of the per-channel baseline held in FEED_STATE_FILE. The old
+# file stored a sticky per-video "is_new" flag that was never cleared, which made
+# the home feed grow without bound. It is renamed aside on first boot so the data
+# is recoverable but can never be read back in.
+LEGACY_VIDEO_DATES_FILE = os.path.join(DATA_DIR, 'video_dates.json')
+
 FILE_LOCK = threading.Lock()
 _CACHE_MANIFEST = None
 _FEED_STATE = None
+
+FEED_STATE_VERSION = 2
 
 DEFAULT_SETTINGS = {
     'background_interval_mins': 30,
     'per_page': 15,
     'desc_preview_height': 100,
     'overlay_timeout_ms': 500,
+    'feed_retention_days': 14,
+    'feed_max_items': 300,
+    'feed_new_burst_limit': 15,
     'cache_ttl_hours': 24,
     'cache_max_size_gb': 20,
     'preview_cache_size_mb': 100,
@@ -67,6 +77,15 @@ DEFAULT_SETTINGS = {
     }
 }
 
+
+def _write_json_atomic(path, data):
+    """Caller is responsible for holding FILE_LOCK."""
+    tmp_file = path + '.tmp'
+    with open(tmp_file, 'w') as f:
+        json.dump(data, f)
+    os.replace(tmp_file, path)
+
+
 def get_settings():
     with FILE_LOCK:
         data = DEFAULT_SETTINGS.copy()
@@ -88,17 +107,13 @@ def get_settings():
             needs_save = True
 
         if needs_save:
-            tmp_file = SETTINGS_FILE + '.tmp'
-            with open(tmp_file, 'w') as f: json.dump(data, f)
-            os.replace(tmp_file, SETTINGS_FILE)
+            _write_json_atomic(SETTINGS_FILE, data)
 
         return data
 
 def save_settings(settings):
     with FILE_LOCK:
-        tmp_file = SETTINGS_FILE + '.tmp'
-        with open(tmp_file, 'w') as f: json.dump(settings, f)
-        os.replace(tmp_file, SETTINGS_FILE)
+        _write_json_atomic(SETTINGS_FILE, settings)
 
 def get_subs():
     with FILE_LOCK:
@@ -110,23 +125,7 @@ def get_subs():
 
 def save_subs(subs):
     with FILE_LOCK:
-        tmp_file = SUBS_FILE + '.tmp'
-        with open(tmp_file, 'w') as f: json.dump(subs, f)
-        os.replace(tmp_file, SUBS_FILE)
-
-def get_video_dates():
-    with FILE_LOCK:
-        if os.path.exists(VIDEO_DATES_FILE):
-            try:
-                with open(VIDEO_DATES_FILE, 'r') as f: return json.load(f)
-            except: pass
-        return {}
-
-def save_video_dates(dates):
-    with FILE_LOCK:
-        tmp_file = VIDEO_DATES_FILE + '.tmp'
-        with open(tmp_file, 'w') as f: json.dump(dates, f)
-        os.replace(tmp_file, VIDEO_DATES_FILE)
+        _write_json_atomic(SUBS_FILE, subs)
 
 def get_history():
     with FILE_LOCK:
@@ -138,9 +137,7 @@ def get_history():
 
 def save_history(history):
     with FILE_LOCK:
-        tmp_file = HISTORY_FILE + '.tmp'
-        with open(tmp_file, 'w') as f: json.dump(history, f)
-        os.replace(tmp_file, HISTORY_FILE)
+        _write_json_atomic(HISTORY_FILE, history)
 
 def get_cache_manifest():
     global _CACHE_MANIFEST
@@ -160,33 +157,142 @@ def save_cache_manifest(manifest):
     global _CACHE_MANIFEST
     with FILE_LOCK:
         _CACHE_MANIFEST = manifest
-        tmp_file = CACHE_MANIFEST_FILE + '.tmp'
-        with open(tmp_file, 'w') as f: json.dump(manifest, f)
-        os.replace(tmp_file, CACHE_MANIFEST_FILE)
+        _write_json_atomic(CACHE_MANIFEST_FILE, manifest)
+
+
+# ----------------------------------------------------------------------
+# Feed state
+#
+# Shape (version 2):
+#
+#   {
+#     "version": 2,
+#     "channels": {
+#       "<normalised channel url>": {
+#         "baseline_at":       float,   # when this channel was first catalogued
+#         "last_rebaseline_at": float,  # optional, set by the burst guard
+#         "last_fetch_at":     float,
+#         "last_seen_ts":      float,   # drives the sidebar new-upload dot
+#         "known": { "<video id>": float }   # 0.0 == baseline, >0 == discovered at
+#       }
+#     }
+#   }
+#
+# A video only reaches the home feed if its "known" value is greater than zero,
+# i.e. it appeared *after* the channel had already been catalogued. A channel
+# seen for the first time contributes nothing, which is what makes a wiped data
+# directory produce an empty feed instead of the first N videos of everything.
+# ----------------------------------------------------------------------
+
+def new_feed_state():
+    return {'version': FEED_STATE_VERSION, 'channels': {}}
+
+
+def _normalise_channel_entry(raw):
+    if not isinstance(raw, dict):
+        return {'baseline_at': 0.0, 'last_seen_ts': 0.0, 'known': {}}
+
+    def _f(key):
+        try:
+            return float(raw.get(key) or 0)
+        except (TypeError, ValueError):
+            return 0.0
+
+    known = {}
+    raw_known = raw.get('known')
+    if isinstance(raw_known, dict):
+        for vid, ts in raw_known.items():
+            if not isinstance(vid, str):
+                continue
+            try:
+                known[vid] = float(ts or 0)
+            except (TypeError, ValueError):
+                known[vid] = 0.0
+
+    entry = {
+        'baseline_at': _f('baseline_at'),
+        'last_fetch_at': _f('last_fetch_at'),
+        'last_seen_ts': _f('last_seen_ts'),
+        'known': known
+    }
+    if raw.get('last_rebaseline_at'):
+        entry['last_rebaseline_at'] = _f('last_rebaseline_at')
+    return entry
+
+
+def _migrate_feed_state(raw):
+    """Accepts anything previously written to disk and returns a valid v2 dict."""
+    if not isinstance(raw, dict):
+        return new_feed_state()
+
+    if raw.get('version') == FEED_STATE_VERSION and isinstance(raw.get('channels'), dict):
+        return {
+            'version': FEED_STATE_VERSION,
+            'channels': {
+                k: _normalise_channel_entry(v)
+                for k, v in raw['channels'].items() if isinstance(k, str)
+            }
+        }
+
+    # Version 1 was a flat map of normalised url -> {"last_seen_ts": float}. The
+    # watermark is worth keeping; there was no baseline, so every channel gets
+    # re-catalogued on the next poll and the feed starts clean.
+    channels = {}
+    for k, v in raw.items():
+        if k in ('version', 'channels') or not isinstance(k, str):
+            continue
+        channels[k] = _normalise_channel_entry(
+            {'last_seen_ts': v.get('last_seen_ts') if isinstance(v, dict) else 0}
+        )
+    return {'version': FEED_STATE_VERSION, 'channels': channels}
+
+
+def _retire_legacy_video_dates():
+    """Caller is responsible for holding FILE_LOCK."""
+    if not os.path.exists(LEGACY_VIDEO_DATES_FILE):
+        return
+    target = LEGACY_VIDEO_DATES_FILE + '.retired'
+    try:
+        if os.path.exists(target):
+            os.remove(LEGACY_VIDEO_DATES_FILE)
+        else:
+            os.replace(LEGACY_VIDEO_DATES_FILE, target)
+        print("[feed] Retired legacy video_dates.json; the feed now uses per-channel baselines.")
+    except Exception as e:
+        print(f"[feed] Could not retire legacy video_dates.json: {e}")
+
 
 def get_feed_state():
-    """Per-channel 'last seen' watermarks, used to drive the new-upload dot.
-
-    Stored server-side so the indicator survives cookie loss and is shared
-    across every device pointed at this server.
-    """
     global _FEED_STATE
     with FILE_LOCK:
         if _FEED_STATE is None:
+            raw = None
             if os.path.exists(FEED_STATE_FILE):
                 try:
                     with open(FEED_STATE_FILE, 'r') as f:
-                        _FEED_STATE = json.load(f)
+                        raw = json.load(f)
                 except:
-                    _FEED_STATE = {}
-            else:
-                _FEED_STATE = {}
+                    raw = None
+
+            migrated = _migrate_feed_state(raw)
+            _FEED_STATE = migrated
+
+            if not isinstance(raw, dict) or raw.get('version') != FEED_STATE_VERSION:
+                try:
+                    _write_json_atomic(FEED_STATE_FILE, migrated)
+                except Exception as e:
+                    print(f"[feed] Could not persist migrated feed state: {e}")
+
+            _retire_legacy_video_dates()
+
         return _FEED_STATE
+
 
 def save_feed_state(state):
     global _FEED_STATE
+    if not isinstance(state, dict) or 'channels' not in state:
+        state = new_feed_state()
+    state['version'] = FEED_STATE_VERSION
     with FILE_LOCK:
         _FEED_STATE = state
-        tmp_file = FEED_STATE_FILE + '.tmp'
-        with open(tmp_file, 'w') as f: json.dump(state, f)
-        os.replace(tmp_file, FEED_STATE_FILE)
+        _write_json_atomic(FEED_STATE_FILE, state)

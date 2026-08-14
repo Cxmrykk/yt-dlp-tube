@@ -4,6 +4,17 @@ from datetime import datetime
 from urllib.parse import urlparse, parse_qs, quote
 from markupsafe import Markup, escape
 
+# YouTube video IDs are consistently 11 characters of the URL-safe base64
+# alphabet. Anything else coming out of a flat extraction is a shelf, a
+# playlist, a channel, or garbage - and must never be treated as a video.
+_VIDEO_ID_RE = re.compile(r'^[0-9A-Za-z_-]{11}$')
+
+
+def is_probable_video_id(vid):
+    """True only for strings that look like a real YouTube video ID."""
+    return bool(vid) and isinstance(vid, str) and bool(_VIDEO_ID_RE.match(vid))
+
+
 def extract_video_id(raw_id, url=None):
     """
     Sanitizes video IDs returned by yt-dlp's flat extraction.

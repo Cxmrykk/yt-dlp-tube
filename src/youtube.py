@@ -13,11 +13,12 @@ import itertools
 import requests
 from collections import defaultdict
 from storage import (
-    get_subs, get_settings, get_video_dates, save_video_dates,
-    get_cache_manifest, save_cache_manifest, get_feed_state, save_feed_state
+    get_subs, save_subs, get_settings,
+    get_cache_manifest, save_cache_manifest,
+    get_feed_state, save_feed_state, new_feed_state
 )
 from config import CACHE_DIR
-from utils import extract_video_id
+from utils import extract_video_id, is_probable_video_id
 
 def inject_deno(ydl_opts):
     """
@@ -45,6 +46,7 @@ COMMENTS_CACHE = {}
 COMMENTS_LOCK = threading.Lock()
 CHANNEL_ICON_CACHE = {}
 FEED_UPDATE_LOCK = threading.Lock()
+FEED_STATE_LOCK = threading.RLock()
 
 BULK_TASKS = {}
 FORMAT_TASKS = {}
@@ -59,6 +61,14 @@ _WORKERS_STARTED = False
 PRIORITY = {'manual': 0, 'auto': 1}
 KIND_EVICTION_RANK = {'preview': 0, 'auto': 1, 'manual': 2}
 CACHE_HOT_WINDOW_SECS = 300
+
+# Upper bound on how many video IDs we remember per channel. The fetch window is
+# ~50 entries, so this leaves an enormous margin before anything is forgotten.
+KNOWN_ID_CAP = 1000
+
+# Videos discovered in the same poll all share a wall-clock timestamp. Nudging
+# each one by its position keeps the channel's own ordering intact in the feed.
+NEW_DISCOVERY_EPSILON = 0.001
 
 
 class YTDLPLogger:
@@ -82,53 +92,53 @@ def norm_url(url):
     return url.strip('/').split('?')[0].lower()
 
 
-def sync_video_dates(entries):
-    dates_cache = get_video_dates()
-    changed = False
-    now = time.time()
-    
-    for idx, e in enumerate(entries):
-        if not e: continue
-        vid = e.get('id')
-        if not vid: continue
-        
-        if vid not in dates_cache:
-            dates_cache[vid] = {"timestamp": now, "is_new": (idx < 5)}
-            changed = True
-        elif isinstance(dates_cache[vid], (int, float)):
-            dates_cache[vid] = {"timestamp": dates_cache[vid], "is_new": False}
-            changed = True
-        elif not isinstance(dates_cache[vid], dict):
-            dates_cache[vid] = {"timestamp": now, "is_new": False}
-            changed = True
-            
-        e['timestamp'] = dates_cache[vid].get('timestamp', now)
-        e['is_new'] = dates_cache[vid].get('is_new', False)
-        
-    if changed:
-        save_video_dates(dates_cache)
+# ----------------------------------------------------------------------
+# Per-channel feed state
+# ----------------------------------------------------------------------
+
+def _feed_state():
+    """Caller should hold FEED_STATE_LOCK for any read-modify-write sequence."""
+    st = get_feed_state()
+    if not isinstance(st.get('channels'), dict):
+        st['channels'] = {}
+    return st
+
+
+def _channel_entry(st, n_url, create=False):
+    ch = st['channels'].get(n_url)
+    if ch is None and create:
+        ch = {
+            'baseline_at': 0.0,
+            'last_fetch_at': 0.0,
+            'last_seen_ts': 0.0,
+            'known': {}
+        }
+        st['channels'][n_url] = ch
+    return ch
 
 
 def mark_channel_seen(url, ts=None):
     n = norm_url(url)
     if not n:
         return
-    state = get_feed_state()
-    entry = state.get(n) or {}
-    entry['last_seen_ts'] = ts or time.time()
-    state[n] = entry
-    save_feed_state(state)
+    with FEED_STATE_LOCK:
+        st = _feed_state()
+        ch = _channel_entry(st, n, create=True)
+        ch['last_seen_ts'] = ts or time.time()
+        save_feed_state(st)
 
 
 def get_new_channel_urls():
-    state = get_feed_state()
+    with FEED_STATE_LOCK:
+        channels = dict(_feed_state()['channels'])
+
     out = set()
     for v in feed_cache.get('data', []):
         c_url = v.get('channel_url') or v.get('uploader_url')
         if not c_url:
             continue
         n = norm_url(c_url)
-        seen = (state.get(n) or {}).get('last_seen_ts', 0)
+        seen = (channels.get(n) or {}).get('last_seen_ts', 0) or 0
         if (v.get('timestamp') or 0) > seen:
             out.add(n)
     return out
@@ -138,17 +148,37 @@ def forget_channel_state(url):
     n = norm_url(url)
     if not n:
         return
-    state = get_feed_state()
-    if n in state:
-        del state[n]
-        save_feed_state(state)
+    with FEED_STATE_LOCK:
+        st = _feed_state()
+        if n in st['channels']:
+            del st['channels'][n]
+            save_feed_state(st)
 
 
 def purge_channel_from_feed(url):
     if not url: return
     n_url = norm_url(url)
-    feed_cache['data'] = [v for v in feed_cache.get('data', []) if norm_url(v.get('channel_url', '')) != n_url]
+    feed_cache['data'] = [
+        v for v in feed_cache.get('data', [])
+        if norm_url(v.get('channel_url', '')) != n_url
+    ]
+    # Dropping the whole channel entry (baseline and known IDs included) means a
+    # re-subscribe is treated as a brand new channel rather than resurrecting
+    # every video that was in the feed at unsubscribe time.
     forget_channel_state(url)
+
+
+def reset_feed_baseline():
+    """Forget every channel baseline and empty the feed.
+
+    The next background poll re-catalogues each subscription from scratch and
+    contributes nothing, so the feed stays empty until a genuinely new upload
+    lands. This is the recovery path for a corrupted or runaway feed.
+    """
+    with FEED_STATE_LOCK:
+        save_feed_state(new_feed_state())
+    feed_cache['data'] = []
+    feed_cache['last_update'] = 0
 
 
 def get_cached_icon(url):
@@ -183,14 +213,109 @@ def fetch_channel_info(url):
     except Exception:
         return {"name": "Unknown", "url": url, "icon": "", "id": "", "subscriber_count": None}
 
+
+def _clean_channel_entries(entries, sub):
+    """Turn a raw flat-extraction result into a list of real, de-duplicated videos.
+
+    A channel's /videos tab can return shelf and playlist pseudo-entries (Shorts
+    rows, "Popular videos", live shelves). Those carry playlist-shaped IDs that
+    extract_video_id passes through untouched, so they have to be filtered here
+    or they end up in the feed as permanent phantom entries.
+    """
+    out = []
+    seen = set()
+    for e in entries or []:
+        if not e:
+            continue
+        if e.get('_type') == 'playlist':
+            continue
+
+        vid = extract_video_id(e.get('id'), e.get('url'))
+        if not is_probable_video_id(vid):
+            continue
+        if vid in seen:
+            continue
+
+        seen.add(vid)
+        e['id'] = vid
+        e['channel_name'] = sub['name']
+        e['channel_icon'] = sub.get('icon', '')
+        e['channel_url'] = sub['url']
+        out.append(e)
+    return out
+
+
+def _reconcile_channel(ch, entries, now, burst_limit):
+    """Fold one channel's fetch into its stored baseline.
+
+    Returns the merged {video id: discovery timestamp} map, where 0.0 marks a
+    video that predates our knowledge of the channel and therefore never enters
+    the feed.
+    """
+    known = ch.get('known') or {}
+    ids = [e['id'] for e in entries]
+    fetched = set(ids)
+    unknown = [v for v in ids if v not in known]
+
+    first_run = not ch.get('baseline_at')
+    # If a poll turns up an implausible number of unseen IDs on a channel we
+    # already track, the far likelier explanation is that IDs drifted (an
+    # extractor change, a shelf layout change) than that the channel uploaded
+    # twenty videos at once. Re-baseline instead of flooding the feed.
+    burst = (not first_run) and len(unknown) > burst_limit
+
+    merged = dict(known)
+
+    if first_run or burst:
+        for v in ids:
+            merged.setdefault(v, 0.0)
+        if first_run:
+            ch['baseline_at'] = now
+        else:
+            ch['last_rebaseline_at'] = now
+            print(
+                f"[feed] {len(unknown)} unseen IDs on an already-tracked channel "
+                f"(limit {burst_limit}); re-baselining instead of adding them to the feed."
+            )
+    else:
+        for idx, v in enumerate(ids):
+            if v not in merged:
+                merged[v] = now - (idx * NEW_DISCOVERY_EPSILON)
+
+    if len(merged) > KNOWN_ID_CAP:
+        droppable = [v for v in merged if v not in fetched]
+        droppable.sort(key=lambda v: merged[v])
+        for v in droppable:
+            if len(merged) <= KNOWN_ID_CAP:
+                break
+            del merged[v]
+
+    ch['known'] = merged
+    ch['last_fetch_at'] = now
+    return merged
+
+
 def update_feed_now():
     if not FEED_UPDATE_LOCK.acquire(blocking=False):
         return 
     try:
         subs = get_subs()
         settings = get_settings()
-        fetch_limit = max(50, settings['per_page'] * 3) 
-        
+        fetch_limit = max(50, settings['per_page'] * 3)
+
+        try:
+            burst_limit = max(1, int(settings.get('feed_new_burst_limit', 15) or 15))
+        except (TypeError, ValueError):
+            burst_limit = 15
+        try:
+            retention_days = float(settings.get('feed_retention_days', 14) or 14)
+        except (TypeError, ValueError):
+            retention_days = 14.0
+        try:
+            max_items = int(settings.get('feed_max_items', 300) or 300)
+        except (TypeError, ValueError):
+            max_items = 300
+
         def fetch_flat(sub):
             ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': fetch_limit, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
             inject_deno(ydl_opts)
@@ -203,20 +328,10 @@ def update_feed_now():
                             sub['icon'] = new_icon
                             sub['icon_updated'] = True
 
-                        valid_entries = []
-                        for e in info.get('entries', []):
-                            if e:
-                                clean_id = extract_video_id(e.get('id'), e.get('url'))
-                                if clean_id:
-                                    e['id'] = clean_id
-                                e['channel_name'] = sub['name']
-                                e['channel_icon'] = sub.get('icon', '')
-                                e['channel_url'] = sub['url']
-                                valid_entries.append(e)
-                        return sub['url'], valid_entries, True 
+                        return sub, _clean_channel_entries(info.get('entries', []), sub), True
             except Exception as e: 
                 print(f"Background fetch failed for {sub['url']}: {e}")
-            return sub['url'], [], False
+            return sub, [], False
 
         with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
             results = list(executor.map(fetch_flat, subs))
@@ -227,19 +342,62 @@ def update_feed_now():
                 subs_updated = True
                 
         if subs_updated:
-            from storage import save_subs
             save_subs(subs)
-            
-        all_entries = []
-        for url, entries, success in results:
-            if success and entries:
-                sync_video_dates(entries)
-                all_entries.extend(entries)
-                
-        new_vids = [e for e in all_entries if e.get('is_new')]
-        new_vids.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
-        
-        feed_cache['data'] = new_vids
+
+        now = time.time()
+        cutoff = now - (retention_days * 86400) if retention_days > 0 else 0
+
+        fresh = []
+        succeeded = set()
+
+        with FEED_STATE_LOCK:
+            st = _feed_state()
+            for sub, entries, ok in results:
+                if not ok:
+                    continue
+
+                n_url = norm_url(sub['url'])
+                if not n_url:
+                    continue
+                succeeded.add(n_url)
+
+                ch = _channel_entry(st, n_url, create=True)
+                merged = _reconcile_channel(ch, entries, now, burst_limit)
+
+                for e in entries:
+                    ts = merged.get(e['id'], 0.0)
+                    # ts == 0.0 means "already existed when we first met this
+                    # channel", which is exactly the case that used to flood the
+                    # feed with each channel's back catalogue.
+                    if ts > 0 and ts >= cutoff:
+                        e['timestamp'] = ts
+                        e['is_new'] = True
+                        fresh.append(e)
+
+            save_feed_state(st)
+
+        # A channel whose fetch failed this round keeps whatever it already had
+        # in the feed, rather than silently vanishing until the next success.
+        carried = []
+        for v in feed_cache.get('data', []):
+            n = norm_url(v.get('channel_url') or v.get('uploader_url') or '')
+            if not n or n in succeeded:
+                continue
+            if (v.get('timestamp') or 0) >= cutoff:
+                carried.append(v)
+
+        combined = {}
+        for e in fresh + carried:
+            vid = e.get('id')
+            if vid and vid not in combined:
+                combined[vid] = e
+
+        merged_feed = list(combined.values())
+        merged_feed.sort(key=lambda x: x.get('timestamp') or 0, reverse=True)
+        if max_items > 0:
+            merged_feed = merged_feed[:max_items]
+
+        feed_cache['data'] = merged_feed
         feed_cache['last_update'] = time.time()
     finally:
         FEED_UPDATE_LOCK.release()

@@ -203,7 +203,39 @@
         <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Controls Overlay Timeout (ms):</label>
         <input type="number" name="overlay_timeout_ms" value="{{ app_settings.overlay_timeout_ms | default(500) }}" min="100" max="10000" required>
 
+        <h4 style="margin: 20px 0 12px 0; color: white; border-top: 1px solid #333; padding-top: 20px;">Home Feed</h4>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Keep Videos in Feed For (days):</label>
+        <input type="number" name="feed_retention_days" value="{{ app_settings.feed_retention_days | default(14) }}" min="1" max="365" required>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Maximum Feed Length (videos):</label>
+        <input type="number" name="feed_max_items" value="{{ app_settings.feed_max_items | default(300) }}" min="10" max="5000" required>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">New-Upload Burst Limit (per channel, per poll):</label>
+        <input type="number" name="feed_new_burst_limit" value="{{ app_settings.feed_new_burst_limit | default(15) }}" min="1" max="200" required>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin: -8px 0 18px 0;">
+            If a single poll turns up more unseen videos than this on a channel already being tracked,
+            the far likelier cause is that YouTube changed its video IDs than that the channel uploaded
+            that many at once. The channel is quietly re-catalogued instead of flooding the feed.
+        </p>
+
         <button type="submit" class="btn btn-danger">Save Settings</button>
+    </form>
+</div>
+
+<div class="add-form">
+    <h3 style="margin-top: 0;">Feed Maintenance</h3>
+    <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0;">
+        The home feed is built from a per-channel baseline: the first time a channel is scanned,
+        its existing uploads are catalogued and <em>not</em> shown. Only videos that appear afterwards
+        reach the feed. Resetting the baseline forgets that catalogue for every channel — your
+        subscriptions are left untouched, the feed empties, and it stays empty until genuinely new
+        uploads arrive.
+    </p>
+    <form action="/settings" method="POST" style="margin: 0;"
+          onsubmit="return confirm('Reset the feed baseline? Subscriptions are kept, but the feed will be emptied and rebuilt from new uploads only.');">
+        <input type="hidden" name="action" value="reset_feed">
+        <button type="submit" class="btn btn-danger">Reset Feed Baseline</button>
     </form>
 </div>
 

@@ -7,11 +7,12 @@ from flask import Blueprint, render_template, request, redirect, url_for, sessio
 
 from storage import (
     get_history, save_history, get_subs, save_subs, get_settings, save_settings,
-    save_video_dates, get_cache_manifest, save_feed_state
+    get_cache_manifest
 )
 from youtube import (
     feed_cache, fetch_channel_info, purge_channel_from_feed,
-    update_feed_now, mark_channel_seen, get_new_channel_urls
+    update_feed_now, mark_channel_seen, get_new_channel_urls,
+    reset_feed_baseline
 )
 
 views_bp = Blueprint('views', __name__)
@@ -194,9 +195,13 @@ def settings_page():
                     
         elif action == 'reset_subs':
             save_subs([])
-            feed_cache['data'] = []
-            save_video_dates({}) 
-            save_feed_state({})
+            reset_feed_baseline()
+
+        elif action == 'reset_feed':
+            # Keeps subscriptions, forgets every channel baseline. The next poll
+            # re-catalogues each channel and contributes nothing to the feed, so
+            # it stays empty until a genuinely new upload appears.
+            reset_feed_baseline()
             
         elif action == 'update_settings':
             try:
@@ -204,6 +209,9 @@ def settings_page():
                 app_settings['per_page'] = int(request.form.get('per_page', 15))
                 app_settings['desc_preview_height'] = int(request.form.get('desc_preview_height', 100))
                 app_settings['overlay_timeout_ms'] = int(request.form.get('overlay_timeout_ms', 500))
+                app_settings['feed_retention_days'] = max(1, int(request.form.get('feed_retention_days', 14)))
+                app_settings['feed_max_items'] = max(1, int(request.form.get('feed_max_items', 300)))
+                app_settings['feed_new_burst_limit'] = max(1, int(request.form.get('feed_new_burst_limit', 15)))
                 save_settings(app_settings)
             except ValueError: pass
 
