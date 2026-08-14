@@ -16,7 +16,7 @@ from youtube import (
     start_format_task, cancel_format_task, FORMAT_TASKS,
     COMMENTS_CACHE, COMMENTS_LOCK, mark_channel_seen, queue_auto_cache
 )
-from utils import format_views_str, time_ago_str, linkify_text
+from utils import format_views_str, time_ago_str, linkify_text, extract_video_id
 
 api_bp = Blueprint('api', __name__)
 
@@ -351,6 +351,8 @@ def api_videos():
                 c_icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
                 for e in info.get('entries', []):
                     if e and e.get('_type') != 'playlist':
+                        clean_id = extract_video_id(e.get('id'), e.get('url'))
+                        if clean_id: e['id'] = clean_id
                         e['channel_name'] = c_name
                         e['channel_icon'] = c_icon
                         e['channel_url'] = query
@@ -363,7 +365,11 @@ def api_videos():
         inject_deno(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
-            if info: videos = info.get('entries', [])
+            if info: 
+                videos = info.get('entries', [])
+                for e in videos:
+                    clean_id = extract_video_id(e.get('id'), e.get('url'))
+                    if clean_id: e['id'] = clean_id
         fetch_missing_icons(videos)
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
     elif req_type == 'suggested' and query:
@@ -375,7 +381,11 @@ def api_videos():
         inject_deno(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{fetch_end}:{query}", download=False)
-            videos = info.get('entries', []) if info else []
+            raw_videos = info.get('entries', []) if info else []
+            for e in raw_videos:
+                clean_id = extract_video_id(e.get('id'), e.get('url'))
+                if clean_id: e['id'] = clean_id
+            videos = raw_videos
             
         if current_id:
             filtered = []

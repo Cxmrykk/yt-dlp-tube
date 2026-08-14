@@ -4,6 +4,42 @@ from datetime import datetime
 from urllib.parse import urlparse, parse_qs, quote
 from markupsafe import Markup, escape
 
+def extract_video_id(raw_id, url=None):
+    """
+    Sanitizes video IDs returned by yt-dlp's flat extraction.
+    Removes RSS 'yt:video:' prefixes and strips out dynamic tracking parameters
+    if the fallback extractor returns a full URL instead of an ID.
+    """
+    if not raw_id:
+        return None
+        
+    if raw_id.startswith('yt:video:'):
+        return raw_id[9:]
+        
+    for val in (raw_id, url):
+        if val and ('youtube.com' in val or 'youtu.be' in val):
+            try:
+                parsed = urlparse(val)
+                if 'youtu.be' in parsed.netloc:
+                    return parsed.path.strip('/')
+                qs = parse_qs(parsed.query)
+                if 'v' in qs:
+                    return qs['v'][0]
+                if parsed.path.startswith('/shorts/'):
+                    return parsed.path.split('/shorts/', 1)[1].strip('/')
+            except Exception:
+                pass
+                
+    # Sanity fallback: if yt-dlp returned something extremely long 
+    # but it didn't cleanly parse above, try to regex a standard 11-char ID.
+    if len(raw_id) > 15:
+        match = re.search(r'(?:v=|/)([0-9A-Za-z_-]{11})(?:[&?]|$)', raw_id)
+        if match:
+            return match.group(1)
+
+    return raw_id
+
+
 def format_time_str(s):
     if not s: return "0:00"
     try:

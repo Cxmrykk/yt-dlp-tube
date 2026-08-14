@@ -17,6 +17,7 @@ from storage import (
     get_cache_manifest, save_cache_manifest, get_feed_state, save_feed_state
 )
 from config import CACHE_DIR
+from utils import extract_video_id
 
 def inject_deno(ydl_opts):
     """
@@ -205,6 +206,9 @@ def update_feed_now():
                         valid_entries = []
                         for e in info.get('entries', []):
                             if e:
+                                clean_id = extract_video_id(e.get('id'), e.get('url'))
+                                if clean_id:
+                                    e['id'] = clean_id
                                 e['channel_name'] = sub['name']
                                 e['channel_icon'] = sub.get('icon', '')
                                 e['channel_url'] = sub['url']
