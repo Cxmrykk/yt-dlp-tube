@@ -1,3 +1,5 @@
+--pre
 flask
-yt-dlp
+yt-dlp[default]
 requests
+
