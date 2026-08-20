@@ -41,15 +41,22 @@ class PlayerCore {
             currentVideoId: null,
             isDualAudio: false,
             resolutionsList: [],
+            audioTracksList: [],
             videoChapters: [],
-            bestAudioUrl: '',
+            currentAudioFormatId: null,
+            currentAudioUrl: '',
             isCurrentResCached: false,
             isScrubbing: false,
             resumeTime: 0,
             currentVideoHeight: 0,
             currentResolution: null,
-            userPaused: false
+            userPaused: false,
+            userMuted: false,
+            userVolume: parseFloat(this.ui.volumeSlider.value) || 1,
+            structuralMute: false
         };
+
+        this.state.userMuted = this.state.userVolume === 0;
 
         this._pendingPreview = null;
         this._previewInitialised = false;
@@ -85,15 +92,12 @@ class PlayerCore {
         if (this.ui.unmuteBtn) {
             this.ui.unmuteBtn.addEventListener('click', (e) => {
                 e.stopPropagation();
-                this.ui.mainVideo.muted = false;
-                this.ui.audio.muted = false;
-                if (this.ui.mainVideo.volume === 0) {
-                    this.ui.mainVideo.volume = 1;
-                    this.ui.audio.volume = 1;
-                    this.ui.volumeSlider.value = 1;
+                this.state.userMuted = false;
+                if (parseFloat(this.state.userVolume) === 0) {
+                    this.state.userVolume = 1;
                 }
+                this.applyVolume();
                 this.container.classList.remove('autoplay-muted');
-                this.updateVolumeIcons();
             });
         }
     }
@@ -144,10 +148,32 @@ class PlayerCore {
     }
 
     updateVolumeIcons() {
-        const vol = this.ui.mainVideo.muted ? 0 : this.ui.mainVideo.volume;
+        const vol = this.state.userMuted ? 0 : (parseFloat(this.state.userVolume) || 0);
         this.ui.volHighIcon.style.display = vol > 0.5 ? 'block' : 'none';
         this.ui.volLowIcon.style.display = (vol > 0 && vol <= 0.5) ? 'block' : 'none';
         this.ui.volMutedIcon.style.display = vol === 0 ? 'block' : 'none';
+        this.ui.volumeSlider.value = vol;
+    }
+
+    applyVolume() {
+        const userVol = parseFloat(this.state.userVolume) || 0;
+        
+        if (this.state.isDualAudio) {
+            this.ui.audio.muted = this.state.userMuted;
+            this.ui.audio.volume = userVol;
+            
+            if (this.state.structuralMute) {
+                this.ui.mainVideo.muted = true;
+            } else {
+                this.ui.mainVideo.muted = this.state.userMuted;
+                this.ui.mainVideo.volume = userVol;
+            }
+        } else {
+            this.ui.mainVideo.muted = this.state.userMuted;
+            this.ui.mainVideo.volume = userVol;
+        }
+        
+        this.updateVolumeIcons();
     }
 
     setPlayingUI() {
@@ -165,10 +191,9 @@ class PlayerCore {
     }
 
     toggleMute() {
-        this.ui.mainVideo.muted = !this.ui.mainVideo.muted;
-        this.ui.audio.muted = this.ui.mainVideo.muted;
-        if (!this.ui.mainVideo.muted) this.container.classList.remove('autoplay-muted');
-        this.updateVolumeIcons();
+        this.state.userMuted = !this.state.userMuted;
+        this.applyVolume();
+        if (!this.state.userMuted) this.container.classList.remove('autoplay-muted');
     }
 
     seekTo(secs) {
@@ -203,9 +228,8 @@ class PlayerCore {
             await this.waitReady(a, 1);
             if (this.isAborted()) return;
             a.currentTime = v.currentTime;
-            a.muted = v.muted;
-            a.volume = v.volume;
             a.playbackRate = v.playbackRate;
+            this.applyVolume();
 
             await Promise.all([
                 this.waitReady(v, 3, 12000),
@@ -226,13 +250,12 @@ class PlayerCore {
             this.setPlayingUI();
         } catch (err) {
             if (err && err.name === 'NotAllowedError') {
-                v.muted = true;
-                a.muted = true;
+                this.state.userMuted = true;
+                this.applyVolume();
                 try {
                     await v.play();
                     if (this.state.isDualAudio && a.src) await a.play().catch(() => {});
                     this.container.classList.add('autoplay-muted');
-                    this.updateVolumeIcons();
                     this.setPlayingUI();
                     return;
                 } catch (e2) {
@@ -272,13 +295,77 @@ class PlayerCore {
         }
     }
 
+    evaluateDualAudioState() {
+        if (this.state.audioTracksList.length === 0) {
+            this.state.isDualAudio = false;
+            this.state.structuralMute = false;
+            return;
+        }
+
+        const isCached = this.ui.mainVideo.src.includes('/proxy/local');
+        if (isCached) {
+            this.state.isDualAudio = false;
+            this.state.structuralMute = false;
+            return;
+        }
+
+        const resObj = this.state.resolutionsList.find(r => PlayerUtils.getMediaProxyUrl(r.url) === this.ui.mainVideo.src);
+        const videoHasBuiltInAudio = resObj ? resObj.has_audio : false;
+        
+        const isDefaultAudio = this.state.audioTracksList.find(a => a.format_id === this.state.currentAudioFormatId)?.is_default;
+        
+        if (videoHasBuiltInAudio && isDefaultAudio) {
+            this.state.isDualAudio = false;
+            this.state.structuralMute = false;
+        } else {
+            this.state.isDualAudio = true;
+            this.state.structuralMute = videoHasBuiltInAudio;
+        }
+    }
+
+    changeAudioTrack(formatId, label) {
+        if (this.state.currentAudioFormatId === formatId) return;
+        
+        const trackObj = this.menus.menuData.audio.options.find(o => o.value === formatId);
+        if (!trackObj) return;
+        
+        this.state.currentAudioFormatId = formatId;
+        this.state.currentAudioUrl = trackObj.url;
+        document.getElementById('lbl-audio').textContent = label;
+        
+        const currentTime = this.ui.mainVideo.currentTime;
+        const wasPlaying = !this.ui.mainVideo.paused;
+        
+        this.evaluateDualAudioState();
+        
+        if (this.state.isDualAudio) {
+            this.container.classList.add('buffering');
+            this.ui.audio.src = this.state.currentAudioUrl;
+            this.ui.audio.currentTime = currentTime;
+            
+            this.waitReady(this.ui.audio, 1).then(ok => {
+                if (this.isAborted()) return;
+                this.applyVolume();
+                this.ui.audio.playbackRate = this.ui.mainVideo.playbackRate;
+                
+                if (wasPlaying && !this.state.userPaused) {
+                    this.startPlayback(currentTime);
+                } else {
+                    this.container.classList.remove('buffering');
+                }
+            });
+        } else {
+            this.ui.audio.pause();
+            this.ui.audio.removeAttribute('src');
+            this.applyVolume();
+        }
+    }
+
     changeResolution(url, label) {
         const resMatch = label.match(/(\d+)p/);
         const targetRes = resMatch ? parseInt(resMatch[1]) : 720;
         
         const isCached = url.includes('/proxy/local');
-        const resObj = this.state.resolutionsList.find(r => (isCached ? r.url : PlayerUtils.getMediaProxyUrl(r.url)) === url);
-        this.state.isDualAudio = resObj ? !resObj.has_audio : false;
         this.state.currentResolution = targetRes;
         
         if (isCached) this.container.classList.add('is-cached');
@@ -292,10 +379,15 @@ class PlayerCore {
         this.container.classList.add('buffering');
         this.ui.mainVideo.src = url;
 
-        if (this.state.isDualAudio && this.state.bestAudioUrl) {
-            if (!this.ui.audio.src) this.ui.audio.src = this.state.bestAudioUrl;
+        this.evaluateDualAudioState();
+
+        if (this.state.isDualAudio && this.state.currentAudioUrl) {
+            if (!this.ui.audio.src || this.ui.audio.src !== this.state.currentAudioUrl) {
+                this.ui.audio.src = this.state.currentAudioUrl;
+            }
         } else {
             this.ui.audio.pause();
+            this.ui.audio.removeAttribute('src');
         }
 
         document.getElementById('progressCached').style.width = '0%';
@@ -313,15 +405,12 @@ class PlayerCore {
                 this.ui.mainVideo.dispatchEvent(new Event('timeupdate'));
                 this.ui.mainVideo.playbackRate = currentRate;
 
-                if (this.state.isDualAudio) {
+                if (this.state.isDualAudio && this.ui.audio.src) {
                     this.ui.audio.currentTime = currentTime; 
                     this.ui.audio.dispatchEvent(new Event('timeupdate'));
-                    this.ui.audio.muted = this.ui.mainVideo.muted;
-                    this.ui.audio.volume = this.ui.mainVideo.volume; 
                     this.ui.audio.playbackRate = currentRate;
-                } else { 
-                    this.ui.audio.pause(); 
                 }
+                this.applyVolume();
             }
             
             if (currentSub && currentSub !== "off") {
@@ -349,11 +438,48 @@ class PlayerCore {
     loadVideoData(data) {
         this.state.currentVideoId = data.id;
         this.state.resolutionsList = data.resolutions;
+        this.state.audioTracksList = data.audio_tracks || [];
         this.state.videoChapters = data.chapters || [];
-        this.state.bestAudioUrl = data.best_audio ? PlayerUtils.getMediaProxyUrl(data.best_audio) : '';
         this.state.resumeTime = data.resume_time || 0;
         
         this.sponsorBlock.load(data.id);
+        
+        const audioMenu = document.querySelector('[data-menu="audio"]');
+        if (this.state.audioTracksList.length === 0) {
+            if (audioMenu) audioMenu.style.display = 'none';
+        } else {
+            if (audioMenu) audioMenu.style.display = 'flex';
+        }
+        
+        this.menus.menuData.audio.options = [];
+        let defaultAudio = null;
+        
+        for (let a of this.state.audioTracksList) {
+            const proxyUrl = PlayerUtils.getMediaProxyUrl(a.url);
+            this.menus.menuData.audio.options.push({ label: a.label, value: a.format_id, url: proxyUrl });
+            if (a.is_default && !defaultAudio) {
+                defaultAudio = { format_id: a.format_id, label: a.label, url: proxyUrl };
+            }
+        }
+        
+        if (!defaultAudio && this.state.audioTracksList.length > 0) {
+            const first = this.state.audioTracksList[0];
+            defaultAudio = { format_id: first.format_id, label: first.label, url: PlayerUtils.getMediaProxyUrl(first.url) };
+        }
+
+        if (data.resume_audio_format_id) {
+            const histAudio = this.state.audioTracksList.find(a => a.format_id === data.resume_audio_format_id);
+            if (histAudio) {
+                defaultAudio = { format_id: histAudio.format_id, label: histAudio.label, url: PlayerUtils.getMediaProxyUrl(histAudio.url) };
+            }
+        }
+
+        if (defaultAudio) {
+            this.state.currentAudioFormatId = defaultAudio.format_id;
+            this.state.currentAudioUrl = defaultAudio.url;
+            this.menus.menuData.audio.current = defaultAudio.format_id;
+            document.getElementById('lbl-audio').textContent = defaultAudio.label;
+        }
         
         let targetRes = localStorage.getItem('prefRes') || 'auto';
         if (targetRes === 'auto') targetRes = window.screen.height * window.devicePixelRatio;
@@ -405,7 +531,6 @@ class PlayerCore {
         }
 
         if (bestMatch) {
-            this.state.isDualAudio = !bestMatch.has_audio;
             this.state.currentResolution = bestMatch.height;
             this.menus.menuData.quality.current = bestMatch.url;
             document.getElementById('lbl-quality').textContent = bestMatch.label;
@@ -415,22 +540,23 @@ class PlayerCore {
             
             this.ui.mainVideo.src = bestMatch.url;
             
-            this.cache.startCachePolling(this.state.currentVideoId, bestMatch.height);
-        }
+            this.evaluateDualAudioState();
 
-        if (this.state.bestAudioUrl && this.state.isDualAudio) {
-            this.ui.audio.src = this.state.bestAudioUrl;
-        } else {
-            this.ui.audio.removeAttribute('src'); 
-            this.state.isDualAudio = false; 
+            if (this.state.isDualAudio && this.state.currentAudioUrl) {
+                this.ui.audio.src = this.state.currentAudioUrl;
+            } else {
+                this.ui.audio.removeAttribute('src'); 
+            }
+            
+            this.applyVolume();
+
+            this.cache.startCachePolling(this.state.currentVideoId, bestMatch.height);
         }
 
         this.subtitles.buildMenu(data.subtitles || []);
 
         document.getElementById('video-skeleton').style.display = 'none';
         this.ui.mainVideo.style.display = 'block';
-
-        this.updateVolumeIcons();
 
         this.state.userPaused = false;
         this.startPlayback(this.state.resumeTime).then(() => {

@@ -18,6 +18,12 @@ class MenuSystem {
                     document.getElementById('lbl-speed').textContent = label;
                 }
             },
+            audio: {
+                title: "Audio Track",
+                options: [],
+                current: "",
+                onSelect: (val, label) => this.player.changeAudioTrack(val, label)
+            },
             quality: { 
                 title: "Quality", 
                 options: [], 
@@ -361,12 +367,10 @@ class MenuSystem {
 
         this.ui.muteBtn.addEventListener('click', () => this.player.toggleMute());
         this.ui.volumeSlider.addEventListener('input', (e) => {
-            this.ui.mainVideo.volume = e.target.value; 
-            this.ui.audio.volume = e.target.value;
-            this.ui.mainVideo.muted = e.target.value === '0'; 
-            this.ui.audio.muted = this.ui.mainVideo.muted; 
-            if (!this.ui.mainVideo.muted) this.player.container.classList.remove('autoplay-muted');
-            this.player.updateVolumeIcons();
+            this.player.state.userVolume = e.target.value;
+            this.player.state.userMuted = parseFloat(e.target.value) === 0;
+            this.player.applyVolume();
+            if (!this.player.state.userMuted) this.player.container.classList.remove('autoplay-muted');
         });
 
         this.ui.fullscreenBtn.addEventListener('click', () => {

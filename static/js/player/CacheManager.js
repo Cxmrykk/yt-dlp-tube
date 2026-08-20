@@ -95,7 +95,13 @@ class CacheManager {
         window.appFetch('/api/cache/start', {
             method: 'POST',
             headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ vid_id: vidId, resolution: resolution, metadata: meta, size_limit_mb: sizeLimit })
+            body: JSON.stringify({ 
+                vid_id: vidId, 
+                resolution: resolution, 
+                metadata: meta, 
+                size_limit_mb: sizeLimit,
+                audio_format_id: this.player.state.currentAudioFormatId 
+            })
         }).then(() => {
             this.pollAutoPreview(vidId, resolution);
         }).catch(()=>{});
@@ -160,6 +166,8 @@ class CacheManager {
                             const currRate = this.ui.mainVideo.playbackRate;
                             
                             this.player.state.isDualAudio = false;
+                            this.player.state.structuralMute = false;
+                            
                             if(this.ui.audio) {
                                 this.ui.audio.pause();
                                 this.ui.audio.removeAttribute('src');
@@ -176,6 +184,7 @@ class CacheManager {
                             this.ui.mainVideo.addEventListener('loadedmetadata', () => {
                                 this.ui.mainVideo.currentTime = currTime;
                                 this.ui.mainVideo.playbackRate = currRate;
+                                this.player.applyVolume();
                                 if(wasPlaying) this.ui.mainVideo.play().catch(()=>{});
                             }, {once: true});
                             
@@ -348,7 +357,12 @@ class CacheManager {
             window.appFetch('/api/cache/start', {
                 method: 'POST',
                 headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ vid_id: this.player.state.currentVideoId, resolution: targetRes, metadata: meta })
+                body: JSON.stringify({ 
+                    vid_id: this.player.state.currentVideoId, 
+                    resolution: targetRes, 
+                    metadata: meta,
+                    audio_format_id: this.player.state.currentAudioFormatId 
+                })
             }).then(() => {
                 this.startCachePolling(this.player.state.currentVideoId, targetRes);
             }).catch(err => {

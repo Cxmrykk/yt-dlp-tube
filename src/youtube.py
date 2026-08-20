@@ -162,19 +162,10 @@ def purge_channel_from_feed(url):
         v for v in feed_cache.get('data', [])
         if norm_url(v.get('channel_url', '')) != n_url
     ]
-    # Dropping the whole channel entry (baseline and known IDs included) means a
-    # re-subscribe is treated as a brand new channel rather than resurrecting
-    # every video that was in the feed at unsubscribe time.
     forget_channel_state(url)
 
 
 def reset_feed_baseline():
-    """Forget every channel baseline and empty the feed.
-
-    The next background poll re-catalogues each subscription from scratch and
-    contributes nothing, so the feed stays empty until a genuinely new upload
-    lands. This is the recovery path for a corrupted or runaway feed.
-    """
     with FEED_STATE_LOCK:
         save_feed_state(new_feed_state())
     feed_cache['data'] = []
@@ -215,13 +206,6 @@ def fetch_channel_info(url):
 
 
 def _clean_channel_entries(entries, sub):
-    """Turn a raw flat-extraction result into a list of real, de-duplicated videos.
-
-    A channel's /videos tab can return shelf and playlist pseudo-entries (Shorts
-    rows, "Popular videos", live shelves). Those carry playlist-shaped IDs that
-    extract_video_id passes through untouched, so they have to be filtered here
-    or they end up in the feed as permanent phantom entries.
-    """
     out = []
     seen = set()
     for e in entries or []:
@@ -246,22 +230,12 @@ def _clean_channel_entries(entries, sub):
 
 
 def _reconcile_channel(ch, entries, now, burst_limit):
-    """Fold one channel's fetch into its stored baseline.
-
-    Returns the merged {video id: discovery timestamp} map, where 0.0 marks a
-    video that predates our knowledge of the channel and therefore never enters
-    the feed.
-    """
     known = ch.get('known') or {}
     ids = [e['id'] for e in entries]
     fetched = set(ids)
     unknown = [v for v in ids if v not in known]
 
     first_run = not ch.get('baseline_at')
-    # If a poll turns up an implausible number of unseen IDs on a channel we
-    # already track, the far likelier explanation is that IDs drifted (an
-    # extractor change, a shelf layout change) than that the channel uploaded
-    # twenty videos at once. Re-baseline instead of flooding the feed.
     burst = (not first_run) and len(unknown) > burst_limit
 
     merged = dict(known)
@@ -366,9 +340,6 @@ def update_feed_now():
 
                 for e in entries:
                     ts = merged.get(e['id'], 0.0)
-                    # ts == 0.0 means "already existed when we first met this
-                    # channel", which is exactly the case that used to flood the
-                    # feed with each channel's back catalogue.
                     if ts > 0 and ts >= cutoff:
                         e['timestamp'] = ts
                         e['is_new'] = True
@@ -376,8 +347,6 @@ def update_feed_now():
 
             save_feed_state(st)
 
-        # A channel whose fetch failed this round keeps whatever it already had
-        # in the feed, rather than silently vanishing until the next success.
         carried = []
         for v in feed_cache.get('data', []):
             n = norm_url(v.get('channel_url') or v.get('uploader_url') or '')
@@ -403,7 +372,7 @@ def update_feed_now():
         FEED_UPDATE_LOCK.release()
 
 
-def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manual'):
+def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manual', audio_format_id=None):
     cache_key = f"{vid_id}_{resolution}"
     manifest = get_cache_manifest()
 
@@ -427,6 +396,7 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manua
         'last_accessed': time.time(),
         'cache_kind': kind,
         'is_preview': is_preview,
+        'audio_format_id': audio_format_id,
         **metadata
     }
     save_cache_manifest(manifest)
@@ -462,10 +432,16 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manua
                 save_cache_manifest(manifest)
                 last_save[0] = time.time()
 
-    fmt_str = (f'bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/'
-               f'bestvideo[height<={resolution}][ext=webm]+bestaudio[ext=webm]/'
-               f'bestvideo[height<={resolution}]+bestaudio/'
-               f'best[height<={resolution}]/best')
+    if audio_format_id:
+        fmt_str = (f'bestvideo[height<={resolution}][ext=mp4]+{audio_format_id}/'
+                   f'bestvideo[height<={resolution}][ext=webm]+{audio_format_id}/'
+                   f'bestvideo[height<={resolution}]+{audio_format_id}/'
+                   f'best[height<={resolution}]/best')
+    else:
+        fmt_str = (f'bestvideo[height<={resolution}][ext=mp4]+bestaudio[ext=m4a]/'
+                   f'bestvideo[height<={resolution}][ext=webm]+bestaudio[ext=webm]/'
+                   f'bestvideo[height<={resolution}]+bestaudio/'
+                   f'best[height<={resolution}]/best')
 
     ydl_opts = {
         'format': fmt_str,
@@ -554,7 +530,7 @@ def _media_worker():
             continue
         try:
             _download_task(job['vid_id'], job['resolution'], job['metadata'],
-                           job.get('size_limit_mb'), job.get('kind', 'manual'))
+                           job.get('size_limit_mb'), job.get('kind', 'manual'), job.get('audio_format_id'))
         except Exception as e:
             print(f"[Cache worker] Unhandled error: {e}")
         finally:
@@ -568,7 +544,7 @@ def _preview_worker():
         job = PREVIEW_QUEUE.get()
         try:
             _download_task(job['vid_id'], job['resolution'], job['metadata'],
-                           job.get('size_limit_mb'), 'preview')
+                           job.get('size_limit_mb'), 'preview', job.get('audio_format_id'))
         except Exception as e:
             print(f"[Preview worker] Unhandled error: {e}")
         finally:
@@ -586,7 +562,7 @@ def start_cache_workers():
     threading.Thread(target=_preview_worker, daemon=True).start()
 
 
-def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None, kind=None):
+def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None, kind=None, audio_format_id=None):
     if not vid_id or not resolution:
         return
     if kind is None:
@@ -605,7 +581,8 @@ def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None, kind=N
         'resolution': resolution,
         'metadata': metadata or {},
         'size_limit_mb': size_limit_mb,
-        'kind': kind
+        'kind': kind,
+        'audio_format_id': audio_format_id
     }
 
     start_cache_workers()
@@ -616,7 +593,7 @@ def start_caching_media(vid_id, resolution, metadata, size_limit_mb=None, kind=N
         MEDIA_QUEUE.put((PRIORITY.get(kind, 1), next(_JOB_SEQ), job))
 
 
-def queue_auto_cache(vid_id, resolution, metadata):
+def queue_auto_cache(vid_id, resolution, metadata, audio_format_id=None):
     if not vid_id or not resolution:
         return False
     cache_key = f"{vid_id}_{resolution}"
@@ -627,7 +604,7 @@ def queue_auto_cache(vid_id, resolution, metadata):
     with QUEUE_LOCK:
         if cache_key in QUEUED_KEYS:
             return False
-    start_caching_media(vid_id, resolution, metadata, kind='auto')
+    start_caching_media(vid_id, resolution, metadata, kind='auto', audio_format_id=audio_format_id)
     return True
 
 

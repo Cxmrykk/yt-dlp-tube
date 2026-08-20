@@ -27,9 +27,6 @@ def _maybe_auto_cache(entry):
     if not settings.get('auto_cache_watched'):
         return
 
-    # If the user enabled immediate caching, it was already triggered inside /api/info.
-    # We only enforce the time-threshold here if immediate is turned off.
-    # However, if they change resolution mid-stream, this handles catching that too.
     if not settings.get('auto_cache_immediate'):
         try:
             threshold = float(settings.get('auto_cache_threshold_secs', 30))
@@ -51,7 +48,8 @@ def _maybe_auto_cache(entry):
         'channel_icon': entry.get('channel_icon'),
         'duration': entry.get('duration', 0)
     }
-    queue_auto_cache(entry['id'], int(resolution), metadata)
+    audio_format_id = entry.get('last_audio_format_id')
+    queue_auto_cache(entry['id'], int(resolution), metadata, audio_format_id)
 
 
 @api_bp.route('/api/history/update', methods=['POST'])
@@ -92,6 +90,8 @@ def update_history():
         existing['duration'] = total_dur
         if data.get('resolution'):
             existing['last_resolution'] = data.get('resolution')
+        if data.get('audio_format_id'):
+            existing['last_audio_format_id'] = data.get('audio_format_id')
 
         hist.remove(existing)
         hist.insert(0, existing)
@@ -107,6 +107,7 @@ def update_history():
             'duration': data.get('duration', 0),
             'watch_duration': data.get('current_time', data.get('watch_time_increment', 0)) or 0,
             'last_resolution': data.get('resolution'),
+            'last_audio_format_id': data.get('audio_format_id'),
             'last_viewed': now
         }
         hist.insert(0, entry)
@@ -147,10 +148,45 @@ def api_info():
     audio_formats = [f for f in info.get('formats', []) if f.get('vcodec') == 'none' and f.get('acodec') != 'none' and f.get('protocol') in valid_protocols]
     video_formats = [f for f in info.get('formats', []) if f.get('vcodec') != 'none' and f.get('ext') in ['mp4', 'webm'] and f.get('protocol') in valid_protocols]
     
-    m4a_audio = [f for f in audio_formats if f.get('ext') == 'm4a']
-    
-    best_audio = sorted(m4a_audio, key=lambda x: x.get('abr', 0), reverse=True)[0] if m4a_audio else (sorted(audio_formats, key=lambda x: x.get('abr', 0), reverse=True)[0] if audio_formats else None)
+    # Process audio tracks
+    audio_tracks_dict = {}
+    for f in audio_formats:
+        lang = f.get('language') or f.get('format_note') or 'default'
+        if lang not in audio_tracks_dict or (f.get('abr') or 0) > (audio_tracks_dict[lang].get('abr') or 0):
+            audio_tracks_dict[lang] = f
 
+    sorted_audio_tracks = sorted(
+        audio_tracks_dict.values(),
+        key=lambda x: (x.get('language_preference', 0) if x.get('language_preference') is not None else 0, x.get('abr', 0)),
+        reverse=True
+    )
+
+    audio_tracks_list = []
+    for f in sorted_audio_tracks:
+        lang = f.get('language')
+        note = f.get('format_note')
+        pref = f.get('language_preference', 0) if f.get('language_preference') is not None else 0
+        
+        label_parts = []
+        if lang: label_parts.append(lang.capitalize())
+        if note and note.lower() != (lang or '').lower(): label_parts.append(note.capitalize())
+        label = " - ".join(label_parts) if label_parts else "Default Audio"
+        if pref == 10 and "Original" not in label:
+            label += " (Original)"
+            
+        audio_tracks_list.append({
+            'format_id': f.get('format_id'),
+            'label': label,
+            'url': f.get('url'),
+            'is_default': (pref == 10)
+        })
+
+    if audio_tracks_list and not any(t['is_default'] for t in audio_tracks_list):
+        audio_tracks_list[0]['is_default'] = True
+
+    best_audio = sorted_audio_tracks[0] if sorted_audio_tracks else None
+
+    # Process video tracks
     unique_resolutions = {}
     for f in sorted(video_formats, key=lambda x: (x.get('height', 0), x.get('tbr', 0)), reverse=True):
         h = f.get('height')
@@ -180,7 +216,6 @@ def api_info():
     uploader_url = info.get('uploader_url') or info.get('channel_url') or f"https://www.youtube.com/@{info.get('uploader')}"
     channel_icon = get_cached_icon(uploader_url)
 
-    # Opening a video counts as acknowledging that channel's new uploads.
     mark_channel_seen(uploader_url)
 
     n_url = uploader_url.strip('/').split('?')[0].lower()
@@ -233,6 +268,7 @@ def api_info():
 
     total_duration = info.get('duration', 0) or 0
     resume_time = 0
+    resume_audio_format_id = None
     hist = get_history()
     hist_entry = next((item for item in hist if item.get('id') == vid_id), None)
     if hist_entry:
@@ -243,6 +279,7 @@ def api_info():
         known_dur = hist_entry.get('duration') or total_duration or 0
         if watched > 5 and (not known_dur or (known_dur - watched) > 5):
             resume_time = watched
+        resume_audio_format_id = hist_entry.get('last_audio_format_id')
 
     # --- IMMEDIATE AUTO-CACHE LOGIC ---
     client_res_arg = request.args.get('client_res')
@@ -250,12 +287,10 @@ def api_info():
     if client_res_arg:
         try:
             target_res = int(client_res_arg)
-            # Find the best resolution <= the client's intent
             for r in resolutions_list:
                 if r['height'] <= target_res:
                     actual_res = r['height']
                     break
-            # If all are higher, pick the lowest available
             if not actual_res and resolutions_list:
                 actual_res = resolutions_list[-1]['height']
         except ValueError:
@@ -271,7 +306,7 @@ def api_info():
                 'channel_icon': channel_icon,
                 'duration': total_duration
             }
-            queue_auto_cache(vid_id, actual_res, meta_cache)
+            queue_auto_cache(vid_id, actual_res, meta_cache, resume_audio_format_id)
 
     raw_description = info.get('description', '') or ''
 
@@ -283,6 +318,7 @@ def api_info():
         "description": raw_description,
         "description_html": str(linkify_text(raw_description)),
         "channel_icon": channel_icon, "is_subbed": is_subbed, "resolutions": resolutions_list,
+        "audio_tracks": audio_tracks_list, "resume_audio_format_id": resume_audio_format_id,
         "best_audio": best_audio.get('url') if best_audio else None, "chapters": chapters,
         "subtitles": subtitles_list, "search_query": broad_query,
         "duration": total_duration,
@@ -496,9 +532,10 @@ def api_cache_start():
     res = data.get('resolution')
     metadata = data.get('metadata', {})
     size_limit_mb = data.get('size_limit_mb', None)
+    audio_format_id = data.get('audio_format_id', None)
     
     if vid_id and res:
-        start_caching_media(vid_id, res, metadata, size_limit_mb)
+        start_caching_media(vid_id, res, metadata, size_limit_mb, audio_format_id=audio_format_id)
     return jsonify({"status": "started"})
 
 @api_bp.route('/api/cache/status')
