@@ -36,9 +36,13 @@ class InputHandler {
         }
 
         if (key && key === this.shortcuts.pause) {
-            e.preventDefault(); 
-            this.player.togglePlay(); 
-            this.player.showOverlay(mainVideo.paused ? window.icon('pause', 'overlay-icon') : window.icon('play', 'overlay-icon'));
+            e.preventDefault();
+            // Read the state *before* toggling: pausing flips `paused` synchronously,
+            // but resuming goes through the async startPlayback(), so checking
+            // afterwards reports "paused" either way.
+            const wasPaused = mainVideo.paused;
+            this.player.togglePlay();
+            this.player.showOverlay(window.icon(wasPaused ? 'play' : 'pause', 'overlay-icon'));
         } else if (key && key === this.shortcuts.seekFwd) {
             e.preventDefault(); 
             const dur = this.player.getValidDuration();

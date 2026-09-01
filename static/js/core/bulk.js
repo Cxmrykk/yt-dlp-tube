@@ -4,9 +4,20 @@ window.bulkSelection = new Set();
 window.formatTaskId = null;
 window.formatInterval = null;
 window.bulkFormatData = null;
+// Signature of the selection that bulkFormatData describes, and the one the
+// in-flight task is scanning. Lets us reuse results without rescanning while
+// still invalidating them the moment the selection changes.
+window.bulkFormatSig = null;
+window.formatTaskSig = null;
+// Which type pane the user is waiting on, if any.
+window.pendingFormatType = null;
 
 window.bulkTaskId = null;
 window.bulkInterval = null;
+
+window.bulkSelectionSig = function() {
+    return Array.from(window.bulkSelection).sort().join(',');
+};
 
 window.saveBulkState = function() {
     localStorage.setItem('bulkModeState', window.bulkMode);
@@ -43,6 +54,9 @@ document.addEventListener("DOMContentLoaded", () => {
 
     if (fTaskId) {
         window.formatTaskId = fTaskId;
+        // The task was started against whatever was selected when the page was
+        // last open, which is exactly what we just restored.
+        window.formatTaskSig = window.bulkSelectionSig();
         window.formatInterval = setInterval(window.pollFormatTask, 1000);
     }
 });
@@ -63,6 +77,9 @@ window.cancelBulkMode = function() {
     document.getElementById('bulk-cancel-btn').style.display = 'none';
     document.getElementById('bulk-next-btn').style.display = 'none';
     if (window.formatTaskId) window.cancelFormatCheck();
+    window.bulkFormatData = null;
+    window.bulkFormatSig = null;
+    window.pendingFormatType = null;
     window.closeBulkMenu();
     window.syncBulkSelectionUI();
     window.saveBulkState();
@@ -105,29 +122,67 @@ window.openBulkMenu = function(e) {
         window.closeBulkMenu();
         return;
     }
-    
+
+    // Any cached format data is only valid for the exact set it was scanned from.
+    const sig = window.bulkSelectionSig();
+    if (window.bulkFormatSig !== sig) {
+        window.bulkFormatData = null;
+        window.bulkFormatSig = null;
+        if (window.formatTaskId && window.formatTaskSig !== sig) window.cancelFormatCheck();
+    }
+
+    window.pendingFormatType = null;
+    menu.classList.remove('show-submenu');
     menu.classList.add('open');
-    document.getElementById('bulk-loading').style.display = 'block';
-    document.getElementById('bulk-loading-text').innerText = 'Fetching available formats... (0/' + window.bulkSelection.size + ')';
-    document.getElementById('bulk-type-selection').style.display = 'none';
     window.setMenuHeight(document.getElementById('bulkMainPane'), menu);
-    
-    if (window.formatTaskId) return; 
-    
+};
+
+window.startFormatFetch = function() {
+    const sig = window.bulkSelectionSig();
+
+    if (window.formatTaskId) {
+        if (window.formatTaskSig === sig) return;
+        window.cancelFormatCheck();
+    }
+    if (window.bulkFormatData && window.bulkFormatSig === sig) return;
+
+    const ids = Array.from(window.bulkSelection);
+    if (ids.length === 0) return;
+
     fetch('/api/bulk/formats/start', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ video_ids: Array.from(window.bulkSelection) })
+        body: JSON.stringify({ video_ids: ids })
     }).then(r => r.json()).then(data => {
         if (data.task_id) {
             window.formatTaskId = data.task_id;
+            window.formatTaskSig = sig;
             window.saveBulkState();
-            if(window.formatInterval) clearInterval(window.formatInterval);
+            if (window.formatInterval) clearInterval(window.formatInterval);
             window.formatInterval = setInterval(window.pollFormatTask, 1000);
+        } else {
+            window.showBulkFormatError('Error starting format check.');
         }
     }).catch(e => {
-        document.getElementById('bulk-loading').innerHTML = '<div style="color:#ff4a4a; padding: 20px;">Error starting format check.</div>';
+        window.showBulkFormatError('Error starting format check.');
     });
+};
+
+window.showBulkFormatLoading = function() {
+    document.getElementById('bulkFormatLoading').style.display = 'block';
+    document.getElementById('bulkFormatLoadingText').innerText =
+        `Fetching available formats... (0/${window.bulkSelection.size})`;
+    document.getElementById('bulkFormatContent').innerHTML = '';
+    document.getElementById('bulkFormatFooter').style.display = 'none';
+    window.setMenuHeight(document.getElementById('bulkFormatPane'), document.getElementById('bulkMenu'));
+};
+
+window.showBulkFormatError = function(msg) {
+    document.getElementById('bulkFormatLoading').style.display = 'none';
+    document.getElementById('bulkFormatContent').innerHTML =
+        `<div style="color:#ff4a4a; padding: 20px; text-align:center;">${msg}</div>`;
+    document.getElementById('bulkFormatFooter').style.display = 'none';
+    window.setMenuHeight(document.getElementById('bulkFormatPane'), document.getElementById('bulkMenu'));
 };
 
 window.pollFormatTask = function() {
@@ -136,22 +191,26 @@ window.pollFormatTask = function() {
         .then(r => r.json())
         .then(data => {
             if (data.status === 'processing') {
-                document.getElementById('bulk-loading-text').innerText = `Fetching available formats... (${data.current}/${data.total})`;
+                const txt = document.getElementById('bulkFormatLoadingText');
+                if (txt) txt.innerText = `Fetching available formats... (${data.current}/${data.total})`;
             } else if (data.status === 'complete') {
                 clearInterval(window.formatInterval);
                 window.formatTaskId = null;
                 window.bulkFormatData = data.result;
+                window.bulkFormatSig = window.formatTaskSig;
                 window.saveBulkState();
-                
-                document.getElementById('bulk-loading').style.display = 'none';
-                document.getElementById('bulk-type-selection').style.display = 'block';
-                window.setMenuHeight(document.getElementById('bulkMainPane'), document.getElementById('bulkMenu'));
+
+                if (window.pendingFormatType) {
+                    window.renderBulkFormats(window.pendingFormatType);
+                }
             } else if (data.status === 'error' || data.status === 'cancelled') {
                 clearInterval(window.formatInterval);
                 window.formatTaskId = null;
+                window.formatTaskSig = null;
                 window.saveBulkState();
-                const errTxt = data.status === 'cancelled' ? 'Cancelled.' : 'Error fetching formats.';
-                document.getElementById('bulk-loading').innerHTML = `<div style="color:#ff4a4a; padding: 20px;">${errTxt}</div>`;
+                if (window.pendingFormatType) {
+                    window.showBulkFormatError(data.status === 'cancelled' ? 'Cancelled.' : 'Error fetching formats.');
+                }
             }
         }).catch(e => {});
 };
@@ -164,6 +223,7 @@ window.cancelFormatCheck = function() {
     });
     clearInterval(window.formatInterval);
     window.formatTaskId = null;
+    window.formatTaskSig = null;
     window.saveBulkState();
 };
 
@@ -172,6 +232,7 @@ window.closeBulkMenu = function() {
     menu.classList.remove('open');
     setTimeout(() => {
         menu.classList.remove('show-submenu');
+        window.pendingFormatType = null;
         if (document.getElementById('bulkMainPane')) {
             window.setMenuHeight(document.getElementById('bulkMainPane'), menu);
         }
@@ -180,10 +241,31 @@ window.closeBulkMenu = function() {
 
 window.bulkShowFormats = function(type) {
     const menu = document.getElementById('bulkMenu');
+    window.pendingFormatType = type;
+
+    document.getElementById('bulkFormatTitle').innerText =
+        `${type.charAt(0).toUpperCase() + type.slice(1)} Format`;
+    menu.classList.add('show-submenu');
+
+    const sig = window.bulkSelectionSig();
+    if (window.bulkFormatData && window.bulkFormatSig === sig) {
+        window.renderBulkFormats(type);
+    } else {
+        window.showBulkFormatLoading();
+        window.startFormatFetch();
+    }
+};
+
+window.renderBulkFormats = function(type) {
+    const menu = document.getElementById('bulkMenu');
     const formatDiv = document.getElementById('bulkFormatContent');
     const footer = document.getElementById('bulkFormatFooter');
+
+    document.getElementById('bulkFormatLoading').style.display = 'none';
     formatDiv.innerHTML = '';
-    
+
+    if (!window.bulkFormatData) return;
+
     const total = window.bulkFormatData.total;
     const items = window.bulkFormatData[type] || [];
     let hasWarnings = false;
@@ -226,13 +308,12 @@ window.bulkShowFormats = function(type) {
     }
     
     footer.style.display = hasWarnings ? 'block' : 'none';
-    document.getElementById('bulkFormatTitle').innerText = `${type.charAt(0).toUpperCase() + type.slice(1)} Format`;
-    menu.classList.add('show-submenu');
     window.setMenuHeight(document.getElementById('bulkFormatPane'), menu);
 };
 
 window.bulkGoBack = function() {
     const menu = document.getElementById('bulkMenu');
+    window.pendingFormatType = null;
     menu.classList.remove('show-submenu');
     window.setMenuHeight(document.getElementById('bulkMainPane'), menu);
 };

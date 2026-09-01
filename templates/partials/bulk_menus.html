@@ -1,11 +1,7 @@
 <div class="settings-menu" id="bulkMenu">
     <div class="settings-panes-wrapper">
         <div class="settings-pane" id="bulkMainPane">
-            <div id="bulk-loading" style="text-align: center; padding: 20px;">
-                <div class="loading-spinner"></div>
-                <div id="bulk-loading-text" style="font-size: 13px; color: #aaa; margin-top: 10px;">Fetching available formats...</div>
-            </div>
-            <div id="bulk-type-selection" style="display:none;">
+            <div id="bulk-type-selection">
                 <div class="settings-item" onclick="bulkShowFormats('video')">
                     <div class="settings-label">
                         <svg class="ic" aria-hidden="true"><use href="#ic-quality"></use></svg>
@@ -34,6 +30,10 @@
             <div class="submenu-header" onclick="bulkGoBack()">
                 <svg class="ic" aria-hidden="true"><use href="#ic-chevron-left"></use></svg>
                 <span id="bulkFormatTitle">Select Format</span>
+            </div>
+            <div id="bulkFormatLoading" style="display:none; text-align: center; padding: 20px;">
+                <div class="loading-spinner"></div>
+                <div id="bulkFormatLoadingText" style="font-size: 13px; color: #aaa; margin-top: 10px;">Fetching available formats...</div>
             </div>
             <div id="bulkFormatContent"></div>
             <div id="bulkFormatFooter" class="format-fallback-footer" style="display:none;"></div>
