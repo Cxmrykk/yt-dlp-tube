@@ -13,7 +13,8 @@
     <!-- Step 1: Input URL -->
     <div id="fetch-step-input">
         <h3 style="margin-top: 0; margin-bottom: 15px;">Paste URL</h3>
-        <form id="fetchForm" onsubmit="analyzeUrl(event)">
+        <!-- Added data-no-pjax="true" to prevent the global router from refreshing the page -->
+        <form id="fetchForm" data-no-pjax="true" onsubmit="analyzeUrl(event)">
             <input type="url" id="fetchUrl" placeholder="https://..." required autofocus>
             <button type="submit" class="btn btn-danger" style="width: 100%;">Analyze Links</button>
         </form>
