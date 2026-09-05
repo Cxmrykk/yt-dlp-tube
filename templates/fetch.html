@@ -1,0 +1,65 @@
+{% extends 'base.html' %}
+
+{% block content %}
+<link rel="stylesheet" href="/static/css/pages/fetch.css">
+
+<h2 style="margin-top: 0;">Direct URL Download</h2>
+<p style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 25px;">
+    Fetch standalone media from almost any site supported by yt-dlp. Downloads are served directly from this server and automatically deleted after 10 minutes.
+</p>
+
+<div class="fetch-card">
+    
+    <!-- Step 1: Input URL -->
+    <div id="fetch-step-input">
+        <h3 style="margin-top: 0; margin-bottom: 15px;">Paste URL</h3>
+        <form id="fetchForm" onsubmit="analyzeUrl(event)">
+            <input type="url" id="fetchUrl" placeholder="https://..." required autofocus>
+            <button type="submit" class="btn btn-danger" style="width: 100%;">Analyze Links</button>
+        </form>
+    </div>
+
+    <!-- Step 2: Loading State -->
+    <div id="fetch-step-loading" style="display: none; text-align: center; padding: 20px 0;">
+        <div class="loading-spinner"></div>
+        <p id="fetchLoadingText" style="color: var(--text-muted); font-size: 0.95rem;">Parsing available formats...</p>
+    </div>
+
+    <!-- Step 3: Format Selection -->
+    <div id="fetch-step-select" style="display: none;">
+        <h3 style="margin-top: 0; margin-bottom: 5px; font-size: 1.1rem; line-height: 1.3;" id="fetchTargetTitle">Video Title</h3>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 15px;">Select a format to download to the server.</p>
+        
+        <div id="fetchFormatList" class="format-list"></div>
+        
+        <button type="button" class="btn" style="width: 100%; margin-top: 15px;" onclick="resetFetch()">Cancel</button>
+    </div>
+
+    <!-- Step 4: Download Progress -->
+    <div id="fetch-step-progress" style="display: none; text-align: center;">
+        <h3 style="margin-top: 0; margin-bottom: 15px;">Downloading...</h3>
+        <div style="width: 100%; height: 8px; background: #333; border-radius: 4px; overflow: hidden; margin-bottom: 15px;">
+            <div id="fetchProgressBar" style="height: 100%; width: 0%; background: #4a90e2; transition: width 0.2s;"></div>
+        </div>
+        <p id="fetchProgressText" style="color: var(--text-muted); font-size: 0.95rem; margin-bottom: 20px;">0%</p>
+        <button type="button" class="btn" style="width: 100%;" onclick="cancelFetch()">Abort Download</button>
+    </div>
+
+    <!-- Step 5: Complete -->
+    <div id="fetch-step-complete" style="display: none; text-align: center;">
+        <svg class="ic" style="width:48px;height:48px;color:#4aff4a;margin-bottom:15px;" aria-hidden="true"><use href="#ic-cloud-check"></use></svg>
+        <h3 style="margin-top: 0; margin-bottom: 5px;">Ready to Save</h3>
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">This file will be permanently deleted from the server in 10 minutes.</p>
+        
+        <button type="button" id="fetchSaveBtn" class="btn btn-danger" style="width: 100%; margin-bottom: 10px;" onclick="saveToDevice()">
+            <svg class="ic" style="margin-right:8px;" aria-hidden="true"><use href="#ic-download"></use></svg> Save to Device
+        </button>
+        <button type="button" class="btn" style="width: 100%;" onclick="resetFetch()">Download Another URL</button>
+    </div>
+
+    <div id="fetchErrorBox" class="error" style="display: none; margin-top: 20px; font-weight: 600;"></div>
+
+</div>
+
+<script src="/static/js/pages/fetch.js"></script>
+{% endblock %}

@@ -133,6 +133,10 @@ def render_channel(channel_url):
 
     return render_template('channel.html', url=channel_url, channel_name=sub['name'] if sub else "Loading...", channel_icon=sub['icon'] if sub else "", is_subbed=bool(sub), needs_fetch=not bool(sub))
 
+@views_bp.route('/fetch')
+def fetch_page():
+    return render_template('fetch.html')
+
 @views_bp.route('/settings/export')
 def export_subs():
     urls = [s['url'] for s in get_subs()]

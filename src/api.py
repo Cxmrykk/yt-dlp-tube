@@ -14,7 +14,8 @@ from youtube import (
     parse_chapters_from_desc, start_caching_media, remove_from_cache, inject_deno,
     start_bulk_task, cancel_bulk_task, clear_bulk_task, BULK_TASKS,
     start_format_task, cancel_format_task, FORMAT_TASKS,
-    COMMENTS_CACHE, COMMENTS_LOCK, mark_channel_seen, queue_auto_cache
+    COMMENTS_CACHE, COMMENTS_LOCK, mark_channel_seen, queue_auto_cache,
+    start_fetch_analyze_task, start_fetch_download_task, cancel_fetch_task, FETCH_TASKS
 )
 from utils import format_views_str, time_ago_str, linkify_text, extract_video_id
 
@@ -657,3 +658,77 @@ def bulk_download():
         
     return send_file(zip_file, as_attachment=True, download_name="ytdlp_bulk_download.zip")
 
+# --- DIRECT URL FETCH API ---
+
+@api_bp.route('/api/fetch/analyze', methods=['POST'])
+def fetch_analyze():
+    data = request.get_json()
+    url = data.get('url')
+    if not url:
+        return jsonify({'error': 'No URL provided'}), 400
+        
+    task_id = start_fetch_analyze_task(url)
+    return jsonify({'task_id': task_id})
+
+@api_bp.route('/api/fetch/analyze/status')
+def fetch_analyze_status():
+    task_id = request.args.get('task_id')
+    task = FETCH_TASKS.get(task_id)
+    if not task or task.get('type') != 'analyze':
+        return jsonify({'status': 'error', 'error': 'Task not found'})
+        
+    task['last_accessed'] = time.time()
+    return jsonify({
+        'status': task['status'],
+        'result': task.get('result'),
+        'error': task.get('error')
+    })
+
+@api_bp.route('/api/fetch/start', methods=['POST'])
+def fetch_start():
+    data = request.get_json()
+    url = data.get('url')
+    dl_type = data.get('dl_type')
+    dl_format = data.get('dl_format')
+    
+    if not url or not dl_type or not dl_format:
+        return jsonify({'error': 'Missing parameters'}), 400
+        
+    task_id = start_fetch_download_task(url, dl_type, dl_format)
+    return jsonify({'task_id': task_id})
+
+@api_bp.route('/api/fetch/status')
+def fetch_status():
+    task_id = request.args.get('task_id')
+    task = FETCH_TASKS.get(task_id)
+    if not task or task.get('type') != 'download':
+        return jsonify({'status': 'error', 'error': 'Task not found'})
+        
+    task['last_accessed'] = time.time()
+    return jsonify({
+        'status': task['status'],
+        'progress': task.get('progress', 0.0),
+        'error': task.get('error')
+    })
+
+@api_bp.route('/api/fetch/cancel', methods=['POST'])
+def fetch_cancel():
+    data = request.get_json()
+    task_id = data.get('task_id')
+    if task_id:
+        cancel_fetch_task(task_id)
+    return jsonify({'status': 'cancelled'})
+
+@api_bp.route('/api/fetch/download')
+def fetch_download():
+    task_id = request.args.get('task_id')
+    task = FETCH_TASKS.get(task_id)
+    if not task or task.get('status') != 'complete' or not task.get('file_path'):
+        return "File not ready or task not found", 404
+        
+    file_path = task['file_path']
+    if not os.path.exists(file_path):
+        return "File no longer exists on server", 404
+        
+    filename = os.path.basename(file_path)
+    return send_file(file_path, as_attachment=True, download_name=filename)

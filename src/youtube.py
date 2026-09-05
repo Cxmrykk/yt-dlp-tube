@@ -50,6 +50,7 @@ FEED_STATE_LOCK = threading.RLock()
 
 BULK_TASKS = {}
 FORMAT_TASKS = {}
+FETCH_TASKS = {}
 
 MEDIA_QUEUE = queue.PriorityQueue()
 PREVIEW_QUEUE = queue.Queue()
@@ -644,6 +645,20 @@ def _entry_size(entry):
     return 0
 
 
+def _cleanup_fetch_task(task_id):
+    """Deletes a direct fetch task and its associated directory."""
+    task = FETCH_TASKS.get(task_id)
+    if task:
+        del FETCH_TASKS[task_id]
+        
+    temp_dir = os.path.join(CACHE_DIR, f"fetch_{task_id}")
+    if os.path.exists(temp_dir):
+        try:
+            shutil.rmtree(temp_dir)
+        except Exception as e:
+            print(f"[Fetch Cleanup] Could not delete {temp_dir}: {e}")
+
+
 def sweep_cache():
     manifest = get_cache_manifest()
     settings = get_settings()
@@ -716,6 +731,23 @@ def sweep_cache():
         if now - BULK_TASKS[tid].get('last_accessed', now) > 7200:
             clear_bulk_task(tid)
 
+    # Clean up direct URL fetch tasks (strictly 10 minutes max, or 30 min if hung)
+    for tid in list(FETCH_TASKS.keys()):
+        task = FETCH_TASKS[tid]
+        if task.get('expires_at') and now > task['expires_at']:
+            _cleanup_fetch_task(tid)
+        elif now - task.get('last_accessed', now) > 1800:
+            _cleanup_fetch_task(tid)
+            
+    # Fallback to wipe orphaned fetch directories
+    for f in glob.glob(os.path.join(CACHE_DIR, "fetch_*")):
+        if os.path.isdir(f) and now - os.path.getmtime(f) > 600:
+            try:
+                shutil.rmtree(f)
+            except:
+                pass
+
+
 def bg_worker_loop(app):
     with app.app_context():
         while True:
@@ -724,6 +756,7 @@ def bg_worker_loop(app):
             settings = get_settings()
             interval_seconds = settings.get('background_interval_mins', 30) * 60
             time.sleep(interval_seconds)
+
 
 def get_flat_feed(page=1):
     settings = get_settings()
@@ -1105,3 +1138,168 @@ def _bulk_worker(task_id, video_ids, dl_type, dl_format):
     except Exception as e:
         print(f"Zipping failed: {e}")
         BULK_TASKS[task_id]['status'] = 'error'
+
+# --- DIRECT URL FETCH FUNCTIONS ---
+
+def start_fetch_analyze_task(url):
+    task_id = str(uuid.uuid4())
+    FETCH_TASKS[task_id] = {
+        'type': 'analyze',
+        'status': 'processing',
+        'result': None,
+        'error': None,
+        'last_accessed': time.time()
+    }
+    threading.Thread(target=_fetch_analyze_worker, args=(task_id, url), daemon=True).start()
+    return task_id
+
+def _fetch_analyze_worker(task_id, url):
+    ydl_opts = {
+        'quiet': True, 'no_warnings': True, 'ignoreerrors': True,
+        'extract_flat': False, 'noplaylist': True
+    }
+    inject_deno(ydl_opts)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=False)
+            if not info:
+                raise Exception("Could not extract metadata from this URL.")
+            
+            heights = set()
+            for f in info.get('formats', []):
+                h = f.get('height')
+                if h and f.get('vcodec') != 'none':
+                    heights.add(h)
+                    
+            video_formats = []
+            for h in sorted(heights, reverse=True):
+                video_formats.append({
+                    'label': f'Video - {h}p',
+                    'val': str(h),
+                    'type': 'video'
+                })
+                
+            if not video_formats:
+                video_formats.append({
+                    'label': 'Video (Best Available)',
+                    'val': 'best',
+                    'type': 'video'
+                })
+                
+            audio_formats = [
+                {'label': 'Audio (Best MP3)', 'val': 'mp3', 'type': 'audio'},
+                {'label': 'Audio (Best M4A)', 'val': 'm4a', 'type': 'audio'}
+            ]
+            
+            FETCH_TASKS[task_id]['result'] = {
+                'title': info.get('title', 'Unknown Title'),
+                'video': video_formats,
+                'audio': audio_formats
+            }
+            FETCH_TASKS[task_id]['status'] = 'complete'
+            
+    except Exception as e:
+        FETCH_TASKS[task_id]['error'] = str(e)
+        FETCH_TASKS[task_id]['status'] = 'error'
+
+def start_fetch_download_task(url, dl_type, dl_format):
+    task_id = str(uuid.uuid4())
+    FETCH_TASKS[task_id] = {
+        'type': 'download',
+        'status': 'processing',
+        'progress': 0.0,
+        'error': None,
+        'file_path': None,
+        'cancelled': False,
+        'last_accessed': time.time()
+    }
+    threading.Thread(target=_fetch_download_worker, args=(task_id, url, dl_type, dl_format), daemon=True).start()
+    return task_id
+
+def cancel_fetch_task(task_id):
+    if task_id in FETCH_TASKS:
+        FETCH_TASKS[task_id]['cancelled'] = True
+        FETCH_TASKS[task_id]['last_accessed'] = time.time()
+
+def _fetch_download_worker(task_id, url, dl_type, dl_format):
+    temp_dir = os.path.join(CACHE_DIR, f"fetch_{task_id}")
+    os.makedirs(temp_dir, exist_ok=True)
+    ffmpeg_path = shutil.which('ffmpeg')
+    
+    def progress_hook(d):
+        task = FETCH_TASKS.get(task_id)
+        if not task or task.get('cancelled'):
+            raise ValueError("Download cancelled by user")
+            
+        # Optional: Limit direct URL downloads to 2GB to prevent server fill-up
+        total = d.get('total_bytes') or d.get('total_bytes_estimate') or 0
+        if total > 2000 * 1024 * 1024 or d.get('downloaded_bytes', 0) > 2000 * 1024 * 1024:
+            raise ValueError("File exceeds 2GB safety limit")
+            
+        if d['status'] == 'downloading':
+            total = max(total, 1)
+            dl = d.get('downloaded_bytes', 0)
+            task['progress'] = min(dl / total, 1.0)
+            
+    ydl_opts = {
+        'outtmpl': os.path.join(temp_dir, '%(title)s.%(ext)s'),
+        'quiet': True, 'no_warnings': True, 'ignoreerrors': True,
+        'noplaylist': True,
+        'progress_hooks': [progress_hook],
+        'logger': YTDLPLogger()
+    }
+    
+    if ffmpeg_path:
+        ydl_opts['ffmpeg_location'] = ffmpeg_path
+    inject_deno(ydl_opts)
+    
+    if dl_type == 'audio':
+        ydl_opts['format'] = 'bestaudio/best'
+        ydl_opts['postprocessors'] = [{
+            'key': 'FFmpegExtractAudio',
+            'preferredcodec': dl_format,
+        }]
+    else:
+        if dl_format == 'best':
+            ydl_opts['format'] = 'best'
+        else:
+            ydl_opts['format'] = f'bestvideo[height<={dl_format}]+bestaudio/bestvideo[height<={dl_format}]/best[height<={dl_format}]/best'
+        ydl_opts['merge_output_format'] = 'mp4/mkv'
+        
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(url, download=True)
+            if not info:
+                raise Exception("Failed to extract or download file.")
+                
+        if FETCH_TASKS[task_id].get('cancelled'):
+            raise ValueError("Cancelled")
+            
+        # Find the single output file in the temp_dir
+        downloaded_file = None
+        for file in os.listdir(temp_dir):
+            if os.path.isfile(os.path.join(temp_dir, file)):
+                downloaded_file = os.path.join(temp_dir, file)
+                break
+                
+        if not downloaded_file:
+            raise Exception("Download finished but file not found.")
+            
+        FETCH_TASKS[task_id]['file_path'] = downloaded_file
+        FETCH_TASKS[task_id]['status'] = 'complete'
+        FETCH_TASKS[task_id]['progress'] = 1.0
+        # Give the user exactly 10 minutes to grab the file before it's nuked
+        FETCH_TASKS[task_id]['expires_at'] = time.time() + 600
+        
+    except ValueError as e:
+        _cleanup_fetch_task(task_id)
+        if str(e) == "Cancelled":
+            FETCH_TASKS[task_id] = {'status': 'cancelled'}
+        else:
+            FETCH_TASKS[task_id]['error'] = str(e)
+            FETCH_TASKS[task_id]['status'] = 'error'
+    except Exception as e:
+        _cleanup_fetch_task(task_id)
+        err_str = str(e).split('\n')[0].replace('ERROR: ', '').strip()
+        FETCH_TASKS[task_id] = {'status': 'error', 'error': err_str}
+

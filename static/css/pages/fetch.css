@@ -1,0 +1,88 @@
+.fetch-card {
+    background: var(--card-bg);
+    padding: 25px;
+    border-radius: 12px;
+    width: 100%;
+    max-width: 500px;
+    box-sizing: border-box;
+}
+
+.fetch-card input[type="url"] {
+    box-sizing: border-box;
+    width: 100%;
+    padding: 12px 15px;
+    margin-bottom: 15px;
+    background: #111;
+    color: white;
+    border: 1px solid #444;
+    border-radius: 6px;
+    font-size: 1rem;
+    outline: none;
+}
+
+.fetch-card input[type="url"]:focus {
+    border-color: #666;
+}
+
+.format-list {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    max-height: 300px;
+    overflow-y: auto;
+    padding-right: 5px;
+}
+
+.format-list::-webkit-scrollbar { width: 6px; }
+.format-list::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+
+.format-item {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px;
+    background: #222;
+    border: 1px solid #333;
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background 0.2s, border-color 0.2s;
+}
+
+.format-item:hover {
+    background: #2a2a2a;
+    border-color: #555;
+}
+
+.format-label {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    font-size: 0.95rem;
+    font-weight: 500;
+}
+
+.format-label svg {
+    width: 20px;
+    height: 20px;
+    color: #aaa;
+}
+
+.format-item:hover .format-label svg {
+    color: white;
+}
+
+.error {
+    color: #ff4a4a;
+    background: rgba(255, 74, 74, 0.1);
+    border: 1px solid rgba(255, 74, 74, 0.3);
+    padding: 12px;
+    border-radius: 6px;
+    text-align: center;
+}
+
+@media (max-width: 768px) {
+    .fetch-card {
+        padding: 20px;
+        border-radius: 8px;
+    }
+}
