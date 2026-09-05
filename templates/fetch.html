@@ -13,10 +13,11 @@
     <!-- Step 1: Input URL -->
     <div id="fetch-step-input">
         <h3 style="margin-top: 0; margin-bottom: 15px;">Paste URL</h3>
-        <!-- Added data-no-pjax="true" to prevent the global router from refreshing the page -->
-        <form id="fetchForm" data-no-pjax="true" onsubmit="analyzeUrl(event)">
+        <!-- data-no-pjax keeps the global router out of this; the handler returns
+             false so the browser never submits it either. -->
+        <form id="fetchForm" data-no-pjax="true" onsubmit="return analyzeUrl(event)">
             <input type="url" id="fetchUrl" placeholder="https://..." required autofocus>
-            <button type="submit" class="btn btn-danger" style="width: 100%;">Analyze Links</button>
+            <button type="submit" id="fetchAnalyzeBtn" class="btn btn-danger" style="width: 100%;">Analyze Links</button>
         </form>
     </div>
 
@@ -24,6 +25,7 @@
     <div id="fetch-step-loading" style="display: none; text-align: center; padding: 20px 0;">
         <div class="loading-spinner"></div>
         <p id="fetchLoadingText" style="color: var(--text-muted); font-size: 0.95rem;">Parsing available formats...</p>
+        <button type="button" class="btn" style="width: 100%; margin-top: 10px;" onclick="resetFetch()">Cancel</button>
     </div>
 
     <!-- Step 3: Format Selection -->
@@ -50,7 +52,7 @@
     <div id="fetch-step-complete" style="display: none; text-align: center;">
         <svg class="ic" style="width:48px;height:48px;color:#4aff4a;margin-bottom:15px;" aria-hidden="true"><use href="#ic-cloud-check"></use></svg>
         <h3 style="margin-top: 0; margin-bottom: 5px;">Ready to Save</h3>
-        <p style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">This file will be permanently deleted from the server in 10 minutes.</p>
+        <p id="fetchExpiryText" style="color: var(--text-muted); font-size: 0.85rem; margin-bottom: 20px;">This file will be permanently deleted from the server in 10 minutes.</p>
         
         <button type="button" id="fetchSaveBtn" class="btn btn-danger" style="width: 100%; margin-bottom: 10px;" onclick="saveToDevice()">
             <svg class="ic" style="margin-right:8px;" aria-hidden="true"><use href="#ic-download"></use></svg> Save to Device
