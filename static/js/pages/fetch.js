@@ -337,6 +337,8 @@
             const mode = proxyMode.value;
             if (mode === 'none') {
                 proxyUrl = ""; 
+            } else if (mode === 'saved') {
+                proxyUrl = proxyMode.getAttribute('data-saved') || "";
             } else if (mode === 'custom') {
                 proxyUrl = (proxyInput.value || '').trim();
             }

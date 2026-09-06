@@ -21,16 +21,19 @@
             </div>
             <div id="proxyContainer" class="proxy-container">
                 <label style="display: block; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px;">Proxy Mode for this Download:</label>
-                <select id="fetchProxyMode" class="format-dropdown" style="margin-bottom: 10px;" onchange="document.getElementById('customProxyWrap').style.display = this.value === 'custom' ? 'block' : 'none'">
+                <select id="fetchProxyMode" class="format-dropdown" style="margin-bottom: 10px;" data-saved="{{ app_settings.ydl_proxy_url | default('') }}" onchange="document.getElementById('customProxyWrap').style.display = this.value === 'custom' ? 'block' : 'none'">
                     <option value="global">
                         Use Global App Settings 
-                        {% if app_settings.ydl_proxy_url and app_settings.ydl_proxy_type != 'none' %}
-                            ({{ app_settings.ydl_proxy_url }})
+                        {% if app_settings.ydl_proxy_type != 'none' and app_settings.ydl_proxy_url %}
+                            (Active: {{ app_settings.ydl_proxy_url }})
                         {% else %}
-                            (None Configured)
+                            (Active: Direct Connection)
                         {% endif %}
                     </option>
-                    <option value="none">Direct Connection (Force No Proxy)</option>
+                    {% if app_settings.ydl_proxy_url %}
+                    <option value="saved">Force Saved Proxy ({{ app_settings.ydl_proxy_url }})</option>
+                    {% endif %}
+                    <option value="none">Force Direct Connection (No Proxy)</option>
                     <option value="custom">Custom SOCKS5/HTTP Proxy...</option>
                 </select>
                 <div id="customProxyWrap" style="display: none;">
