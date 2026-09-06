@@ -664,25 +664,12 @@ def bulk_download():
 def fetch_analyze():
     data = request.get_json()
     url = data.get('url')
+    proxy_url = data.get('proxy_url')
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
         
-    task_id = start_fetch_analyze_task(url)
+    task_id = start_fetch_analyze_task(url, proxy_url)
     return jsonify({'task_id': task_id})
-
-@api_bp.route('/api/fetch/analyze/status')
-def fetch_analyze_status():
-    task_id = request.args.get('task_id')
-    task = FETCH_TASKS.get(task_id)
-    if not task or task.get('type') != 'analyze':
-        return jsonify({'status': 'error', 'error': 'Task not found'})
-        
-    task['last_accessed'] = time.time()
-    return jsonify({
-        'status': task['status'],
-        'result': task.get('result'),
-        'error': task.get('error')
-    })
 
 @api_bp.route('/api/fetch/start', methods=['POST'])
 def fetch_start():
@@ -690,26 +677,37 @@ def fetch_start():
     url = data.get('url')
     dl_type = data.get('dl_type')
     dl_format = data.get('dl_format')
+    proxy_url = data.get('proxy_url')
     
     if not url or not dl_type or not dl_format:
         return jsonify({'error': 'Missing parameters'}), 400
         
-    task_id = start_fetch_download_task(url, dl_type, dl_format)
+    task_id = start_fetch_download_task(url, dl_type, dl_format, proxy_url)
     return jsonify({'task_id': task_id})
 
-@api_bp.route('/api/fetch/status')
-def fetch_status():
-    task_id = request.args.get('task_id')
-    task = FETCH_TASKS.get(task_id)
-    if not task or task.get('type') != 'download':
-        return jsonify({'status': 'error', 'error': 'Task not found'})
-        
-    task['last_accessed'] = time.time()
-    return jsonify({
-        'status': task['status'],
-        'progress': task.get('progress', 0.0),
-        'error': task.get('error')
-    })
+@api_bp.route('/api/fetch/status_batch', methods=['POST'])
+def fetch_status_batch():
+    data = request.get_json()
+    task_ids = data.get('task_ids', [])
+    results = {}
+    now = time.time()
+    
+    for tid in task_ids:
+        task = FETCH_TASKS.get(tid)
+        if not task:
+            results[tid] = {'status': 'error', 'error': 'Task not found or expired.'}
+        else:
+            task['last_accessed'] = now
+            results[tid] = {
+                'type': task.get('type'),
+                'status': task.get('status'),
+                'progress': task.get('progress', 0.0),
+                'error': task.get('error'),
+                'result': task.get('result'),
+                'expires_at': task.get('expires_at')
+            }
+            
+    return jsonify(results)
 
 @api_bp.route('/api/fetch/cancel', methods=['POST'])
 def fetch_cancel():
@@ -732,4 +730,3 @@ def fetch_download():
         
     filename = os.path.basename(file_path)
     return send_file(file_path, as_attachment=True, download_name=filename)
-

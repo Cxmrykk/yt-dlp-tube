@@ -1,337 +1,348 @@
 (function() {
     'use strict';
 
-    // Mirrors FETCH_FILE_TTL_SECS in src/youtube.py. Counted down client-side so
-    // the Save button is never left pointing at a file the server already deleted.
     const FILE_TTL_SECS = 600;
-    const POLL_MS = 1000;
+    const POLL_MS = 1500;
 
-    let analyzeTaskId = null;
-    let downloadTaskId = null;
-    let pollTimer = null;
-    let expiryTimer = null;
-    let targetUrl = "";
-    let busy = false;
+    class FetchJob {
+        constructor(url, proxyUrl) {
+            this.id = 'job_' + Math.random().toString(36).substr(2, 9);
+            this.url = url;
+            this.proxyUrl = proxyUrl;
+            this.taskId = null;
+            this.expiryTimer = null;
+            this.state = 'analyze';
 
-    const elInput = document.getElementById('fetch-step-input');
-    const elLoading = document.getElementById('fetch-step-loading');
-    const elSelect = document.getElementById('fetch-step-select');
-    const elProgress = document.getElementById('fetch-step-progress');
-    const elComplete = document.getElementById('fetch-step-complete');
-    const elError = document.getElementById('fetchErrorBox');
-
-    const urlInput = document.getElementById('fetchUrl');
-    const loadingText = document.getElementById('fetchLoadingText');
-    const analyzeBtn = document.getElementById('fetchAnalyzeBtn');
-    const saveBtn = document.getElementById('fetchSaveBtn');
-    const expiryText = document.getElementById('fetchExpiryText');
-    const progressBar = document.getElementById('fetchProgressBar');
-    const progressText = document.getElementById('fetchProgressText');
-    const titleEl = document.getElementById('fetchTargetTitle');
-    const listEl = document.getElementById('fetchFormatList');
-
-    function isAbort(err) {
-        return !!err && err.name === 'AbortError';
-    }
-
-    function showError(msg) {
-        elError.textContent = msg;
-        elError.style.display = 'block';
-    }
-
-    function hideError() {
-        elError.style.display = 'none';
-        elError.textContent = '';
-    }
-
-    function stopPolling() {
-        if (pollTimer) {
-            clearInterval(pollTimer);
-            pollTimer = null;
+            this.createDOM();
+            this.startAnalyze();
         }
-    }
 
-    function poll(fn) {
-        stopPolling();
-        pollTimer = setInterval(fn, POLL_MS);
-    }
+        createDOM() {
+            const template = document.getElementById('fetch-job-template');
+            const clone = template.content.cloneNode(true);
+            
+            this.el = clone.querySelector('.fetch-card');
+            this.el.id = this.id;
+            
+            this.ui = {
+                title: this.el.querySelector('.card-title'),
+                closeBtn: this.el.querySelector('.card-close'),
+                
+                stateAnalyze: this.el.querySelector('.state-analyze'),
+                stateSelect: this.el.querySelector('.state-select'),
+                stateDownload: this.el.querySelector('.state-download'),
+                stateComplete: this.el.querySelector('.state-complete'),
+                stateError: this.el.querySelector('.state-error'),
+                
+                formatSelect: this.el.querySelector('.format-dropdown'),
+                startBtn: this.el.querySelector('.btn-start-dl'),
+                
+                progressBar: this.el.querySelector('.progress-bar-inner'),
+                progressText: this.el.querySelector('.progress-text'),
+                abortBtn: this.el.querySelector('.btn-abort'),
+                
+                expiryText: this.el.querySelector('.expiry-text'),
+                saveBtn: this.el.querySelector('.btn-save')
+            };
 
-    function stopExpiry() {
-        if (expiryTimer) {
-            clearInterval(expiryTimer);
-            expiryTimer = null;
+            this.ui.title.textContent = this.url;
+            
+            this.ui.closeBtn.onclick = () => this.dismiss();
+            this.ui.startBtn.onclick = () => this.startDownload();
+            this.ui.abortBtn.onclick = () => this.cancel();
+            this.ui.saveBtn.onclick = () => this.saveToDevice();
+
+            document.getElementById('fetch-queue').prepend(this.el);
         }
-    }
 
-    function setBusy(state) {
-        busy = state;
-        if (!analyzeBtn) return;
-        analyzeBtn.disabled = state;
-        analyzeBtn.textContent = state ? 'Analyzing...' : 'Analyze Links';
-    }
+        switchState(stateName) {
+            this.state = stateName;
+            [
+                this.ui.stateAnalyze, 
+                this.ui.stateSelect, 
+                this.ui.stateDownload, 
+                this.ui.stateComplete, 
+                this.ui.stateError
+            ].forEach(el => el.style.display = 'none');
 
-    function switchStep(stepEl) {
-        hideError();
-        [elInput, elLoading, elSelect, elProgress, elComplete].forEach(el => el.style.display = 'none');
-        stepEl.style.display = 'block';
-        if (stepEl !== elComplete) stopExpiry();
-        if (stepEl !== elLoading) setBusy(false);
-    }
+            if (stateName === 'analyze') this.ui.stateAnalyze.style.display = 'block';
+            else if (stateName === 'select') this.ui.stateSelect.style.display = 'block';
+            else if (stateName === 'download') this.ui.stateDownload.style.display = 'block';
+            else if (stateName === 'complete') this.ui.stateComplete.style.display = 'block';
+            else if (stateName === 'error') this.ui.stateError.style.display = 'block';
+        }
 
-    function setSaveEnabled(state) {
-        if (!saveBtn) return;
-        saveBtn.disabled = !state;
-        saveBtn.style.opacity = state ? '' : '0.5';
-        saveBtn.style.cursor = state ? '' : 'not-allowed';
-    }
+        showError(msg) {
+            this.switchState('error');
+            this.ui.stateError.textContent = msg;
+        }
 
-    function startExpiryCountdown() {
-        stopExpiry();
-        setSaveEnabled(true);
+        async startAnalyze() {
+            try {
+                const r = await window.appFetch('/api/fetch/analyze', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: this.url, proxy_url: this.proxyUrl })
+                });
+                const data = await r.json();
+                if (data.task_id) {
+                    this.taskId = data.task_id;
+                    FetchManager.track(this);
+                } else {
+                    this.showError(data.error || "Failed to start analysis.");
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') this.showError("Network error.");
+            }
+        }
 
-        // Expire slightly ahead of the server so the button never goes dead
-        // while it still looks alive.
-        let remaining = FILE_TTL_SECS - 10;
+        renderFormats(result) {
+            this.ui.title.textContent = result.title || this.url;
+            this.ui.formatSelect.innerHTML = '';
 
-        const render = () => {
-            if (remaining <= 0) {
-                stopExpiry();
-                setSaveEnabled(false);
-                if (expiryText) {
-                    expiryText.textContent = "This file has been deleted from the server. Fetch the URL again to download it.";
+            const addGroup = (label, formats) => {
+                if (!formats || formats.length === 0) return;
+                const group = document.createElement('optgroup');
+                group.label = label;
+                formats.forEach(f => {
+                    const opt = document.createElement('option');
+                    opt.value = JSON.stringify({ type: f.type, val: f.val });
+                    opt.textContent = f.label;
+                    group.appendChild(opt);
+                });
+                this.ui.formatSelect.appendChild(group);
+            };
+
+            addGroup('Video', result.video);
+            addGroup('Audio', result.audio);
+
+            if (this.ui.formatSelect.children.length === 0) {
+                this.showError("No downloadable formats were found.");
+            } else {
+                this.switchState('select');
+            }
+        }
+
+        async startDownload() {
+            const rawVal = this.ui.formatSelect.value;
+            if (!rawVal) return;
+            const { type, val } = JSON.parse(rawVal);
+
+            this.switchState('download');
+            this.ui.progressBar.style.width = '0%';
+            this.ui.progressText.textContent = 'Starting...';
+
+            try {
+                const r = await window.appFetch('/api/fetch/start', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ url: this.url, dl_type: type, dl_format: val, proxy_url: this.proxyUrl })
+                });
+                const data = await r.json();
+                if (data.task_id) {
+                    this.taskId = data.task_id;
+                    FetchManager.track(this);
+                } else {
+                    this.showError(data.error || "Failed to start download.");
+                }
+            } catch (err) {
+                if (err.name !== 'AbortError') this.showError("Network error.");
+            }
+        }
+
+        onPollUpdate(data) {
+            if (data.status === 'processing') {
+                if (data.type === 'download') {
+                    const pct = Math.min(100, Math.max(0, (data.progress || 0) * 100));
+                    this.ui.progressBar.style.width = pct + '%';
+                    this.ui.progressText.textContent = Math.round(pct) + '%';
                 }
                 return;
             }
-            if (expiryText) {
+
+            FetchManager.untrack(this.taskId);
+
+            if (data.status === 'complete') {
+                if (data.type === 'analyze') {
+                    this.renderFormats(data.result);
+                } else if (data.type === 'download') {
+                    this.switchState('complete');
+                    this.startExpiry(data.expires_at);
+                }
+                this.taskId = null;
+            } else if (data.status === 'expired') {
+                this.stopExpiry();
+                this.showError(data.error || "File expired.");
+            } else if (data.status === 'cancelled') {
+                this.showError("Cancelled.");
+                this.taskId = null;
+            } else {
+                this.showError(data.error || "Operation failed.");
+                this.taskId = null;
+            }
+        }
+
+        startExpiry(expiresAtRaw) {
+            this.stopExpiry();
+            
+            const expiresAt = expiresAtRaw || (Date.now() / 1000 + FILE_TTL_SECS);
+
+            const render = () => {
+                const remaining = Math.floor(expiresAt - (Date.now() / 1000));
+                if (remaining <= 0) {
+                    this.stopExpiry();
+                    this.ui.saveBtn.disabled = true;
+                    this.ui.saveBtn.style.opacity = '0.5';
+                    this.ui.expiryText.textContent = "File deleted from server.";
+                    return;
+                }
                 const mins = Math.floor(remaining / 60);
                 const secs = remaining % 60;
-                expiryText.textContent = "This file will be permanently deleted from the server in "
-                    + mins + ":" + String(secs).padStart(2, '0') + ".";
-            }
-            remaining--;
-        };
+                this.ui.expiryText.textContent = `Expires in ${mins}:${String(secs).padStart(2, '0')}`;
+            };
 
-        render();
-        expiryTimer = setInterval(render, 1000);
+            render();
+            this.expiryTimer = setInterval(render, 1000);
+        }
+
+        stopExpiry() {
+            if (this.expiryTimer) {
+                clearInterval(this.expiryTimer);
+                this.expiryTimer = null;
+            }
+        }
+
+        async cancel() {
+            if (!this.taskId) return;
+            const id = this.taskId;
+            this.taskId = null;
+            FetchManager.untrack(id);
+            this.ui.progressText.textContent = "Cancelling...";
+
+            try {
+                await window.appFetch('/api/fetch/cancel', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_id: id })
+                });
+            } catch(e) {}
+            
+            this.showError("Download cancelled.");
+        }
+
+        saveToDevice() {
+            if (!this.taskId || this.ui.saveBtn.disabled) return;
+            window.location.href = '/api/fetch/download?task_id=' + encodeURIComponent(this.taskId);
+        }
+
+        dismiss() {
+            this.cancel();
+            this.stopExpiry();
+            if (this.el && this.el.parentNode) {
+                this.el.parentNode.removeChild(this.el);
+            }
+        }
     }
 
-    window.analyzeUrl = function(e) {
-        if (e && e.preventDefault) e.preventDefault();
-        if (busy) return false;
-
-        const value = (urlInput.value || '').trim();
-        if (!value) {
-            showError("Paste a URL to analyze first.");
-            return false;
-        }
-        if (!/^https?:\/\//i.test(value)) {
-            showError("Only http:// and https:// URLs can be fetched.");
-            return false;
+    class FetchManagerClass {
+        constructor() {
+            this.activeJobs = new Map();
+            this.pollTimer = null;
+            this.bindEvents();
         }
 
-        targetUrl = value;
-        setBusy(true);
-        switchStep(elLoading);
-        loadingText.textContent = "Parsing available formats...";
+        track(job) {
+            if (!job.taskId) return;
+            this.activeJobs.set(job.taskId, job);
+            this.startPolling();
+        }
 
-        window.appFetch('/api/fetch/analyze', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: targetUrl })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.task_id) {
-                analyzeTaskId = data.task_id;
-                poll(pollAnalyzeStatus);
-            } else {
-                switchStep(elInput);
-                showError(data.error || "Failed to start the analysis.");
+        untrack(taskId) {
+            this.activeJobs.delete(taskId);
+            if (this.activeJobs.size === 0) this.stopPolling();
+        }
+
+        hasActiveJobs() {
+            return this.activeJobs.size > 0;
+        }
+
+        startPolling() {
+            if (!this.pollTimer) {
+                this.pollTimer = setInterval(() => this.pollBatch(), POLL_MS);
             }
-        })
-        .catch(err => {
-            if (isAbort(err)) return;
-            switchStep(elInput);
-            showError("Network error. Could not contact the server.");
-        });
+        }
 
+        stopPolling() {
+            if (this.pollTimer) {
+                clearInterval(this.pollTimer);
+                this.pollTimer = null;
+            }
+        }
+
+        async pollBatch() {
+            const keys = Array.from(this.activeJobs.keys());
+            if (keys.length === 0) return;
+
+            try {
+                const r = await window.appFetch('/api/fetch/status_batch', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ task_ids: keys })
+                });
+                const results = await r.json();
+
+                for (const [taskId, data] of Object.entries(results)) {
+                    const job = this.activeJobs.get(taskId);
+                    if (job) job.onPollUpdate(data);
+                }
+            } catch (err) {
+                if (err.name === 'AbortError') this.stopPolling();
+            }
+        }
+
+        bindEvents() {
+            this.beforeUnloadHandler = (e) => {
+                if (this.hasActiveJobs()) {
+                    e.preventDefault();
+                    e.returnValue = '';
+                }
+            };
+            window.addEventListener('beforeunload', this.beforeUnloadHandler);
+        }
+
+        destroy() {
+            this.stopPolling();
+            window.removeEventListener('beforeunload', this.beforeUnloadHandler);
+        }
+    }
+
+    const FetchManager = new FetchManagerClass();
+
+    window.handleFetchSubmit = function(e) {
+        if (e && e.preventDefault) e.preventDefault();
+        
+        const urlInput = document.getElementById('fetchUrl');
+        const proxyInput = document.getElementById('customProxy');
+        
+        const url = (urlInput.value || '').trim();
+        if (!/^https?:\/\//i.test(url)) {
+            alert("Only http:// and https:// URLs can be fetched.");
+            return false;
+        }
+
+        let proxyUrl = undefined;
+        const container = document.getElementById('proxyContainer');
+        if (container && container.classList.contains('open')) {
+            proxyUrl = (proxyInput.value || '').trim();
+        }
+
+        new FetchJob(url, proxyUrl);
+        urlInput.value = '';
         return false;
     };
 
-    function pollAnalyzeStatus() {
-        if (!analyzeTaskId) {
-            stopPolling();
-            return;
-        }
-
-        window.appFetch('/api/fetch/analyze/status?task_id=' + encodeURIComponent(analyzeTaskId))
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'processing') return;
-
-                stopPolling();
-                analyzeTaskId = null;
-
-                if (data.status === 'complete' && data.result) {
-                    renderFormats(data.result);
-                } else if (data.status === 'cancelled') {
-                    switchStep(elInput);
-                } else {
-                    switchStep(elInput);
-                    showError(data.error || "No media could be read from that URL.");
-                }
-            })
-            .catch(err => {
-                // A single failed poll is transient; keep trying.
-                if (isAbort(err)) stopPolling();
-            });
-    }
-
-    function renderFormats(result) {
-        titleEl.textContent = result.title || 'Untitled';
-        listEl.innerHTML = '';
-
-        const allFormats = (result.video || []).concat(result.audio || []);
-        if (allFormats.length === 0) {
-            switchStep(elInput);
-            showError("No downloadable formats were found for that URL.");
-            return;
-        }
-
-        allFormats.forEach(fmt => {
-            const item = document.createElement('div');
-            item.className = 'format-item';
-
-            const iconName = fmt.type === 'audio' ? 'vol-high' : 'quality';
-            item.innerHTML = `
-                <div class="format-label">
-                    ${window.icon(iconName)}
-                    <span class="format-name"></span>
-                </div>
-                <svg class="ic" style="width:16px;height:16px;color:#aaa;" aria-hidden="true"><use href="#ic-chevron-right"></use></svg>
-            `;
-            // Labels and titles come from a third-party site, so they go in as text.
-            item.querySelector('.format-name').textContent = fmt.label;
-
-            item.onclick = () => startDownload(fmt.type, fmt.val);
-            listEl.appendChild(item);
-        });
-
-        switchStep(elSelect);
-    }
-
-    function startDownload(dlType, dlFormat) {
-        stopPolling();
-        switchStep(elProgress);
-        progressBar.style.width = '0%';
-        progressText.textContent = 'Starting download...';
-
-        window.appFetch('/api/fetch/start', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ url: targetUrl, dl_type: dlType, dl_format: dlFormat })
-        })
-        .then(r => r.json())
-        .then(data => {
-            if (data.task_id) {
-                downloadTaskId = data.task_id;
-                poll(pollDownloadStatus);
-            } else {
-                switchStep(elSelect);
-                showError(data.error || "Failed to start the download.");
-            }
-        })
-        .catch(err => {
-            if (isAbort(err)) return;
-            switchStep(elSelect);
-            showError("Network error. Could not contact the server.");
-        });
-    }
-
-    function pollDownloadStatus() {
-        if (!downloadTaskId) {
-            stopPolling();
-            return;
-        }
-
-        window.appFetch('/api/fetch/status?task_id=' + encodeURIComponent(downloadTaskId))
-            .then(r => r.json())
-            .then(data => {
-                if (data.status === 'processing') {
-                    const pct = Math.min(100, Math.max(0, (data.progress || 0) * 100));
-                    progressBar.style.width = pct + '%';
-                    progressText.textContent = Math.round(pct) + '%';
-                    return;
-                }
-
-                stopPolling();
-
-                if (data.status === 'complete') {
-                    progressBar.style.width = '100%';
-                    progressText.textContent = '100%';
-                    switchStep(elComplete);
-                    startExpiryCountdown();
-                    return;
-                }
-
-                downloadTaskId = null;
-                switchStep(elInput);
-                if (data.status === 'cancelled') {
-                    showError("Download cancelled.");
-                } else {
-                    showError(data.error || "Download failed. Check the server logs for details.");
-                }
-            })
-            .catch(err => {
-                if (isAbort(err)) stopPolling();
-            });
-    }
-
-    window.cancelFetch = function() {
-        if (!downloadTaskId) {
-            resetFetch();
-            return;
-        }
-
-        stopPolling();
-        progressText.textContent = "Cancelling...";
-
-        const id = downloadTaskId;
-        downloadTaskId = null;
-
-        window.appFetch('/api/fetch/cancel', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ task_id: id })
-        })
-        .catch(() => {})
-        .then(() => resetFetch());
-    };
-
-    window.saveToDevice = function() {
-        if (!downloadTaskId || (saveBtn && saveBtn.disabled)) return;
-        window.location.href = '/api/fetch/download?task_id=' + encodeURIComponent(downloadTaskId);
-    };
-
-    window.resetFetch = function() {
-        stopPolling();
-        stopExpiry();
-        analyzeTaskId = null;
-        downloadTaskId = null;
-        targetUrl = "";
-        urlInput.value = "";
-        setSaveEnabled(true);
-        switchStep(elInput);
-        try { urlInput.focus(); } catch (err) {}
-    };
-
     window.pageTeardown = function() {
-        stopPolling();
-        stopExpiry();
-        // The server-side task is deliberately left alone so you can navigate away
-        // and come back; it cleans itself up on its own timer either way.
+        FetchManager.destroy();
     };
 
-    switchStep(elInput);
-    try { urlInput.focus(); } catch (err) {}
 })();

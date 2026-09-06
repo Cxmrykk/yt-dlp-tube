@@ -1298,7 +1298,7 @@ def _resolve_fetch_output(info, temp_dir):
     return None
 
 
-def start_fetch_analyze_task(url):
+def start_fetch_analyze_task(url, proxy_url=None):
     task_id = str(uuid.uuid4())
     now = time.time()
     with FETCH_LOCK:
@@ -1311,11 +1311,11 @@ def start_fetch_analyze_task(url):
             'started_at': now,
             'last_accessed': now
         }
-    threading.Thread(target=_fetch_analyze_worker, args=(task_id, url), daemon=True).start()
+    threading.Thread(target=_fetch_analyze_worker, args=(task_id, url, proxy_url), daemon=True).start()
     return task_id
 
 
-def _fetch_analyze_worker(task_id, url):
+def _fetch_analyze_worker(task_id, url, proxy_url=None):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -1330,6 +1330,13 @@ def _fetch_analyze_worker(task_id, url):
         'logger': YTDLPLogger()
     }
     apply_base_ydl_opts(ydl_opts)
+    
+    if proxy_url is not None:
+        if proxy_url.strip() == "":
+            ydl_opts.pop('proxy', None)
+            ydl_opts.pop('geo_verification_proxy', None)
+        else:
+            ydl_opts['proxy'] = proxy_url.strip()
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -1393,7 +1400,7 @@ def _fetch_analyze_worker(task_id, url):
                            reap_at=time.time() + FETCH_TASK_TTL_SECS)
 
 
-def start_fetch_download_task(url, dl_type, dl_format):
+def start_fetch_download_task(url, dl_type, dl_format, proxy_url=None):
     task_id = str(uuid.uuid4())
     now = time.time()
     with FETCH_LOCK:
@@ -1407,7 +1414,7 @@ def start_fetch_download_task(url, dl_type, dl_format):
             'started_at': now,
             'last_accessed': now
         }
-    threading.Thread(target=_fetch_download_worker, args=(task_id, url, dl_type, dl_format), daemon=True).start()
+    threading.Thread(target=_fetch_download_worker, args=(task_id, url, dl_type, dl_format, proxy_url), daemon=True).start()
     return task_id
 
 
@@ -1423,7 +1430,7 @@ def cancel_fetch_task(task_id):
                            reap_at=time.time() + 60)
 
 
-def _fetch_download_worker(task_id, url, dl_type, dl_format):
+def _fetch_download_worker(task_id, url, dl_type, dl_format, proxy_url=None):
     temp_dir = _fetch_dir(task_id)
     os.makedirs(temp_dir, exist_ok=True)
     ffmpeg_path = shutil.which('ffmpeg')
@@ -1472,6 +1479,13 @@ def _fetch_download_worker(task_id, url, dl_type, dl_format):
     if ffmpeg_path:
         ydl_opts['ffmpeg_location'] = ffmpeg_path
     apply_base_ydl_opts(ydl_opts)
+    
+    if proxy_url is not None:
+        if proxy_url.strip() == "":
+            ydl_opts.pop('proxy', None)
+            ydl_opts.pop('geo_verification_proxy', None)
+        else:
+            ydl_opts['proxy'] = proxy_url.strip()
 
     if dl_type == 'audio':
         ydl_opts['format'] = 'bestaudio/best'
@@ -1547,4 +1561,3 @@ def _fetch_download_worker(task_id, url, dl_type, dl_format):
             expires_at=None,
             reap_at=time.time() + 300
         )
-
