@@ -660,13 +660,48 @@ def bulk_download():
 
 # --- DIRECT URL FETCH API ---
 
+@api_bp.route('/api/fetch/list', methods=['GET'])
+def fetch_list():
+    results = {}
+    now = time.time()
+    for tid, task in list(FETCH_TASKS.items()):
+        reap_at = task.get('reap_at')
+        if reap_at and now > reap_at:
+            continue
+        # Only expose tasks that are not explicitly cancelled
+        if task.get('status') == 'cancelled':
+            continue
+            
+        results[tid] = {
+            'type': task.get('type'),
+            'status': task.get('status'),
+            'url': task.get('url'),
+            'title': task.get('title'),
+            'proxy_url': task.get('proxy_url'),
+            'progress': task.get('progress', 0.0),
+            'error': task.get('error'),
+            'result': task.get('result'),
+            'expires_at': task.get('expires_at'),
+            'started_at': task.get('started_at', 0)
+        }
+    return jsonify(results)
+
 @api_bp.route('/api/fetch/analyze', methods=['POST'])
 def fetch_analyze():
     data = request.get_json()
     url = data.get('url')
     proxy_url = data.get('proxy_url')
+    proxy_mode = data.get('proxy_mode')
+    custom_proxy = data.get('custom_proxy')
+    
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
+        
+    if proxy_mode in ['global', 'saved', 'none', 'custom']:
+        settings = get_settings()
+        settings['fetch_proxy_mode'] = proxy_mode
+        settings['fetch_custom_proxy'] = custom_proxy or ''
+        save_settings(settings)
         
     task_id = start_fetch_analyze_task(url, proxy_url)
     return jsonify({'task_id': task_id})
@@ -678,11 +713,24 @@ def fetch_start():
     dl_type = data.get('dl_type')
     dl_format = data.get('dl_format')
     proxy_url = data.get('proxy_url')
+    title = data.get('title')
+    analyze_task_id = data.get('analyze_task_id')
+    proxy_mode = data.get('proxy_mode')
+    custom_proxy = data.get('custom_proxy')
     
     if not url or not dl_type or not dl_format:
         return jsonify({'error': 'Missing parameters'}), 400
         
-    task_id = start_fetch_download_task(url, dl_type, dl_format, proxy_url)
+    if proxy_mode in ['global', 'saved', 'none', 'custom']:
+        settings = get_settings()
+        settings['fetch_proxy_mode'] = proxy_mode
+        settings['fetch_custom_proxy'] = custom_proxy or ''
+        save_settings(settings)
+        
+    if analyze_task_id:
+        cancel_fetch_task(analyze_task_id)
+        
+    task_id = start_fetch_download_task(url, dl_type, dl_format, proxy_url, title=title)
     return jsonify({'task_id': task_id})
 
 @api_bp.route('/api/fetch/status_batch', methods=['POST'])
@@ -730,3 +778,4 @@ def fetch_download():
         
     filename = os.path.basename(file_path)
     return send_file(file_path, as_attachment=True, download_name=filename)
+

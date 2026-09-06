@@ -5,16 +5,35 @@
     const POLL_MS = 1500;
 
     class FetchJob {
-        constructor(url, proxyUrl) {
-            this.id = 'job_' + Math.random().toString(36).substr(2, 9);
-            this.url = url;
-            this.proxyUrl = proxyUrl;
-            this.taskId = null;
-            this.expiryTimer = null;
-            this.state = 'analyze';
+        constructor(url, proxyUrl, proxyMode, customProxy, existingData = null) {
+            if (existingData) {
+                this.id = 'job_' + Math.random().toString(36).substr(2, 9);
+                this.url = existingData.url;
+                this.proxyUrl = existingData.proxy_url;
+                this.proxyMode = null;
+                this.customProxy = null;
+                this.taskId = existingData.taskId;
+                this.state = 'analyze';
 
-            this.createDOM();
-            this.startAnalyze();
+                this.createDOM();
+                this.ui.title.textContent = existingData.title || existingData.url;
+                
+                if (existingData.status === 'processing') {
+                    FetchManager.track(this);
+                }
+                this.onPollUpdate(existingData);
+            } else {
+                this.id = 'job_' + Math.random().toString(36).substr(2, 9);
+                this.url = url;
+                this.proxyUrl = proxyUrl;
+                this.proxyMode = proxyMode;
+                this.customProxy = customProxy;
+                this.taskId = null;
+                this.state = 'analyze';
+
+                this.createDOM();
+                this.startAnalyze();
+            }
         }
 
         createDOM() {
@@ -82,7 +101,12 @@
                 const r = await window.appFetch('/api/fetch/analyze', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: this.url, proxy_url: this.proxyUrl })
+                    body: JSON.stringify({ 
+                        url: this.url, 
+                        proxy_url: this.proxyUrl,
+                        proxy_mode: this.proxyMode,
+                        custom_proxy: this.customProxy
+                    })
                 });
                 const data = await r.json();
                 if (data.task_id) {
@@ -132,14 +156,26 @@
             this.ui.progressBar.style.width = '0%';
             this.ui.progressText.textContent = 'Starting...';
 
+            const prevTaskId = this.taskId;
+
             try {
                 const r = await window.appFetch('/api/fetch/start', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify({ url: this.url, dl_type: type, dl_format: val, proxy_url: this.proxyUrl })
+                    body: JSON.stringify({ 
+                        url: this.url, 
+                        dl_type: type, 
+                        dl_format: val, 
+                        proxy_url: this.proxyUrl,
+                        proxy_mode: this.proxyMode,
+                        custom_proxy: this.customProxy,
+                        title: this.ui.title.textContent,
+                        analyze_task_id: prevTaskId
+                    })
                 });
                 const data = await r.json();
                 if (data.task_id) {
+                    if (prevTaskId) FetchManager.untrack(prevTaskId);
                     this.taskId = data.task_id;
                     FetchManager.track(this);
                 } else {
@@ -152,7 +188,10 @@
 
         onPollUpdate(data) {
             if (data.status === 'processing') {
-                if (data.type === 'download') {
+                if (data.type === 'analyze') {
+                    this.switchState('analyze');
+                } else if (data.type === 'download') {
+                    this.switchState('download');
                     const pct = Math.min(100, Math.max(0, (data.progress || 0) * 100));
                     this.ui.progressBar.style.width = pct + '%';
                     this.ui.progressText.textContent = Math.round(pct) + '%';
@@ -169,10 +208,12 @@
                     this.switchState('complete');
                     this.startExpiry(data.expires_at);
                 }
-                this.taskId = null;
+                // Intentionally do NOT clear this.taskId here, so it is available
+                // for deletion/cancellation if the user dismisses the card.
             } else if (data.status === 'expired') {
                 this.stopExpiry();
                 this.showError(data.error || "File expired.");
+                this.taskId = null;
             } else if (data.status === 'cancelled') {
                 this.showError("Cancelled.");
                 this.taskId = null;
@@ -322,7 +363,7 @@
         if (e && e.preventDefault) e.preventDefault();
         
         const urlInput = document.getElementById('fetchUrl');
-        const proxyMode = document.getElementById('fetchProxyMode');
+        const proxyModeSel = document.getElementById('fetchProxyMode');
         const proxyInput = document.getElementById('customProxy');
         
         const url = (urlInput.value || '').trim();
@@ -332,22 +373,46 @@
         }
 
         let proxyUrl = undefined;
+        let proxyMode = proxyModeSel.value;
+        let customProxy = proxyInput.value.trim();
+
         const container = document.getElementById('proxyContainer');
         if (container && container.classList.contains('open')) {
-            const mode = proxyMode.value;
-            if (mode === 'none') {
+            if (proxyMode === 'none') {
                 proxyUrl = ""; 
-            } else if (mode === 'saved') {
-                proxyUrl = proxyMode.getAttribute('data-saved') || "";
-            } else if (mode === 'custom') {
-                proxyUrl = (proxyInput.value || '').trim();
+            } else if (proxyMode === 'saved') {
+                proxyUrl = proxyModeSel.getAttribute('data-saved') || "";
+            } else if (proxyMode === 'custom') {
+                proxyUrl = customProxy;
             }
         }
 
-        new FetchJob(url, proxyUrl);
+        new FetchJob(url, proxyUrl, proxyMode, customProxy);
         urlInput.value = '';
         return false;
     };
+    
+    async function hydrateFetchQueue() {
+        try {
+            const r = await window.appFetch('/api/fetch/list');
+            const tasks = await r.json();
+            
+            const taskArray = Object.entries(tasks).map(([taskId, data]) => {
+                data.taskId = taskId;
+                return data;
+            });
+            
+            taskArray.sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
+            
+            for (const data of taskArray) {
+                new FetchJob(null, null, null, null, data);
+            }
+        } catch(e) {
+            if (e.name !== 'AbortError') console.error("Failed to hydrate fetch queue", e);
+        }
+    }
+    
+    hydrateFetchQueue();
 
     window.pageTeardown = function() {
         FetchManager.destroy();

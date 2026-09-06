@@ -22,7 +22,7 @@
             <div id="proxyContainer" class="proxy-container">
                 <label style="display: block; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px;">Proxy Mode for this Download:</label>
                 <select id="fetchProxyMode" class="format-dropdown" style="margin-bottom: 10px;" data-saved="{{ app_settings.ydl_proxy_url | default('') }}" onchange="document.getElementById('customProxyWrap').style.display = this.value === 'custom' ? 'block' : 'none'">
-                    <option value="global">
+                    <option value="global" {% if app_settings.fetch_proxy_mode == 'global' or not app_settings.fetch_proxy_mode %}selected{% endif %}>
                         Use Global App Settings 
                         {% if app_settings.ydl_proxy_type != 'none' and app_settings.ydl_proxy_url %}
                             (Active: {{ app_settings.ydl_proxy_url }})
@@ -31,13 +31,13 @@
                         {% endif %}
                     </option>
                     {% if app_settings.ydl_proxy_url %}
-                    <option value="saved">Force Saved Proxy ({{ app_settings.ydl_proxy_url }})</option>
+                    <option value="saved" {% if app_settings.fetch_proxy_mode == 'saved' %}selected{% endif %}>Force Saved Proxy ({{ app_settings.ydl_proxy_url }})</option>
                     {% endif %}
-                    <option value="none">Force Direct Connection (No Proxy)</option>
-                    <option value="custom">Custom SOCKS5/HTTP Proxy...</option>
+                    <option value="none" {% if app_settings.fetch_proxy_mode == 'none' %}selected{% endif %}>Force Direct Connection (No Proxy)</option>
+                    <option value="custom" {% if app_settings.fetch_proxy_mode == 'custom' %}selected{% endif %}>Custom SOCKS5/HTTP Proxy...</option>
                 </select>
-                <div id="customProxyWrap" style="display: none;">
-                    <input type="text" id="customProxy" placeholder="socks5://user:pass@127.0.0.1:1080">
+                <div id="customProxyWrap" style="display: {{ 'block' if app_settings.fetch_proxy_mode == 'custom' else 'none' }};">
+                    <input type="text" id="customProxy" placeholder="socks5://user:pass@127.0.0.1:1080" value="{{ app_settings.fetch_custom_proxy | default('') }}">
                 </div>
             </div>
         </form>

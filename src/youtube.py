@@ -1305,6 +1305,9 @@ def start_fetch_analyze_task(url, proxy_url=None):
         FETCH_TASKS[task_id] = {
             'type': 'analyze',
             'status': 'processing',
+            'url': url,
+            'title': url,
+            'proxy_url': proxy_url,
             'result': None,
             'error': None,
             'cancelled': False,
@@ -1382,6 +1385,7 @@ def _fetch_analyze_worker(task_id, url, proxy_url=None):
 
         _fetch_task_update(
             task_id,
+            title=info.get('title') or 'Untitled',
             result={
                 'title': info.get('title') or 'Untitled',
                 'video': video_formats,
@@ -1400,13 +1404,16 @@ def _fetch_analyze_worker(task_id, url, proxy_url=None):
                            reap_at=time.time() + FETCH_TASK_TTL_SECS)
 
 
-def start_fetch_download_task(url, dl_type, dl_format, proxy_url=None):
+def start_fetch_download_task(url, dl_type, dl_format, proxy_url=None, title=None):
     task_id = str(uuid.uuid4())
     now = time.time()
     with FETCH_LOCK:
         FETCH_TASKS[task_id] = {
             'type': 'download',
             'status': 'processing',
+            'url': url,
+            'title': title or url,
+            'proxy_url': proxy_url,
             'progress': 0.0,
             'error': None,
             'file_path': None,

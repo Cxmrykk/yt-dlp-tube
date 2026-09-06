@@ -49,6 +49,8 @@ DEFAULT_SETTINGS = {
     'shortcut_speed_down': 'ArrowDown',
     'ydl_proxy_type': 'none',
     'ydl_proxy_url': '',
+    'fetch_proxy_mode': 'global',
+    'fetch_custom_proxy': '',
     'cc_font': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
     'cc_color': '#ffffff',
     'cc_bg': '#000000',
