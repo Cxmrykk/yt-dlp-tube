@@ -47,6 +47,8 @@ DEFAULT_SETTINGS = {
     'shortcut_chap_prev': 'PageDown',
     'shortcut_speed_up': 'ArrowUp',
     'shortcut_speed_down': 'ArrowDown',
+    'ydl_proxy_type': 'none',
+    'ydl_proxy_url': '',
     'cc_font': "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif",
     'cc_color': '#ffffff',
     'cc_bg': '#000000',
@@ -296,3 +298,4 @@ def save_feed_state(state):
     with FILE_LOCK:
         _FEED_STATE = state
         _write_json_atomic(FEED_STATE_FILE, state)
+

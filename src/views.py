@@ -219,6 +219,11 @@ def settings_page():
                 save_settings(app_settings)
             except ValueError: pass
 
+        elif action == 'update_network_settings':
+            app_settings['ydl_proxy_type'] = request.form.get('ydl_proxy_type', 'none')
+            app_settings['ydl_proxy_url'] = request.form.get('ydl_proxy_url', '')
+            save_settings(app_settings)
+
         elif action == 'update_sb_settings':
             app_settings['sb_enabled'] = request.form.get('sb_enabled') == 'on'
             app_settings['sb_action'] = request.form.get('sb_action', 'auto_skip')
@@ -303,3 +308,4 @@ def settings_page():
                 
         return redirect(request.referrer or url_for('views.settings_page'))
     return render_template('settings.html', subs=subs, app_settings=app_settings)
+

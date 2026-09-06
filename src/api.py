@@ -11,7 +11,7 @@ from storage import (
 from youtube import (
     get_cached_icon, fetch_channel_info, purge_channel_from_feed, 
     get_flat_feed, fix_youtube_url, fetch_missing_icons, 
-    parse_chapters_from_desc, start_caching_media, remove_from_cache, inject_deno,
+    parse_chapters_from_desc, start_caching_media, remove_from_cache, apply_base_ydl_opts,
     start_bulk_task, cancel_bulk_task, clear_bulk_task, BULK_TASKS,
     start_format_task, cancel_format_task, FORMAT_TASKS,
     COMMENTS_CACHE, COMMENTS_LOCK, mark_channel_seen, queue_auto_cache,
@@ -137,7 +137,7 @@ def api_info():
         'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 
         'getcomments': False, 'writesubtitles': True, 'allsubtitles': True
     }
-    inject_deno(ydl_opts)
+    apply_base_ydl_opts(ydl_opts)
     
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -380,7 +380,7 @@ def api_videos():
         start = (page - 1) * per_page + 1
         end = page * per_page
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
-        inject_deno(ydl_opts)
+        apply_base_ydl_opts(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(fix_youtube_url(query), download=False)
             if info:
@@ -399,7 +399,7 @@ def api_videos():
         start = (page - 1) * per_page + 1
         end = page * per_page
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
-        inject_deno(ydl_opts)
+        apply_base_ydl_opts(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
             if info: 
@@ -415,7 +415,7 @@ def api_videos():
         end = page * per_page
         fetch_end = end + 2
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{fetch_end}'}
-        inject_deno(ydl_opts)
+        apply_base_ydl_opts(ydl_opts)
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"ytsearch{fetch_end}:{query}", download=False)
             raw_videos = info.get('entries', []) if info else []
@@ -464,7 +464,7 @@ def api_comments():
                 'skip_download': True, 'format': 'none', 
                 'extractor_args': { 'youtube': { 'comment_sort': [sort], 'max-comments': ['all,all'] } }
             }
-            inject_deno(ydl_opts)
+            apply_base_ydl_opts(ydl_opts)
             ydl = yt_dlp.YoutubeDL(ydl_opts)
             try:
                 info = ydl.extract_info(url, download=False, process=True)
@@ -732,3 +732,4 @@ def fetch_download():
         
     filename = os.path.basename(file_path)
     return send_file(file_path, as_attachment=True, download_name=filename)
+

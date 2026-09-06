@@ -224,6 +224,29 @@
 </div>
 
 <div class="add-form">
+    <h3 style="margin-top: 0;">Network & Proxy (yt-dlp)</h3>
+    <form action="/settings" method="POST">
+        <input type="hidden" name="action" value="update_network_settings">
+        
+        <p style="color: var(--text-muted); font-size: 0.85rem; margin-top: 0; margin-bottom: 15px;">
+            * This proxy is strictly used for yt-dlp metadata extraction and downloads. In-app image and subtitle proxying will still use the server's raw IP.
+        </p>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Proxy Mode:</label>
+        <select name="ydl_proxy_type" style="margin-bottom: 15px;">
+            <option value="none" {% if app_settings.ydl_proxy_type == 'none' %}selected{% endif %}>None (Direct Connection)</option>
+            <option value="proxy" {% if app_settings.ydl_proxy_type == 'proxy' %}selected{% endif %}>Global Proxy (--proxy)</option>
+            <option value="geo" {% if app_settings.ydl_proxy_type == 'geo' %}selected{% endif %}>Geo-Verification Proxy (--geo-verification-proxy)</option>
+        </select>
+
+        <label style="display: block; margin-bottom: 5px; color: var(--text-muted);">Proxy URL:</label>
+        <input type="text" name="ydl_proxy_url" value="{{ app_settings.ydl_proxy_url }}" placeholder="socks5://user:pass@127.0.0.1:1080/" style="margin-bottom: 20px;">
+
+        <button type="submit" class="btn btn-danger">Save Network Settings</button>
+    </form>
+</div>
+
+<div class="add-form">
     <h3 style="margin-top: 0;">Feed Maintenance</h3>
     <p style="color: var(--text-muted); font-size: 0.9rem; margin-top: 0;">
         The home feed is built from a per-channel baseline: the first time a channel is scanned,

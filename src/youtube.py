@@ -28,10 +28,10 @@ except Exception:  # very old yt-dlp
     _YTDLPDownloadCancelled = Exception
 
 
-def inject_deno(ydl_opts):
+def apply_base_ydl_opts(ydl_opts):
     """
     Dynamically finds Deno (checking PATH and ~/.deno/bin/deno) and explicitly configures 
-    yt-dlp to use it. Also grants permission to download required JS solver scripts.
+    yt-dlp to use it. Also applies global proxy settings if configured.
     """
     deno_path = shutil.which('deno')
     if not deno_path:
@@ -46,6 +46,15 @@ def inject_deno(ydl_opts):
         ydl_opts['js_runtimes'] = {'deno': {}}
         
     ydl_opts['remote_components'] = ['ejs:github', 'ejs:npm']
+
+    settings = get_settings()
+    proxy_type = settings.get('ydl_proxy_type', 'none')
+    proxy_url = settings.get('ydl_proxy_url', '').strip()
+    
+    if proxy_type == 'proxy' and proxy_url:
+        ydl_opts['proxy'] = proxy_url
+    elif proxy_type == 'geo' and proxy_url:
+        ydl_opts['geo_verification_proxy'] = proxy_url
         
     return ydl_opts
 
@@ -227,7 +236,7 @@ def fix_youtube_url(url):
 
 def fetch_channel_info(url):
     ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': 1, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
-    inject_deno(ydl_opts)
+    apply_base_ydl_opts(ydl_opts)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(fix_youtube_url(url), download=False)
@@ -330,7 +339,7 @@ def update_feed_now():
 
         def fetch_flat(sub):
             ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': fetch_limit, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
-            inject_deno(ydl_opts)
+            apply_base_ydl_opts(ydl_opts)
             try:
                 with yt_dlp.YoutubeDL(ydl_opts) as ydl:
                     info = ydl.extract_info(fix_youtube_url(sub['url']), download=False)
@@ -492,7 +501,7 @@ def _download_task(vid_id, resolution, metadata, size_limit_mb=None, kind='manua
         'ignoreerrors': True
     }
     
-    inject_deno(ydl_opts)
+    apply_base_ydl_opts(ydl_opts)
     
     ffmpeg_path = shutil.which('ffmpeg')
     if ffmpeg_path:
@@ -847,7 +856,7 @@ def _extract_formats_for_video(vid):
         'quiet': True, 'no_warnings': True, 'ignoreerrors': True,
         'writesubtitles': True, 'allsubtitles': True
     }
-    inject_deno(ydl_opts)
+    apply_base_ydl_opts(ydl_opts)
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
             info = ydl.extract_info(f"https://www.youtube.com/watch?v={vid}", download=False)
@@ -1077,7 +1086,7 @@ def _bulk_worker(task_id, video_ids, dl_type, dl_format):
         }
         if ffmpeg_path:
             ydl_opts['ffmpeg_location'] = ffmpeg_path
-        inject_deno(ydl_opts)
+        apply_base_ydl_opts(ydl_opts)
         
         title = vid
         if dl_type == 'subtitles':
@@ -1320,7 +1329,7 @@ def _fetch_analyze_worker(task_id, url):
         'playlist_items': '1',
         'logger': YTDLPLogger()
     }
-    inject_deno(ydl_opts)
+    apply_base_ydl_opts(ydl_opts)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -1462,7 +1471,7 @@ def _fetch_download_worker(task_id, url, dl_type, dl_format):
 
     if ffmpeg_path:
         ydl_opts['ffmpeg_location'] = ffmpeg_path
-    inject_deno(ydl_opts)
+    apply_base_ydl_opts(ydl_opts)
 
     if dl_type == 'audio':
         ydl_opts['format'] = 'bestaudio/best'
@@ -1538,3 +1547,4 @@ def _fetch_download_worker(task_id, url, dl_type, dl_format):
             expires_at=None,
             reap_at=time.time() + 300
         )
+
