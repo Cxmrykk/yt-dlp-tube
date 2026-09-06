@@ -20,8 +20,22 @@
                 <svg class="ic" aria-hidden="true"><use href="#ic-settings"></use></svg> Advanced Proxy Settings
             </div>
             <div id="proxyContainer" class="proxy-container">
-                <p class="proxy-help">Set a temporary SOCKS5 proxy strictly for this download. Leave blank to use system/global settings.</p>
-                <input type="text" id="customProxy" placeholder="socks5://user:pass@127.0.0.1:1080">
+                <label style="display: block; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px;">Proxy Mode for this Download:</label>
+                <select id="fetchProxyMode" class="format-dropdown" style="margin-bottom: 10px;" onchange="document.getElementById('customProxyWrap').style.display = this.value === 'custom' ? 'block' : 'none'">
+                    <option value="global">
+                        Use Global App Settings 
+                        {% if app_settings.ydl_proxy_url and app_settings.ydl_proxy_type != 'none' %}
+                            ({{ app_settings.ydl_proxy_url }})
+                        {% else %}
+                            (None Configured)
+                        {% endif %}
+                    </option>
+                    <option value="none">Direct Connection (Force No Proxy)</option>
+                    <option value="custom">Custom SOCKS5/HTTP Proxy...</option>
+                </select>
+                <div id="customProxyWrap" style="display: none;">
+                    <input type="text" id="customProxy" placeholder="socks5://user:pass@127.0.0.1:1080">
+                </div>
             </div>
         </form>
     </div>

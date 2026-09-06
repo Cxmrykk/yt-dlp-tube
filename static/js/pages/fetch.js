@@ -322,6 +322,7 @@
         if (e && e.preventDefault) e.preventDefault();
         
         const urlInput = document.getElementById('fetchUrl');
+        const proxyMode = document.getElementById('fetchProxyMode');
         const proxyInput = document.getElementById('customProxy');
         
         const url = (urlInput.value || '').trim();
@@ -333,7 +334,12 @@
         let proxyUrl = undefined;
         const container = document.getElementById('proxyContainer');
         if (container && container.classList.contains('open')) {
-            proxyUrl = (proxyInput.value || '').trim();
+            const mode = proxyMode.value;
+            if (mode === 'none') {
+                proxyUrl = ""; 
+            } else if (mode === 'custom') {
+                proxyUrl = (proxyInput.value || '').trim();
+            }
         }
 
         new FetchJob(url, proxyUrl);
