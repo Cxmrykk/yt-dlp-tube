@@ -234,6 +234,19 @@ def fix_youtube_url(url):
             return url.rstrip('/') + '/videos'
     return url
 
+def get_channel_tab_url(url, tab='videos'):
+    if not url: return url
+    if 'youtube.com' in url and ('/@' in url or '/c/' in url or '/channel/' in url or '/user/' in url):
+        url = url.rstrip('/')
+        tabs = ['/videos', '/shorts', '/streams', '/releases', '/podcasts', '/featured']
+        for t in tabs:
+            if url.endswith(t):
+                url = url[:-len(t)]
+                break
+        if tab:
+            return url + '/' + tab
+    return url
+
 def fetch_channel_info(url):
     ydl_opts = {'extract_flat': 'in_playlist', 'playlistend': 1, 'quiet': True, 'no_warnings': True, 'ignoreerrors': True}
     apply_base_ydl_opts(ydl_opts)

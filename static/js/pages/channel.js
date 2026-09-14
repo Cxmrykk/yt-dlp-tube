@@ -2,6 +2,7 @@
     const config = window.CHANNEL_CONFIG;
     let currentChannel = { url: config.url, name: config.name, icon: config.icon };
     let isSubbed = config.isSubbed;
+    let currentTab = config.tab;
     const checkIcon = window.icon('check', '', 'width:18px;height:18px;margin-left:4px;');
 
     function getImgProxyUrl(url) {
@@ -64,9 +65,24 @@
         });
     }
 
-    // Pass off to feed.js logic via simulated config
-    window.FEED_CONFIG = { type: "channel", query: config.url };
-    const script = document.createElement('script');
-    script.src = '/static/js/pages/feed.js';
-    document.body.appendChild(script);
+    const tabs = document.querySelectorAll('.ch-tab');
+    tabs.forEach(tabEl => {
+        tabEl.addEventListener('click', (e) => {
+            const newTab = e.target.getAttribute('data-tab');
+            if (newTab === currentTab) return;
+            
+            tabs.forEach(t => t.classList.remove('active'));
+            e.target.classList.add('active');
+            currentTab = newTab;
+            
+            const url = new URL(window.location);
+            url.searchParams.set('tab', currentTab);
+            window.history.pushState({ pjax: true, scrollPos: document.getElementById('main-content').scrollTop }, '', url);
+            
+            if (window.FeedManager) {
+                window.FeedManager.resetTab(currentTab);
+            }
+        });
+    });
+
 })();

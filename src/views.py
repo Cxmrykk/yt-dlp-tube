@@ -115,15 +115,18 @@ def channel_page_routed(handle=None, channel_id=None, channel_name=None, usernam
     elif channel_name: yt_url = f"https://www.youtube.com/c/{channel_name}"
     elif username: yt_url = f"https://www.youtube.com/user/{username}"
     else: return "Invalid channel", 400
-    return render_channel(yt_url)
+    
+    tab = request.args.get('tab', 'videos')
+    return render_channel(yt_url, tab)
 
 @views_bp.route('/channel')
 def channel():
     channel_url = request.args.get('url')
     if not channel_url: return "Channel URL required", 400
-    return render_channel(channel_url)
+    tab = request.args.get('tab', 'videos')
+    return render_channel(channel_url, tab)
 
-def render_channel(channel_url):
+def render_channel(channel_url, tab='videos'):
     subs = get_subs()
     n_url = channel_url.strip('/').split('?')[0].lower()
     sub = next((s for s in subs if s['url'].strip('/').split('?')[0].lower() == n_url), None)
@@ -131,7 +134,7 @@ def render_channel(channel_url):
     # Visiting the channel acknowledges its new uploads.
     mark_channel_seen(channel_url)
 
-    return render_template('channel.html', url=channel_url, channel_name=sub['name'] if sub else "Loading...", channel_icon=sub['icon'] if sub else "", is_subbed=bool(sub), needs_fetch=not bool(sub))
+    return render_template('channel.html', url=channel_url, tab=tab, channel_name=sub['name'] if sub else "Loading...", channel_icon=sub['icon'] if sub else "", is_subbed=bool(sub), needs_fetch=not bool(sub))
 
 @views_bp.route('/fetch')
 def fetch_page():
@@ -308,4 +311,3 @@ def settings_page():
                 
         return redirect(request.referrer or url_for('views.settings_page'))
     return render_template('settings.html', subs=subs, app_settings=app_settings)
-

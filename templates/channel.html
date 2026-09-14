@@ -1,6 +1,37 @@
 {% extends 'base.html' %}
 
 {% block content %}
+<style>
+.channel-tabs {
+    display: flex;
+    gap: 20px;
+    border-bottom: 1px solid #333;
+    margin-bottom: 20px;
+    overflow-x: auto;
+    scrollbar-width: none; 
+}
+.channel-tabs::-webkit-scrollbar {
+    display: none; 
+}
+.ch-tab {
+    color: var(--text-muted);
+    text-decoration: none;
+    font-weight: 600;
+    font-size: 1rem;
+    padding-bottom: 10px;
+    border-bottom: 3px solid transparent;
+    transition: color 0.2s, border-color 0.2s;
+    white-space: nowrap;
+}
+.ch-tab:hover {
+    color: white;
+}
+.ch-tab.active {
+    color: white;
+    border-bottom-color: var(--text-color);
+}
+</style>
+
 <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 30px; background: var(--card-bg); padding: 30px; border-radius: 12px; flex-wrap: wrap; gap: 15px;">
     <div style="display: flex; align-items: center; gap: 20px;">
         <div id="ch-icon-wrap">
@@ -16,6 +47,14 @@
         </div>
     </div>
     <button id="sub-btn" class="btn" style="display: none;" onclick="window.toggleSubscribe()">Subscribe</button>
+</div>
+
+<div class="channel-tabs" id="channelTabs">
+    <a href="javascript:void(0)" class="ch-tab {% if tab == 'videos' %}active{% endif %}" data-tab="videos">Videos</a>
+    <a href="javascript:void(0)" class="ch-tab {% if tab == 'shorts' %}active{% endif %}" data-tab="shorts">Shorts</a>
+    <a href="javascript:void(0)" class="ch-tab {% if tab == 'streams' %}active{% endif %}" data-tab="streams">Live</a>
+    <a href="javascript:void(0)" class="ch-tab {% if tab == 'releases' %}active{% endif %}" data-tab="releases">Releases</a>
+    <a href="javascript:void(0)" class="ch-tab {% if tab == 'podcasts' %}active{% endif %}" data-tab="podcasts">Podcasts</a>
 </div>
 
 <div class="video-grid" id="video-grid">
@@ -37,11 +76,18 @@
 <script>
     window.CHANNEL_CONFIG = {
         url: "{{ url | safe }}",
+        tab: "{{ tab }}",
         name: "{{ channel_name | safe }}",
         icon: "{{ channel_icon | safe }}",
         isSubbed: {{ 'true' if is_subbed else 'false' }},
         needsFetch: {{ 'true' if needs_fetch else 'false' }}
     };
+    window.FEED_CONFIG = {
+        type: "channel",
+        query: "{{ url | safe }}",
+        tab: "{{ tab }}"
+    };
 </script>
 <script src="/static/js/pages/channel.js"></script>
+<script src="/static/js/pages/feed.js"></script>
 {% endblock %}

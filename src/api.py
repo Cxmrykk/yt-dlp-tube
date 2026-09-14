@@ -15,7 +15,8 @@ from youtube import (
     start_bulk_task, cancel_bulk_task, clear_bulk_task, BULK_TASKS,
     start_format_task, cancel_format_task, FORMAT_TASKS,
     COMMENTS_CACHE, COMMENTS_LOCK, mark_channel_seen, queue_auto_cache,
-    start_fetch_analyze_task, start_fetch_download_task, cancel_fetch_task, FETCH_TASKS
+    start_fetch_analyze_task, start_fetch_download_task, cancel_fetch_task, FETCH_TASKS,
+    get_channel_tab_url
 )
 from utils import format_views_str, time_ago_str, linkify_text, extract_video_id
 
@@ -377,14 +378,22 @@ def api_videos():
         videos = get_flat_feed(page)
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
     elif req_type == 'channel' and query:
+        tab = request.args.get('tab', 'videos')
         start = (page - 1) * per_page + 1
         end = page * per_page
         ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
         apply_base_ydl_opts(ydl_opts)
+        
+        target_url = get_channel_tab_url(query, tab)
+
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(fix_youtube_url(query), download=False)
+            info = ydl.extract_info(target_url, download=False)
             if info:
-                c_name = info.get('title', 'Unknown').replace(' - Videos', '')
+                c_name = info.get('title', 'Unknown')
+                for suffix in [' - Videos', ' - Shorts', ' - Live', ' - Releases', ' - Podcasts']:
+                    if c_name.endswith(suffix):
+                        c_name = c_name[:-len(suffix)]
+                        break
                 c_icon = info.get('thumbnails', [{'url': ''}])[-1]['url'] if info.get('thumbnails') else ''
                 for e in info.get('entries', []):
                     if e and e.get('_type') != 'playlist':
@@ -778,4 +787,3 @@ def fetch_download():
         
     filename = os.path.basename(file_path)
     return send_file(file_path, as_attachment=True, download_name=filename)
-
