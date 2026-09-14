@@ -7,6 +7,7 @@
         reqTab: window.FEED_CONFIG.tab || "",
         sentinel: document.getElementById('sentinel-card'),
         observer: null,
+        currentRequestNum: 0,
         
         revealStaggered: function() {
             const unrevealed = document.querySelectorAll('.unrevealed');
@@ -24,6 +25,8 @@
             this.loading = true;
             this.sentinel.style.opacity = '1';
             
+            const reqNum = ++this.currentRequestNum;
+            
             let apiUrl = `/api/videos?type=${this.reqType}&query=${encodeURIComponent(this.reqQuery)}&page=${this.page}`;
             if (this.reqTab) {
                 apiUrl += `&tab=${encodeURIComponent(this.reqTab)}`;
@@ -32,6 +35,8 @@
             window.appFetch(apiUrl)
                 .then(r => r.text())
                 .then(html => {
+                    if (this.currentRequestNum !== reqNum) return;
+                    
                     if(html.trim() !== '') {
                         this.page++; 
                         
@@ -47,6 +52,7 @@
                         
                         setTimeout(() => {
                             if (window.pageAbortController && window.pageAbortController.signal.aborted) return;
+                            if (this.currentRequestNum !== reqNum) return;
                             
                             this.loading = false;
                             
@@ -73,6 +79,7 @@
                     }
                 })
                 .catch(err => {
+                    if (this.currentRequestNum !== reqNum) return;
                     if (err.name === 'AbortError') return;
                     this.sentinel.innerHTML = `<div style="padding: 20px; text-align: center; color: var(--text-muted); font-weight: bold;">Error loading videos.</div>`;
                     this.sentinel.style.opacity = '1';
@@ -97,6 +104,7 @@
         },
 
         resetTab: function(newTab) {
+            this.currentRequestNum++;
             this.reqTab = newTab;
             this.page = 1;
             this.loading = false;

@@ -403,7 +403,7 @@ def api_videos():
                         e['channel_icon'] = c_icon
                         e['channel_url'] = query
                         videos.append(e)
-        return render_template('partials/video_cards.html', videos=videos, show_date=False, show_channel=False)
+        return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=False)
     elif req_type == 'search' and query:
         start = (page - 1) * per_page + 1
         end = page * per_page

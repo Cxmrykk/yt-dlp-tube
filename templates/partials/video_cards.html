@@ -7,7 +7,12 @@
     <a href="{{ vid_url | yt_path }}">
         <div class="thumbnail skeleton-box">
             <img class="lazy-img" src="{{ (video.thumbnail or (video.thumbnails and video.thumbnails[-1].url) or ('https://i.ytimg.com/vi/' ~ video.id ~ '/hqdefault.jpg')) | proxy_image }}" alt="" loading="lazy" onload="this.classList.add('loaded'); this.parentElement.classList.remove('skeleton-box');">
-            <span class="duration">{{ video.duration | format_time }}</span>
+            
+            {% if video.duration %}
+                <span class="duration">{{ video.duration | format_time }}</span>
+            {% elif video.is_live %}
+                <span class="duration" style="background: #f03;">LIVE</span>
+            {% endif %}
         </div>
     </a>
     <div class="video-info">
@@ -29,9 +34,11 @@
                 
                 {% if show_date %}
                 <span style="color: var(--text-muted); font-size: 0.85rem;">
+                    {% set views = video.view_count | format_views %}
+                    {% if views %}{{ views }} views{% endif %}
                     {% set ts = video.upload_date if video.upload_date else video.timestamp %}
                     {% set t = ts | time_ago %}
-                    {% if t %}{{ t }}{% endif %}
+                    {% if t %}{% if views %} • {% endif %}{{ t }}{% endif %}
                 </span>
                 {% endif %}
             </div>
