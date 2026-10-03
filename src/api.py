@@ -1,4 +1,5 @@
 import time
+import threading
 import yt_dlp
 import os
 import urllib.parse
@@ -18,9 +19,108 @@ from youtube import (
     start_fetch_analyze_task, start_fetch_download_task, cancel_fetch_task, FETCH_TASKS,
     get_channel_tab_url
 )
-from utils import format_views_str, time_ago_str, linkify_text, extract_video_id
+from utils import format_views_str, time_ago_str, linkify_text, extract_video_id, is_probable_video_id
 
 api_bp = Blueprint('api', __name__)
+
+
+# ----------------------------------------------------------------------
+# Search sessions
+#
+# Every page of search results used to re-run the whole YouTube search and slice
+# a window out of it. YouTube's ranking is not stable between requests, so items
+# drifted across page boundaries and the same video appeared more than once.
+#
+# Now each query gets a session holding an ordered, de-duplicated list of
+# results. Pages are sliced from that list, and when more results are needed the
+# session over-fetches a slightly overlapping window and only appends video IDs
+# it has never handed out before.
+# ----------------------------------------------------------------------
+
+SEARCH_CACHE = {}
+SEARCH_CACHE_LOCK = threading.Lock()
+SEARCH_CACHE_TTL_SECS = 1800
+SEARCH_CACHE_MAX_SESSIONS = 50
+SEARCH_MAX_FETCH_ATTEMPTS = 3
+
+
+def _get_search_session(query, reset=False):
+    now = time.time()
+    key = (query or '').strip().lower()
+    with SEARCH_CACHE_LOCK:
+        stale = [k for k, s in SEARCH_CACHE.items() if now - s['last_accessed'] > SEARCH_CACHE_TTL_SECS]
+        for k in stale:
+            del SEARCH_CACHE[k]
+
+        sess = SEARCH_CACHE.get(key)
+        if sess is None or reset:
+            if key not in SEARCH_CACHE and len(SEARCH_CACHE) >= SEARCH_CACHE_MAX_SESSIONS:
+                oldest = min(SEARCH_CACHE, key=lambda k: SEARCH_CACHE[k]['last_accessed'])
+                del SEARCH_CACHE[oldest]
+            sess = {
+                'entries': [],
+                'seen': set(),
+                'exhausted': False,
+                'lock': threading.Lock(),
+                'last_accessed': now
+            }
+            SEARCH_CACHE[key] = sess
+
+        sess['last_accessed'] = now
+        return sess
+
+
+def _run_search(query, lo, hi):
+    """Returns the flat entries for result positions lo..hi, or None on failure."""
+    ydl_opts = {
+        'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True,
+        'ignoreerrors': True, 'playlist_items': f'{lo}-{hi}'
+    }
+    apply_base_ydl_opts(ydl_opts)
+    try:
+        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
+            info = ydl.extract_info(f"ytsearch{hi}:{query}", download=False)
+    except Exception as e:
+        print(f"[Search] Failed for '{query}': {e}")
+        return None
+    if not info:
+        return None
+    return [e for e in (info.get('entries') or []) if e]
+
+
+def _search_page(query, page, per_page):
+    sess = _get_search_session(query, reset=(page == 1))
+    start = (page - 1) * per_page
+    end = page * per_page
+
+    with sess['lock']:
+        attempts = 0
+        while len(sess['entries']) < end and not sess['exhausted'] and attempts < SEARCH_MAX_FETCH_ATTEMPTS:
+            attempts += 1
+            have = len(sess['entries'])
+            # Over-fetch, and overlap the previous window by one page, so results
+            # that shifted slightly in YouTube's ranking are still picked up.
+            want = end + per_page * attempts
+            lo = max(1, have - per_page + 1)
+
+            raw = _run_search(query, lo, want)
+            if raw is None:
+                break
+
+            for e in raw:
+                vid = extract_video_id(e.get('id'), e.get('url'))
+                if not is_probable_video_id(vid) or vid in sess['seen']:
+                    continue
+                e['id'] = vid
+                sess['seen'].add(vid)
+                sess['entries'].append(e)
+
+            # YouTube returned fewer results than asked for: the search has run dry.
+            if len(raw) < (want - lo + 1):
+                sess['exhausted'] = True
+
+        # Copies, so per-request mutation (icons etc.) never touches the session.
+        return [dict(e) for e in sess['entries'][start:end]]
 
 
 def _maybe_auto_cache(entry):
@@ -405,17 +505,7 @@ def api_videos():
                         videos.append(e)
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=False)
     elif req_type == 'search' and query:
-        start = (page - 1) * per_page + 1
-        end = page * per_page
-        ydl_opts = {'extract_flat': 'in_playlist', 'quiet': True, 'no_warnings': True, 'ignoreerrors': True, 'playlist_items': f'{start}-{end}'}
-        apply_base_ydl_opts(ydl_opts)
-        with yt_dlp.YoutubeDL(ydl_opts) as ydl:
-            info = ydl.extract_info(f"ytsearch{end}:{query}", download=False)
-            if info: 
-                videos = info.get('entries', [])
-                for e in videos:
-                    clean_id = extract_video_id(e.get('id'), e.get('url'))
-                    if clean_id: e['id'] = clean_id
+        videos = _search_page(query, page, per_page)
         fetch_missing_icons(videos)
         return render_template('partials/video_cards.html', videos=videos, show_date=True, show_channel=True)
     elif req_type == 'suggested' and query:
