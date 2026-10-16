@@ -6,6 +6,7 @@ import concurrent.futures
 import os
 import glob
 import shutil
+import subprocess
 import uuid
 import zipfile
 import queue
@@ -78,6 +79,11 @@ FETCH_MAX_BYTES = 2000 * 1024 * 1024
 # Nothing sane runs this long; used to reap records whose worker died.
 FETCH_MAX_RUNTIME_SECS = 6 * 3600
 _FETCH_PARTIAL_SUFFIXES = ('.part', '.ytdl', '.temp', '.tmp')
+
+# Containers that may come back from a single-stream download without a usable
+# seek index (fragmented MP4 from DASH, MPEG-TS from HLS, MediaRecorder WebM).
+_REMUX_VIDEO_EXTS = {'.mp4', '.m4v', '.mov', '.ts', '.m2ts', '.mts', '.webm', '.mkv', '.flv'}
+FETCH_REMUX_TIMEOUT_SECS = 1800
 
 
 class FetchAborted(_YTDLPDownloadCancelled):
@@ -1338,6 +1344,87 @@ def _apply_extra_ydl_opts(ydl_opts, extra_opts):
     return ydl_opts
 
 
+def _run_ffmpeg_cancellable(cmd, task_id, timeout):
+    """Run ffmpeg, killing it if the user cancels the task or it runs too long."""
+    proc = subprocess.Popen(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
+    started = time.time()
+    while True:
+        try:
+            _, stderr = proc.communicate(timeout=1)
+            return proc.returncode, (stderr or b'').decode('utf-8', 'replace').strip()
+        except subprocess.TimeoutExpired:
+            task = FETCH_TASKS.get(task_id)
+            if not task or task.get('cancelled'):
+                proc.kill()
+                proc.communicate()
+                raise FetchAborted("Download cancelled.", cancelled=True)
+            if time.time() - started > timeout:
+                proc.kill()
+                proc.communicate()
+                return -1, "Remux timed out."
+
+
+def _make_seekable(task_id, src_path, ffmpeg_path):
+    """Losslessly remux a finished download so it carries a complete seek index.
+
+    Single-stream downloads keep whatever container the site served, and those
+    containers often can't be seeked: fragmented MP4 (moof boxes with no
+    sidx/mfra), raw MPEG-TS, or MediaRecorder WebM without Cues. Stream copy is
+    fast and lossless and rebuilds the index: a regular MP4 moov with full
+    sample tables moved to the front with +faststart, or Matroska Cues plus a
+    duration. MKV is the fallback when the codecs aren't allowed in MP4. If
+    every attempt fails, the original file is kept unchanged.
+    """
+    if not ffmpeg_path or not src_path or not os.path.isfile(src_path):
+        return src_path
+
+    base, ext = os.path.splitext(src_path)
+    ext = ext.lower()
+    if ext not in _REMUX_VIDEO_EXTS:
+        return src_path
+
+    if ext in ('.webm', '.mkv'):
+        attempts = [(ext, [])]
+    else:
+        attempts = [('.mp4', ['-movflags', '+faststart'])]
+    if attempts[0][0] != '.mkv':
+        attempts.append(('.mkv', []))
+
+    for target_ext, extra in attempts:
+        tmp_out = base + '.seekable' + target_ext
+        cmd = [
+            ffmpeg_path, '-hide_banner', '-loglevel', 'error', '-y',
+            # Regenerate missing timestamps (common in raw MPEG-TS).
+            '-fflags', '+genpts',
+            '-i', src_path,
+            # Video and audio only: TS data/ID3 streams and subtitle formats
+            # MP4 can't hold would make the mux fail.
+            '-map', '0:v?', '-map', '0:a?',
+            '-c', 'copy', '-dn',
+        ] + extra + [tmp_out]
+
+        code, err = _run_ffmpeg_cancellable(cmd, task_id, FETCH_REMUX_TIMEOUT_SECS)
+        if code == 0 and os.path.isfile(tmp_out) and os.path.getsize(tmp_out) > 0:
+            final_path = base + target_ext
+            os.replace(tmp_out, final_path)
+            if os.path.abspath(final_path) != os.path.abspath(src_path):
+                try:
+                    os.remove(src_path)
+                except OSError:
+                    pass
+            return final_path
+
+        try:
+            if os.path.exists(tmp_out):
+                os.remove(tmp_out)
+        except OSError:
+            pass
+        print(f"[Fetch] Remux to {target_ext} failed for {os.path.basename(src_path)}: {err}")
+
+    print(f"[Fetch] Keeping original container for {os.path.basename(src_path)}; seeking may not work.")
+    return src_path
+
+
 def start_fetch_analyze_task(url, proxy_url=None, impersonate='', extra_flags='', extra_opts=None):
     task_id = str(uuid.uuid4())
     now = time.time()
@@ -1573,6 +1660,11 @@ def _fetch_download_worker(task_id, url, dl_type, dl_format, proxy_url=None, ext
         file_path = _resolve_fetch_output(info, temp_dir)
         if not file_path:
             raise Exception("The download finished but the output file could not be located.")
+
+        # Single-stream downloads bypass the merger and keep the site's container,
+        # which is frequently unseekable. Rebuild the index losslessly.
+        if dl_type != 'audio':
+            file_path = _make_seekable(task_id, file_path, ffmpeg_path)
 
         now = time.time()
         _fetch_task_update(
