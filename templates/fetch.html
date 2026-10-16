@@ -3,6 +3,9 @@
 {% block content %}
 <link rel="stylesheet" href="/static/css/pages/fetch.css">
 
+{% set saved_impersonate = app_settings.fetch_impersonate | default('') %}
+{% set saved_extra_flags = app_settings.fetch_extra_flags | default('') %}
+
 <div class="fetch-dashboard">
     <div class="fetch-header-card">
         <h2 style="margin-top: 0;">Direct URL Download</h2>
@@ -17,28 +20,63 @@
             </div>
             
             <div class="proxy-toggle" onclick="document.getElementById('proxyContainer').classList.toggle('open')">
-                <svg class="ic" aria-hidden="true"><use href="#ic-settings"></use></svg> Advanced Proxy Settings
+                <svg class="ic" aria-hidden="true"><use href="#ic-settings"></use></svg> Advanced Options
+                <span class="toggle-badge" id="advancedBadge" style="display: none;"></span>
             </div>
             <div id="proxyContainer" class="proxy-container">
-                <label style="display: block; color: var(--text-muted); font-size: 0.85rem; margin-bottom: 8px;">Proxy Mode for this Download:</label>
-                <select id="fetchProxyMode" class="format-dropdown" style="margin-bottom: 10px;" data-saved="{{ app_settings.ydl_proxy_url | default('') }}" onchange="document.getElementById('customProxyWrap').style.display = this.value === 'custom' ? 'block' : 'none'">
-                    <option value="global" {% if app_settings.fetch_proxy_mode == 'global' or not app_settings.fetch_proxy_mode %}selected{% endif %}>
-                        Use Global App Settings 
-                        {% if app_settings.ydl_proxy_type != 'none' and app_settings.ydl_proxy_url %}
-                            (Active: {{ app_settings.ydl_proxy_url }})
-                        {% else %}
-                            (Active: Direct Connection)
+
+                <div class="option-section">
+                    <div class="option-title">Proxy</div>
+                    <label class="option-label">Proxy Mode for this Download:</label>
+                    <select id="fetchProxyMode" class="format-dropdown" style="margin-bottom: 10px;" data-saved="{{ app_settings.ydl_proxy_url | default('') }}" onchange="document.getElementById('customProxyWrap').style.display = this.value === 'custom' ? 'block' : 'none'">
+                        <option value="global" {% if app_settings.fetch_proxy_mode == 'global' or not app_settings.fetch_proxy_mode %}selected{% endif %}>
+                            Use Global App Settings 
+                            {% if app_settings.ydl_proxy_type != 'none' and app_settings.ydl_proxy_url %}
+                                (Active: {{ app_settings.ydl_proxy_url }})
+                            {% else %}
+                                (Active: Direct Connection)
+                            {% endif %}
+                        </option>
+                        {% if app_settings.ydl_proxy_url %}
+                        <option value="saved" {% if app_settings.fetch_proxy_mode == 'saved' %}selected{% endif %}>Force Saved Proxy ({{ app_settings.ydl_proxy_url }})</option>
                         {% endif %}
-                    </option>
-                    {% if app_settings.ydl_proxy_url %}
-                    <option value="saved" {% if app_settings.fetch_proxy_mode == 'saved' %}selected{% endif %}>Force Saved Proxy ({{ app_settings.ydl_proxy_url }})</option>
-                    {% endif %}
-                    <option value="none" {% if app_settings.fetch_proxy_mode == 'none' %}selected{% endif %}>Force Direct Connection (No Proxy)</option>
-                    <option value="custom" {% if app_settings.fetch_proxy_mode == 'custom' %}selected{% endif %}>Custom SOCKS5/HTTP Proxy...</option>
-                </select>
-                <div id="customProxyWrap" style="display: {{ 'block' if app_settings.fetch_proxy_mode == 'custom' else 'none' }};">
-                    <input type="text" id="customProxy" placeholder="socks5://user:pass@127.0.0.1:1080" value="{{ app_settings.fetch_custom_proxy | default('') }}">
+                        <option value="none" {% if app_settings.fetch_proxy_mode == 'none' %}selected{% endif %}>Force Direct Connection (No Proxy)</option>
+                        <option value="custom" {% if app_settings.fetch_proxy_mode == 'custom' %}selected{% endif %}>Custom SOCKS5/HTTP Proxy...</option>
+                    </select>
+                    <div id="customProxyWrap" style="display: {{ 'block' if app_settings.fetch_proxy_mode == 'custom' else 'none' }};">
+                        <input type="text" id="customProxy" placeholder="socks5://user:pass@127.0.0.1:1080" value="{{ app_settings.fetch_custom_proxy | default('') }}">
+                    </div>
                 </div>
+
+                <div class="option-section">
+                    <div class="option-title">Browser Impersonation</div>
+                    <select id="fetchImpersonate" class="format-dropdown" data-saved="{{ saved_impersonate }}">
+                        <option value="">Off</option>
+                        {% if saved_impersonate %}
+                        <option value="{{ saved_impersonate }}" selected>{{ saved_impersonate }}</option>
+                        {% endif %}
+                    </select>
+                    <p class="proxy-help" id="impersonateStatus" style="margin-top: 8px;">Checking impersonation support...</p>
+                </div>
+
+                <div class="option-section">
+                    <div class="option-title">Extra yt-dlp Flags</div>
+                    <input type="text" id="fetchExtraFlags" value="{{ saved_extra_flags }}"
+                           placeholder='--extractor-args "generic:impersonate" --limit-rate 5M'
+                           spellcheck="false" autocomplete="off" autocapitalize="off">
+                    <p class="proxy-help" style="margin-top: 8px;">
+                        Passed to yt-dlp exactly as on the command line, e.g.
+                        <code>--impersonate chrome</code>,
+                        <code>--extractor-args "generic:impersonate"</code>,
+                        <code>--add-header "Referer: https://example.com"</code>,
+                        <code>-S res:1080</code> or <code>--limit-rate 5M</code>.
+                        Flags typed here override the dropdown above. Options that run commands,
+                        touch files on the server, carry credentials, or override the format, proxy
+                        or output are refused.
+                    </p>
+                    <div id="flagsFeedback" class="flags-feedback" style="display: none;"></div>
+                </div>
+
             </div>
         </form>
     </div>
@@ -54,6 +92,7 @@
             <span class="card-title">...</span>
             <button class="card-close" title="Dismiss">&times;</button>
         </div>
+        <div class="card-flags" style="display: none;"></div>
         <div class="card-body">
             
             <div class="state-analyze" style="text-align: center; padding: 20px 0;">

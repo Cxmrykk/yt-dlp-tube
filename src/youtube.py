@@ -19,6 +19,7 @@ from storage import (
 )
 from config import CACHE_DIR
 from utils import extract_video_id, is_probable_video_id
+from ytdlp_support import find_deno
 
 try:
     # yt-dlp explicitly re-raises DownloadCancelled rather than swallowing it,
@@ -33,12 +34,7 @@ def apply_base_ydl_opts(ydl_opts):
     Dynamically finds Deno (checking PATH and ~/.deno/bin/deno) and explicitly configures 
     yt-dlp to use it. Also applies global proxy settings if configured.
     """
-    deno_path = shutil.which('deno')
-    if not deno_path:
-        home = os.path.expanduser("~")
-        possible_path = os.path.join(home, ".deno", "bin", "deno")
-        if os.path.exists(possible_path):
-            deno_path = possible_path
+    deno_path = find_deno()
     
     if deno_path:
         ydl_opts['js_runtimes'] = {'deno': {'path': deno_path}}
@@ -1311,7 +1307,38 @@ def _resolve_fetch_output(info, temp_dir):
     return None
 
 
-def start_fetch_analyze_task(url, proxy_url=None):
+def _apply_fetch_proxy(ydl_opts, proxy_url):
+    """Per-download proxy override from the Fetch page (None = use global)."""
+    if proxy_url is None:
+        return ydl_opts
+    if proxy_url.strip() == "":
+        ydl_opts.pop('proxy', None)
+        ydl_opts.pop('geo_verification_proxy', None)
+    else:
+        ydl_opts['proxy'] = proxy_url.strip()
+    return ydl_opts
+
+
+def _apply_extra_ydl_opts(ydl_opts, extra_opts):
+    """Layer the user's vetted flags (see ytdlp_support.parse_fetch_flags) on top.
+
+    Only allowlisted keys ever arrive here, none of which overlap with the
+    options the workers control (format, output template, hooks, ...).
+    Headers are merged rather than replaced so --add-header is additive.
+    """
+    if not extra_opts:
+        return ydl_opts
+    for key, value in extra_opts.items():
+        if key == 'http_headers' and isinstance(value, dict):
+            merged = dict(ydl_opts.get('http_headers') or {})
+            merged.update(value)
+            ydl_opts['http_headers'] = merged
+        else:
+            ydl_opts[key] = value
+    return ydl_opts
+
+
+def start_fetch_analyze_task(url, proxy_url=None, impersonate='', extra_flags='', extra_opts=None):
     task_id = str(uuid.uuid4())
     now = time.time()
     with FETCH_LOCK:
@@ -1321,17 +1348,23 @@ def start_fetch_analyze_task(url, proxy_url=None):
             'url': url,
             'title': url,
             'proxy_url': proxy_url,
+            'impersonate': impersonate or '',
+            'extra_flags': extra_flags or '',
             'result': None,
             'error': None,
             'cancelled': False,
             'started_at': now,
             'last_accessed': now
         }
-    threading.Thread(target=_fetch_analyze_worker, args=(task_id, url, proxy_url), daemon=True).start()
+    threading.Thread(
+        target=_fetch_analyze_worker,
+        args=(task_id, url, proxy_url, extra_opts),
+        daemon=True
+    ).start()
     return task_id
 
 
-def _fetch_analyze_worker(task_id, url, proxy_url=None):
+def _fetch_analyze_worker(task_id, url, proxy_url=None, extra_opts=None):
     ydl_opts = {
         'quiet': True,
         'no_warnings': True,
@@ -1346,13 +1379,8 @@ def _fetch_analyze_worker(task_id, url, proxy_url=None):
         'logger': YTDLPLogger()
     }
     apply_base_ydl_opts(ydl_opts)
-    
-    if proxy_url is not None:
-        if proxy_url.strip() == "":
-            ydl_opts.pop('proxy', None)
-            ydl_opts.pop('geo_verification_proxy', None)
-        else:
-            ydl_opts['proxy'] = proxy_url.strip()
+    _apply_fetch_proxy(ydl_opts, proxy_url)
+    _apply_extra_ydl_opts(ydl_opts, extra_opts)
 
     try:
         with yt_dlp.YoutubeDL(ydl_opts) as ydl:
@@ -1417,7 +1445,8 @@ def _fetch_analyze_worker(task_id, url, proxy_url=None):
                            reap_at=time.time() + FETCH_TASK_TTL_SECS)
 
 
-def start_fetch_download_task(url, dl_type, dl_format, proxy_url=None, title=None):
+def start_fetch_download_task(url, dl_type, dl_format, proxy_url=None, title=None,
+                              impersonate='', extra_flags='', extra_opts=None):
     task_id = str(uuid.uuid4())
     now = time.time()
     with FETCH_LOCK:
@@ -1427,6 +1456,8 @@ def start_fetch_download_task(url, dl_type, dl_format, proxy_url=None, title=Non
             'url': url,
             'title': title or url,
             'proxy_url': proxy_url,
+            'impersonate': impersonate or '',
+            'extra_flags': extra_flags or '',
             'progress': 0.0,
             'error': None,
             'file_path': None,
@@ -1434,7 +1465,11 @@ def start_fetch_download_task(url, dl_type, dl_format, proxy_url=None, title=Non
             'started_at': now,
             'last_accessed': now
         }
-    threading.Thread(target=_fetch_download_worker, args=(task_id, url, dl_type, dl_format, proxy_url), daemon=True).start()
+    threading.Thread(
+        target=_fetch_download_worker,
+        args=(task_id, url, dl_type, dl_format, proxy_url, extra_opts),
+        daemon=True
+    ).start()
     return task_id
 
 
@@ -1450,7 +1485,7 @@ def cancel_fetch_task(task_id):
                            reap_at=time.time() + 60)
 
 
-def _fetch_download_worker(task_id, url, dl_type, dl_format, proxy_url=None):
+def _fetch_download_worker(task_id, url, dl_type, dl_format, proxy_url=None, extra_opts=None):
     temp_dir = _fetch_dir(task_id)
     os.makedirs(temp_dir, exist_ok=True)
     ffmpeg_path = shutil.which('ffmpeg')
@@ -1499,13 +1534,8 @@ def _fetch_download_worker(task_id, url, dl_type, dl_format, proxy_url=None):
     if ffmpeg_path:
         ydl_opts['ffmpeg_location'] = ffmpeg_path
     apply_base_ydl_opts(ydl_opts)
-    
-    if proxy_url is not None:
-        if proxy_url.strip() == "":
-            ydl_opts.pop('proxy', None)
-            ydl_opts.pop('geo_verification_proxy', None)
-        else:
-            ydl_opts['proxy'] = proxy_url.strip()
+    _apply_fetch_proxy(ydl_opts, proxy_url)
+    _apply_extra_ydl_opts(ydl_opts, extra_opts)
 
     if dl_type == 'audio':
         ydl_opts['format'] = 'bestaudio/best'

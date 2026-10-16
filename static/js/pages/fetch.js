@@ -3,15 +3,64 @@
 
     const FILE_TTL_SECS = 600;
     const POLL_MS = 1500;
+    const FLAG_CHECK_DEBOUNCE_MS = 500;
+
+    let flagCheckTimer = null;
+    let flagCheckSeq = 0;
+
+    // ------------------------------------------------------------------
+    // Flag helpers
+    // ------------------------------------------------------------------
+
+    function readFlagInputs() {
+        const sel = document.getElementById('fetchImpersonate');
+        const inp = document.getElementById('fetchExtraFlags');
+        return {
+            impersonate: sel ? (sel.value || '').trim() : '',
+            extraFlags: inp ? (inp.value || '').trim() : ''
+        };
+    }
+
+    function hasFlags(flags) {
+        return !!(flags && (flags.impersonate || flags.extraFlags));
+    }
+
+    function flagChips(flags) {
+        const chips = [];
+        if (!flags) return chips;
+        if (flags.impersonate) chips.push('--impersonate ' + flags.impersonate);
+        if (flags.extraFlags) chips.push(flags.extraFlags);
+        return chips;
+    }
+
+    function addOption(parent, value, label) {
+        const opt = document.createElement('option');
+        opt.value = value;
+        opt.textContent = label;
+        parent.appendChild(opt);
+        return opt;
+    }
+
+    function capitalize(s) {
+        return s ? s.charAt(0).toUpperCase() + s.slice(1) : s;
+    }
+
+    // ------------------------------------------------------------------
+    // Fetch job card
+    // ------------------------------------------------------------------
 
     class FetchJob {
-        constructor(url, proxyUrl, proxyMode, customProxy, existingData = null) {
+        constructor(url, proxyUrl, proxyMode, customProxy, flags = null, existingData = null) {
             if (existingData) {
                 this.id = 'job_' + Math.random().toString(36).substr(2, 9);
                 this.url = existingData.url;
                 this.proxyUrl = existingData.proxy_url;
                 this.proxyMode = null;
                 this.customProxy = null;
+                this.flags = {
+                    impersonate: existingData.impersonate || '',
+                    extraFlags: existingData.extra_flags || ''
+                };
                 this.taskId = existingData.taskId;
                 this.state = 'analyze';
 
@@ -28,6 +77,10 @@
                 this.proxyUrl = proxyUrl;
                 this.proxyMode = proxyMode;
                 this.customProxy = customProxy;
+                this.flags = {
+                    impersonate: (flags && flags.impersonate) || '',
+                    extraFlags: (flags && flags.extraFlags) || ''
+                };
                 this.taskId = null;
                 this.state = 'analyze';
 
@@ -46,6 +99,7 @@
             this.ui = {
                 title: this.el.querySelector('.card-title'),
                 closeBtn: this.el.querySelector('.card-close'),
+                flags: this.el.querySelector('.card-flags'),
                 
                 stateAnalyze: this.el.querySelector('.state-analyze'),
                 stateSelect: this.el.querySelector('.state-select'),
@@ -65,6 +119,7 @@
             };
 
             this.ui.title.textContent = this.url;
+            this.renderFlags();
             
             this.ui.closeBtn.onclick = () => this.dismiss();
             this.ui.startBtn.onclick = () => this.startDownload();
@@ -72,6 +127,32 @@
             this.ui.saveBtn.onclick = () => this.saveToDevice();
 
             document.getElementById('fetch-queue').prepend(this.el);
+        }
+
+        renderFlags() {
+            const box = this.ui.flags;
+            if (!box) return;
+            box.innerHTML = '';
+            const chips = flagChips(this.flags);
+            if (chips.length === 0) {
+                box.style.display = 'none';
+                return;
+            }
+            chips.forEach(text => {
+                const chip = document.createElement('span');
+                chip.className = 'flag-chip';
+                chip.textContent = text;
+                chip.title = text;
+                box.appendChild(chip);
+            });
+            box.style.display = 'flex';
+        }
+
+        flagPayload() {
+            return {
+                impersonate: this.flags.impersonate || '',
+                extra_flags: this.flags.extraFlags || ''
+            };
         }
 
         switchState(stateName) {
@@ -105,7 +186,8 @@
                         url: this.url, 
                         proxy_url: this.proxyUrl,
                         proxy_mode: this.proxyMode,
-                        custom_proxy: this.customProxy
+                        custom_proxy: this.customProxy,
+                        ...this.flagPayload()
                     })
                 });
                 const data = await r.json();
@@ -170,7 +252,8 @@
                         proxy_mode: this.proxyMode,
                         custom_proxy: this.customProxy,
                         title: this.ui.title.textContent,
-                        analyze_task_id: prevTaskId
+                        analyze_task_id: prevTaskId,
+                        ...this.flagPayload()
                     })
                 });
                 const data = await r.json();
@@ -359,12 +442,176 @@
 
     const FetchManager = new FetchManagerClass();
 
-    window.handleFetchSubmit = function(e) {
+    // ------------------------------------------------------------------
+    // Advanced options panel: impersonation + extra flags
+    // ------------------------------------------------------------------
+
+    function updateAdvancedBadge() {
+        const badge = document.getElementById('advancedBadge');
+        if (!badge) return;
+        const flags = readFlagInputs();
+        const parts = [];
+        if (flags.impersonate) parts.push('Impersonating ' + flags.impersonate);
+        if (flags.extraFlags) parts.push('Custom flags');
+        if (parts.length) {
+            badge.textContent = parts.join(' · ');
+            badge.style.display = 'inline-block';
+        } else {
+            badge.style.display = 'none';
+        }
+    }
+
+    function showFlagsFeedback(result) {
+        const box = document.getElementById('flagsFeedback');
+        if (!box) return;
+        box.innerHTML = '';
+        box.classList.remove('ok', 'err');
+
+        if (!result) {
+            box.style.display = 'none';
+            return;
+        }
+        box.style.display = 'block';
+
+        if (result.ok) {
+            box.classList.add('ok');
+            const applied = result.applied || [];
+            const head = document.createElement('div');
+            head.textContent = applied.length
+                ? 'These yt-dlp options will be applied:'
+                : 'These flags don\'t change any options.';
+            box.appendChild(head);
+
+            if (applied.length) {
+                const ul = document.createElement('ul');
+                applied.forEach(item => {
+                    const li = document.createElement('li');
+                    const key = document.createElement('code');
+                    key.textContent = item.key;
+                    li.appendChild(key);
+                    li.appendChild(document.createTextNode(' = ' + item.value));
+                    ul.appendChild(li);
+                });
+                box.appendChild(ul);
+            }
+        } else {
+            box.classList.add('err');
+            box.textContent = result.error || 'These flags were rejected.';
+        }
+    }
+
+    async function checkFlags(flags) {
+        const seq = ++flagCheckSeq;
+        if (!hasFlags(flags)) {
+            showFlagsFeedback(null);
+            return { ok: true, applied: [] };
+        }
+
+        let result;
+        try {
+            const r = await window.appFetch('/api/fetch/validate_flags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                    impersonate: flags.impersonate,
+                    extra_flags: flags.extraFlags
+                })
+            });
+            result = await r.json();
+        } catch (err) {
+            if (err.name === 'AbortError') throw err;
+            result = { ok: false, error: 'Could not check the flags (network error).' };
+        }
+
+        // Ignore answers to checks that have since been superseded.
+        if (seq === flagCheckSeq) showFlagsFeedback(result);
+        return result;
+    }
+
+    function scheduleFlagCheck() {
+        updateAdvancedBadge();
+        clearTimeout(flagCheckTimer);
+        flagCheckTimer = setTimeout(() => {
+            checkFlags(readFlagInputs()).catch(() => {});
+        }, FLAG_CHECK_DEBOUNCE_MS);
+    }
+
+    async function loadCapabilities() {
+        const sel = document.getElementById('fetchImpersonate');
+        const status = document.getElementById('impersonateStatus');
+        if (!sel) return;
+
+        const saved = sel.getAttribute('data-saved') || '';
+
+        try {
+            const r = await window.appFetch('/api/fetch/capabilities');
+            const caps = await r.json();
+            const imp = caps.impersonation || {};
+            const current = sel.value || saved;
+
+            sel.innerHTML = '';
+            addOption(sel, '', 'Off');
+
+            const clients = imp.clients || [];
+            if (clients.length) {
+                const group = document.createElement('optgroup');
+                group.label = 'Browser (any version)';
+                clients.forEach(c => addOption(group, c, capitalize(c)));
+                sel.appendChild(group);
+            }
+
+            const targets = imp.targets || [];
+            if (targets.length) {
+                const group = document.createElement('optgroup');
+                group.label = 'Specific targets';
+                targets.forEach(t => addOption(group, t, t));
+                sel.appendChild(group);
+            }
+
+            if (current && !Array.from(sel.options).some(o => o.value === current)) {
+                addOption(sel, current, current + ' (unavailable)');
+            }
+            sel.value = current;
+
+            if (status) {
+                let msg = imp.message || '';
+                if (caps.ffmpeg === false) {
+                    msg += ' ffmpeg was not found, so merging formats and audio extraction won\'t work.';
+                }
+                status.textContent = msg.trim();
+                status.classList.toggle('warn', !imp.available || caps.ffmpeg === false);
+            }
+        } catch (err) {
+            if (err.name === 'AbortError') return;
+            if (status) {
+                status.textContent = 'Could not check impersonation support on the server.';
+                status.classList.add('warn');
+            }
+        }
+
+        updateAdvancedBadge();
+        const flags = readFlagInputs();
+        if (hasFlags(flags)) checkFlags(flags).catch(() => {});
+    }
+
+    function bindFlagInputs() {
+        const sel = document.getElementById('fetchImpersonate');
+        const inp = document.getElementById('fetchExtraFlags');
+        if (sel) sel.addEventListener('change', scheduleFlagCheck);
+        if (inp) inp.addEventListener('input', scheduleFlagCheck);
+    }
+
+    // ------------------------------------------------------------------
+    // Form submission
+    // ------------------------------------------------------------------
+
+    window.handleFetchSubmit = async function(e) {
         if (e && e.preventDefault) e.preventDefault();
         
         const urlInput = document.getElementById('fetchUrl');
         const proxyModeSel = document.getElementById('fetchProxyMode');
         const proxyInput = document.getElementById('customProxy');
+        const analyzeBtn = document.getElementById('fetchAnalyzeBtn');
         
         const url = (urlInput.value || '').trim();
         if (!/^https?:\/\//i.test(url)) {
@@ -387,7 +634,40 @@
             }
         }
 
-        new FetchJob(url, proxyUrl, proxyMode, customProxy);
+        // Flags apply whether or not the panel is open; the badge on the toggle
+        // makes it obvious when they're active.
+        const flags = readFlagInputs();
+        if (hasFlags(flags)) {
+            const origText = analyzeBtn ? analyzeBtn.textContent : '';
+            if (analyzeBtn) {
+                analyzeBtn.disabled = true;
+                analyzeBtn.textContent = 'Checking flags...';
+            }
+
+            let result;
+            try {
+                clearTimeout(flagCheckTimer);
+                result = await checkFlags(flags);
+            } catch (err) {
+                if (err.name === 'AbortError') return false;
+                result = { ok: false, error: 'Could not check the flags.' };
+                showFlagsFeedback(result);
+            } finally {
+                if (analyzeBtn) {
+                    analyzeBtn.disabled = false;
+                    analyzeBtn.textContent = origText;
+                }
+            }
+
+            if (!result || !result.ok) {
+                if (container) container.classList.add('open');
+                const inp = document.getElementById('fetchExtraFlags');
+                if (inp) inp.focus();
+                return false;
+            }
+        }
+
+        new FetchJob(url, proxyUrl, proxyMode, customProxy, flags);
         urlInput.value = '';
         return false;
     };
@@ -405,16 +685,20 @@
             taskArray.sort((a, b) => (a.started_at || 0) - (b.started_at || 0));
             
             for (const data of taskArray) {
-                new FetchJob(null, null, null, null, data);
+                new FetchJob(null, null, null, null, null, data);
             }
         } catch(e) {
             if (e.name !== 'AbortError') console.error("Failed to hydrate fetch queue", e);
         }
     }
     
+    bindFlagInputs();
+    updateAdvancedBadge();
+    loadCapabilities();
     hydrateFetchQueue();
 
     window.pageTeardown = function() {
+        clearTimeout(flagCheckTimer);
         FetchManager.destroy();
     };
 

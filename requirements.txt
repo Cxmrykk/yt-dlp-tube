@@ -1,5 +1,11 @@
 --pre
 flask
-yt-dlp[default,curl-cffi]
 requests
 
+# yt-dlp plus its optional extras:
+#   default    -> the recommended runtime extras (brotli, certifi, websockets, etc.)
+#   curl-cffi  -> curl_cffi, the TLS/HTTP2 fingerprinting backend behind --impersonate.
+#                 The extra pins a curl_cffi range this yt-dlp build supports; a
+#                 curl_cffi outside that range is silently ignored by yt-dlp, which
+#                 is why the app reports the exact reason at startup.
+yt-dlp[default,curl-cffi]

@@ -17,6 +17,7 @@ from api import api_bp
 from views import views_bp
 from filters import register_filters
 from youtube import bg_worker_loop, start_cache_workers
+from ytdlp_support import log_dependency_report
 
 # Define root directory to find templates and static assets
 ROOT_DIR = os.path.dirname(src_dir)
@@ -43,6 +44,8 @@ register_filters(app)
 if os.environ.get('WERKZEUG_RUN_MAIN') == 'true' or not app.debug:
     start_cache_workers()
     threading.Thread(target=bg_worker_loop, args=(app,), daemon=True).start()
+    # Report ffmpeg / deno / curl_cffi (impersonation) status once at boot.
+    threading.Thread(target=log_dependency_report, daemon=True).start()
 
 if __name__ == '__main__':
     app.run(debug=True, host='0.0.0.0', port=5000, threaded=True)

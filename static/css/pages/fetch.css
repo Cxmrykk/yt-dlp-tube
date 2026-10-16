@@ -33,6 +33,11 @@
     border-color: #666;
 }
 
+.fetch-header-card #fetchExtraFlags {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.9rem;
+}
+
 .proxy-toggle {
     display: inline-flex;
     align-items: center;
@@ -44,10 +49,21 @@
     margin-top: 15px;
     user-select: none;
     transition: color 0.2s;
+    flex-wrap: wrap;
 }
 
 .proxy-toggle:hover {
     color: white;
+}
+
+.toggle-badge {
+    background: rgba(74, 144, 226, 0.15);
+    color: #4a90e2;
+    border: 1px solid rgba(74, 144, 226, 0.4);
+    border-radius: 10px;
+    padding: 1px 8px;
+    font-size: 0.75rem;
+    font-weight: bold;
 }
 
 .proxy-container {
@@ -64,11 +80,73 @@
     animation: slideDown 0.3s ease-out forwards;
 }
 
+.option-section + .option-section {
+    margin-top: 18px;
+    padding-top: 15px;
+    border-top: 1px solid #333;
+}
+
+.option-title {
+    color: white;
+    font-weight: bold;
+    font-size: 0.9rem;
+    margin-bottom: 8px;
+}
+
+.option-label {
+    display: block;
+    color: var(--text-muted);
+    font-size: 0.85rem;
+    margin-bottom: 8px;
+}
+
 .proxy-help {
     color: #aaa;
     font-size: 0.85rem;
     margin-top: 0;
     margin-bottom: 10px;
+    line-height: 1.5;
+}
+
+.proxy-help.warn {
+    color: #f39c12;
+}
+
+.proxy-help code,
+.flags-feedback code {
+    background: #111;
+    border: 1px solid #333;
+    border-radius: 4px;
+    padding: 1px 5px;
+    font-size: 0.8rem;
+    color: #ddd;
+    white-space: nowrap;
+}
+
+.flags-feedback {
+    margin-top: 10px;
+    padding: 10px 12px;
+    border-radius: 6px;
+    font-size: 0.85rem;
+    line-height: 1.5;
+    word-break: break-word;
+}
+
+.flags-feedback.ok {
+    color: #b8f5b8;
+    background: rgba(74, 255, 74, 0.07);
+    border: 1px solid rgba(74, 255, 74, 0.25);
+}
+
+.flags-feedback.err {
+    color: #ff4a4a;
+    background: rgba(255, 74, 74, 0.1);
+    border: 1px solid rgba(255, 74, 74, 0.3);
+}
+
+.flags-feedback ul {
+    margin: 6px 0 0 0;
+    padding-left: 18px;
 }
 
 /* Job Queue */
@@ -128,6 +206,29 @@
 
 .card-close:hover {
     color: #ff4a4a;
+}
+
+.card-flags {
+    flex-wrap: wrap;
+    gap: 6px;
+    padding: 8px 15px;
+    background: #1e1e1e;
+    border-bottom: 1px solid #333;
+}
+
+.flag-chip {
+    font-family: 'Courier New', Courier, monospace;
+    font-size: 0.75rem;
+    background: #111;
+    border: 1px solid #444;
+    color: #ccc;
+    border-radius: 4px;
+    padding: 2px 6px;
+    max-width: 100%;
+    box-sizing: border-box;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
 }
 
 .card-body {

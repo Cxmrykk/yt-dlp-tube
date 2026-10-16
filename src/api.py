@@ -19,6 +19,9 @@ from youtube import (
     start_fetch_analyze_task, start_fetch_download_task, cancel_fetch_task, FETCH_TASKS,
     get_channel_tab_url
 )
+from ytdlp_support import (
+    parse_fetch_flags, describe_opts, FlagError, dependency_report
+)
 from utils import format_views_str, time_ago_str, linkify_text, extract_video_id, is_probable_video_id
 
 api_bp = Blueprint('api', __name__)
@@ -759,6 +762,54 @@ def bulk_download():
 
 # --- DIRECT URL FETCH API ---
 
+_FETCH_PROXY_MODES = ('global', 'saved', 'none', 'custom')
+
+
+def _read_fetch_flags(data):
+    """Pull the user's flag inputs out of a request body and vet them.
+
+    Raises FlagError with a user-facing message if they're not acceptable.
+    """
+    impersonate = (data.get('impersonate') or '').strip()
+    extra_flags = (data.get('extra_flags') or '').strip()
+    extra_opts = parse_fetch_flags(impersonate, extra_flags)
+    return impersonate, extra_flags, extra_opts
+
+
+def _remember_fetch_prefs(proxy_mode, custom_proxy, impersonate, extra_flags):
+    """Persist the form state. Only requests that came from the form carry a
+    proxy_mode; jobs restored after a reload don't, so they never overwrite
+    what's currently in the panel."""
+    if proxy_mode not in _FETCH_PROXY_MODES:
+        return
+    settings = get_settings()
+    settings['fetch_proxy_mode'] = proxy_mode
+    settings['fetch_custom_proxy'] = custom_proxy or ''
+    settings['fetch_impersonate'] = impersonate or ''
+    settings['fetch_extra_flags'] = extra_flags or ''
+    save_settings(settings)
+
+
+@api_bp.route('/api/fetch/capabilities', methods=['GET'])
+def fetch_capabilities():
+    refresh = request.args.get('refresh') == '1'
+    report = dependency_report(refresh=refresh)
+    return jsonify({
+        'yt_dlp_version': report['yt_dlp_version'],
+        'ffmpeg': bool(report['ffmpeg']),
+        'deno': bool(report['deno']),
+        'impersonation': report['impersonation']
+    })
+
+@api_bp.route('/api/fetch/validate_flags', methods=['POST'])
+def fetch_validate_flags():
+    data = request.get_json(silent=True) or {}
+    try:
+        _, _, extra_opts = _read_fetch_flags(data)
+    except FlagError as e:
+        return jsonify({'ok': False, 'error': str(e)})
+    return jsonify({'ok': True, 'applied': describe_opts(extra_opts)})
+
 @api_bp.route('/api/fetch/list', methods=['GET'])
 def fetch_list():
     results = {}
@@ -777,6 +828,8 @@ def fetch_list():
             'url': task.get('url'),
             'title': task.get('title'),
             'proxy_url': task.get('proxy_url'),
+            'impersonate': task.get('impersonate', ''),
+            'extra_flags': task.get('extra_flags', ''),
             'progress': task.get('progress', 0.0),
             'error': task.get('error'),
             'result': task.get('result'),
@@ -787,7 +840,7 @@ def fetch_list():
 
 @api_bp.route('/api/fetch/analyze', methods=['POST'])
 def fetch_analyze():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     url = data.get('url')
     proxy_url = data.get('proxy_url')
     proxy_mode = data.get('proxy_mode')
@@ -795,19 +848,23 @@ def fetch_analyze():
     
     if not url:
         return jsonify({'error': 'No URL provided'}), 400
-        
-    if proxy_mode in ['global', 'saved', 'none', 'custom']:
-        settings = get_settings()
-        settings['fetch_proxy_mode'] = proxy_mode
-        settings['fetch_custom_proxy'] = custom_proxy or ''
-        save_settings(settings)
-        
-    task_id = start_fetch_analyze_task(url, proxy_url)
+
+    try:
+        impersonate, extra_flags, extra_opts = _read_fetch_flags(data)
+    except FlagError as e:
+        return jsonify({'error': str(e)}), 400
+
+    _remember_fetch_prefs(proxy_mode, custom_proxy, impersonate, extra_flags)
+
+    task_id = start_fetch_analyze_task(
+        url, proxy_url,
+        impersonate=impersonate, extra_flags=extra_flags, extra_opts=extra_opts
+    )
     return jsonify({'task_id': task_id})
 
 @api_bp.route('/api/fetch/start', methods=['POST'])
 def fetch_start():
-    data = request.get_json()
+    data = request.get_json(silent=True) or {}
     url = data.get('url')
     dl_type = data.get('dl_type')
     dl_format = data.get('dl_format')
@@ -819,17 +876,21 @@ def fetch_start():
     
     if not url or not dl_type or not dl_format:
         return jsonify({'error': 'Missing parameters'}), 400
-        
-    if proxy_mode in ['global', 'saved', 'none', 'custom']:
-        settings = get_settings()
-        settings['fetch_proxy_mode'] = proxy_mode
-        settings['fetch_custom_proxy'] = custom_proxy or ''
-        save_settings(settings)
-        
+
+    try:
+        impersonate, extra_flags, extra_opts = _read_fetch_flags(data)
+    except FlagError as e:
+        return jsonify({'error': str(e)}), 400
+
+    _remember_fetch_prefs(proxy_mode, custom_proxy, impersonate, extra_flags)
+
     if analyze_task_id:
         cancel_fetch_task(analyze_task_id)
         
-    task_id = start_fetch_download_task(url, dl_type, dl_format, proxy_url, title=title)
+    task_id = start_fetch_download_task(
+        url, dl_type, dl_format, proxy_url, title=title,
+        impersonate=impersonate, extra_flags=extra_flags, extra_opts=extra_opts
+    )
     return jsonify({'task_id': task_id})
 
 @api_bp.route('/api/fetch/status_batch', methods=['POST'])
