@@ -1,0 +1,30 @@
+<div class="add-form">
+    <h3>Quality</h3>
+    <label class="field-label" for="pref-res">Preferred Resolution:</label>
+    <select id="pref-res" onchange="localStorage.setItem('prefRes', this.value)" style="cursor: pointer; outline: none;">
+        <option value="auto">Auto (Detect by Screen Size)</option>
+        <option value="2160">2160p (4K)</option>
+        <option value="1440">1440p (2K)</option>
+        <option value="1080">1080p</option>
+        <option value="720">720p</option>
+        <option value="480">480p</option>
+        <option value="360">360p</option>
+    </select>
+    <p class="form-help" style="margin-top: -5px;">Stored in this browser only and applied immediately, so each device can have its own preference.</p>
+    <script>
+        document.getElementById('pref-res').value = localStorage.getItem('prefRes') || 'auto';
+    </script>
+</div>
+
+<div class="add-form">
+    <h3>Controls</h3>
+    <form action="/settings/playback" method="POST">
+        <input type="hidden" name="action" value="update_settings">
+
+        <label class="field-label" for="set-overlay">Controls Overlay Timeout (ms):</label>
+        <input type="number" id="set-overlay" name="overlay_timeout_ms" value="{{ app_settings.overlay_timeout_ms | default(500) }}" min="100" max="10000" required>
+        <p class="form-help">How long the player controls stay visible after the mouse stops moving.</p>
+
+        <button type="submit" class="btn btn-danger">Save Playback Settings</button>
+    </form>
+</div>

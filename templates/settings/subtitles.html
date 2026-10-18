@@ -1,0 +1,65 @@
+<div class="add-form">
+    <h3>Default Caption Style</h3>
+    <form action="/settings/subtitles" method="POST">
+        <input type="hidden" name="action" value="update_cc_settings">
+
+        <label class="field-label">Vertical Offset (% from bottom):</label>
+        <input type="number" name="cc_v_offset" value="{{ app_settings.cc_v_offset }}" min="0" max="100" step="1" required>
+
+        <label class="field-label">Scale (e.g. 1.15):</label>
+        <input type="number" name="cc_scale" value="{{ app_settings.cc_scale }}" min="0.5" max="3" step="0.05" required>
+
+        <label class="field-label">Background Opacity (0 to 1):</label>
+        <input type="number" name="cc_bg_op" value="{{ app_settings.cc_bg_op }}" min="0" max="1" step="0.05" required>
+
+        <label class="field-label">Font Family:</label>
+        <select name="cc_font">
+            {% for font in app_settings.cc_custom_fonts %}
+            <option value="{{ font.value }}" {% if app_settings.cc_font == font.value %}selected{% endif %}>{{ font.name }}</option>
+            {% endfor %}
+        </select>
+
+        <label class="field-label">Font Color:</label>
+        <input type="color" name="cc_color" value="{{ app_settings.cc_color }}">
+
+        <label class="field-label">Background Color:</label>
+        <input type="color" name="cc_bg" value="{{ app_settings.cc_bg }}">
+
+        <button type="submit" class="btn btn-danger" style="margin-top: 10px;">Save Subtitle Settings</button>
+    </form>
+</div>
+
+<div class="add-form">
+    <h3 style="margin-bottom: 15px;">Custom Fonts</h3>
+    <ul class="sub-list" style="margin-bottom: 20px;">
+        {% for font in app_settings.cc_custom_fonts %}
+        <li class="sub-item" style="padding: 10px 15px; background: #222;">
+            <div style="min-width: 0;">
+                <strong style="font-family: {{ font.value }};">{{ font.name }}</strong><br>
+                <span style="font-size: 0.8rem; color: var(--text-muted);">{{ font.value }}</span>
+            </div>
+            <form action="/settings/subtitles" method="POST" style="margin: 0;">
+                <input type="hidden" name="action" value="delete_font">
+                <input type="hidden" name="font_index" value="{{ loop.index0 }}">
+                <button type="submit" class="btn" {% if app_settings.cc_custom_fonts|length <= 1 %}disabled{% endif %}>Delete</button>
+            </form>
+        </li>
+        {% endfor %}
+    </ul>
+
+    <form action="/settings/subtitles" method="POST" class="font-add-row">
+        <input type="hidden" name="action" value="add_font">
+        <input type="text" name="font_name" placeholder="Font Name (e.g. Open Sans)" required style="flex: 1; margin: 0;">
+        <input type="text" name="font_value" placeholder="CSS Value (e.g. 'Open Sans', sans-serif)" required style="flex: 2; margin: 0;">
+        <button type="submit" class="btn btn-danger">Add Font</button>
+    </form>
+
+    <div style="display: flex; gap: 10px;">
+        <form id="importFontsForm" action="/settings/subtitles" method="POST" enctype="multipart/form-data" data-no-pjax="true" style="margin: 0;">
+            <input type="hidden" name="action" value="import_fonts">
+            <input type="file" id="import_fonts_file" name="import_file" accept=".json" style="display: none;"
+                   onchange="if(this.value) { this.form.submit(); }">
+            <button type="button" class="btn" onclick="document.getElementById('import_fonts_file').click();">Import Fonts JSON</button>
+        </form>
+    </div>
+</div>

@@ -1,21 +1,68 @@
 import time
 import json
+import platform
 import concurrent.futures
 import threading
-from urllib.parse import urlparse
-from flask import Blueprint, render_template, request, redirect, url_for, session, Response
+from flask import Blueprint, render_template, request, redirect, url_for, Response, current_app
 
 from storage import (
     get_history, save_history, get_subs, save_subs, get_settings, save_settings,
-    get_cache_manifest
+    get_cache_manifest, DEFAULT_SETTINGS
 )
 from youtube import (
     feed_cache, fetch_channel_info, purge_channel_from_feed,
     update_feed_now, mark_channel_seen, get_new_channel_urls,
     reset_feed_baseline
 )
+from logbuffer import get_log_buffer, PROCESS_STARTED
+from ytdlp_support import dependency_report
+from utils import time_ago_str
 
 views_bp = Blueprint('views', __name__)
+
+
+# ----------------------------------------------------------------------
+# Settings categories (also rendered in the sidebar via filters.py)
+# ----------------------------------------------------------------------
+
+SETTINGS_CATEGORIES = [
+    {'id': 'interface', 'label': 'Interface', 'icon': 'tune',
+     'description': 'How lists and pages are laid out.'},
+    {'id': 'feed', 'label': 'Home Feed', 'icon': 'rss',
+     'description': 'How often subscriptions are polled and how long new uploads stay in the feed.'},
+    {'id': 'subscriptions', 'label': 'Subscriptions', 'icon': 'subscriptions',
+     'description': 'Channels you follow. Channels with unseen uploads are marked with a dot.'},
+    {'id': 'playback', 'label': 'Playback', 'icon': 'play-circle',
+     'description': 'Player defaults for quality and on-screen controls.'},
+    {'id': 'shortcuts', 'label': 'Shortcuts', 'icon': 'keyboard',
+     'description': 'Keyboard controls for the video player.'},
+    {'id': 'subtitles', 'label': 'Subtitles', 'icon': 'cc-outline',
+     'description': 'Default caption style and the fonts offered in the player.'},
+    {'id': 'sponsorblock', 'label': 'SponsorBlock', 'icon': 'shield',
+     'description': 'Community-sourced segment skipping.'},
+    {'id': 'cache', 'label': 'Cache', 'icon': 'storage',
+     'description': 'Server-side video cache limits and automatic caching.'},
+    {'id': 'network', 'label': 'Network', 'icon': 'globe',
+     'description': 'Proxy used by yt-dlp for extraction and downloads.'},
+    {'id': 'logs', 'label': 'Logs', 'icon': 'terminal',
+     'description': 'Live server output and diagnostics for tracking down problems.'},
+]
+SETTINGS_CATEGORY_MAP = {c['id']: c for c in SETTINGS_CATEGORIES}
+DEFAULT_SETTINGS_CATEGORY = 'interface'
+
+# Numeric settings that may be posted by several different category pages. Each
+# page only submits the fields it shows, so only fields actually present in the
+# form are touched (previously one form reset everything it didn't contain).
+_NUMERIC_SETTING_FIELDS = (
+    ('background_interval_mins', int, 1),
+    ('per_page', int, 1),
+    ('desc_preview_height', int, 0),
+    ('overlay_timeout_ms', int, 0),
+    ('feed_retention_days', int, 1),
+    ('feed_max_items', int, 1),
+    ('feed_new_burst_limit', int, 1),
+)
+
 
 @views_bp.route('/')
 def feed():
@@ -145,169 +192,263 @@ def export_subs():
     urls = [s['url'] for s in get_subs()]
     return Response(response=json.dumps(urls, indent=4), status=200, mimetype='application/json', headers={"Content-disposition": "attachment; filename=subscriptions.json"})
 
-@views_bp.route('/settings', methods=['GET', 'POST'])
-def settings_page():
-    from storage import DEFAULT_SETTINGS
+
+# ----------------------------------------------------------------------
+# Settings
+# ----------------------------------------------------------------------
+
+def _apply_numbers(app_settings, fields):
+    changed = False
+    for key, cast, minimum in fields:
+        raw = request.form.get(key)
+        if raw is None or str(raw).strip() == '':
+            continue
+        try:
+            value = cast(raw)
+        except (TypeError, ValueError):
+            continue
+        if minimum is not None:
+            value = max(minimum, value)
+        app_settings[key] = value
+        changed = True
+    return changed
+
+
+def _handle_settings_post():
     subs = get_subs()
     app_settings = get_settings()
-    
-    if request.method == 'POST':
-        action = request.form.get('action')
-        url = request.form.get('url')
-        
-        if action == 'add' and url:
-            if not any(s['url'] == url for s in subs):
-                c_info = fetch_channel_info(url)
-                subs.append({"name": c_info['name'], "url": url, "icon": c_info['icon'], "id": c_info.get('id', '')})
-                mark_channel_seen(url)
-            save_subs(subs)
-            
-        elif action == 'remove' and url:
-            n_url = url.strip('/').split('?')[0].lower()
-            subs = [s for s in subs if s['url'].strip('/').split('?')[0].lower() != n_url]
-            save_subs(subs)
-            purge_channel_from_feed(url)
-            
-        elif action == 'import_subs':
-            file = request.files.get('import_file')
-            if file and file.filename.endswith('.json'):
-                try:
-                    imported_urls = json.load(file)
-                    if isinstance(imported_urls, list):
-                        existing_urls = {s['url'].strip('/').split('?')[0].lower() for s in subs}
-                        urls_to_add = []
-                        for u in imported_urls:
-                            if isinstance(u, str):
-                                n_url = u.strip('/').split('?')[0].lower()
-                                if n_url not in existing_urls:
-                                    urls_to_add.append(u)
-                                    existing_urls.add(n_url)
-                        if urls_to_add:
-                            def fetch_and_format(u):
-                                c_info = fetch_channel_info(u)
-                                return {"name": c_info['name'], "url": u, "icon": c_info['icon'], "id": c_info.get('id', '')}
-                            with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
-                                for r in executor.map(fetch_and_format, urls_to_add): subs.append(r)
-                            save_subs(subs)
-                            for u in urls_to_add:
-                                mark_channel_seen(u)
-                            
-                            def background_feed_update():
-                                from flask import current_app
-                                app_instance = current_app._get_current_object()
-                                with app_instance.app_context(): 
-                                    update_feed_now()
-                            threading.Thread(target=background_feed_update).start()
-                except Exception as e: print(f"Import error: {e}")
-                    
-        elif action == 'reset_subs':
-            save_subs([])
-            reset_feed_baseline()
 
-        elif action == 'reset_feed':
-            # Keeps subscriptions, forgets every channel baseline. The next poll
-            # re-catalogues each channel and contributes nothing to the feed, so
-            # it stays empty until a genuinely new upload appears.
-            reset_feed_baseline()
-            
-        elif action == 'update_settings':
+    action = request.form.get('action')
+    url = request.form.get('url')
+
+    if action == 'add' and url:
+        if not any(s['url'] == url for s in subs):
+            c_info = fetch_channel_info(url)
+            subs.append({"name": c_info['name'], "url": url, "icon": c_info['icon'], "id": c_info.get('id', '')})
+            mark_channel_seen(url)
+        save_subs(subs)
+
+    elif action == 'remove' and url:
+        n_url = url.strip('/').split('?')[0].lower()
+        subs = [s for s in subs if s['url'].strip('/').split('?')[0].lower() != n_url]
+        save_subs(subs)
+        purge_channel_from_feed(url)
+
+    elif action == 'import_subs':
+        file = request.files.get('import_file')
+        if file and file.filename.endswith('.json'):
             try:
-                app_settings['background_interval_mins'] = int(request.form.get('background_interval_mins', 30))
-                app_settings['per_page'] = int(request.form.get('per_page', 15))
-                app_settings['desc_preview_height'] = int(request.form.get('desc_preview_height', 100))
-                app_settings['overlay_timeout_ms'] = int(request.form.get('overlay_timeout_ms', 500))
-                app_settings['feed_retention_days'] = max(1, int(request.form.get('feed_retention_days', 14)))
-                app_settings['feed_max_items'] = max(1, int(request.form.get('feed_max_items', 300)))
-                app_settings['feed_new_burst_limit'] = max(1, int(request.form.get('feed_new_burst_limit', 15)))
-                save_settings(app_settings)
-            except ValueError: pass
+                imported_urls = json.load(file)
+                if isinstance(imported_urls, list):
+                    existing_urls = {s['url'].strip('/').split('?')[0].lower() for s in subs}
+                    urls_to_add = []
+                    for u in imported_urls:
+                        if isinstance(u, str):
+                            n_url = u.strip('/').split('?')[0].lower()
+                            if n_url not in existing_urls:
+                                urls_to_add.append(u)
+                                existing_urls.add(n_url)
+                    if urls_to_add:
+                        def fetch_and_format(u):
+                            c_info = fetch_channel_info(u)
+                            return {"name": c_info['name'], "url": u, "icon": c_info['icon'], "id": c_info.get('id', '')}
+                        with concurrent.futures.ThreadPoolExecutor(max_workers=5) as executor:
+                            for r in executor.map(fetch_and_format, urls_to_add): subs.append(r)
+                        save_subs(subs)
+                        for u in urls_to_add:
+                            mark_channel_seen(u)
 
-        elif action == 'update_network_settings':
-            app_settings['ydl_proxy_type'] = request.form.get('ydl_proxy_type', 'none')
-            app_settings['ydl_proxy_url'] = request.form.get('ydl_proxy_url', '')
+                        # The app object has to be captured here: inside the new
+                        # thread there is no application context to read it from.
+                        app_instance = current_app._get_current_object()
+
+                        def background_feed_update():
+                            with app_instance.app_context():
+                                update_feed_now()
+                        threading.Thread(target=background_feed_update, daemon=True).start()
+            except Exception as e: print(f"Import error: {e}")
+
+    elif action == 'reset_subs':
+        save_subs([])
+        reset_feed_baseline()
+
+    elif action == 'reset_feed':
+        # Keeps subscriptions, forgets every channel baseline. The next poll
+        # re-catalogues each channel and contributes nothing to the feed, so
+        # it stays empty until a genuinely new upload appears.
+        reset_feed_baseline()
+
+    elif action == 'update_settings':
+        if _apply_numbers(app_settings, _NUMERIC_SETTING_FIELDS):
             save_settings(app_settings)
 
-        elif action == 'update_sb_settings':
-            app_settings['sb_enabled'] = request.form.get('sb_enabled') == 'on'
-            app_settings['sb_action'] = request.form.get('sb_action', 'auto_skip')
-            app_settings['sb_categories'] = request.form.getlist('sb_categories')
-            
-            if 'sb_colors' not in app_settings:
-                app_settings['sb_colors'] = DEFAULT_SETTINGS['sb_colors'].copy()
-                
-            for k in DEFAULT_SETTINGS['sb_colors'].keys():
-                col = request.form.get(f'sb_color_{k}')
-                if col:
-                    app_settings['sb_colors'][k] = col
-                    
-            save_settings(app_settings)
+    elif action == 'update_network_settings':
+        app_settings['ydl_proxy_type'] = request.form.get('ydl_proxy_type', 'none')
+        app_settings['ydl_proxy_url'] = request.form.get('ydl_proxy_url', '')
+        save_settings(app_settings)
 
-        elif action == 'update_cache_settings':
-            try:
-                app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 20))
-                app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 24))
-                app_settings['preview_cache_size_mb'] = float(request.form.get('preview_cache_size_mb', 100))
-                app_settings['cache_auto_switch_threshold'] = int(request.form.get('cache_auto_switch_threshold', 720))
-                app_settings['auto_cache_watched'] = request.form.get('auto_cache_watched') == 'on'
-                app_settings['auto_cache_immediate'] = request.form.get('auto_cache_immediate') == 'on'
-                app_settings['auto_cache_threshold_secs'] = int(request.form.get('auto_cache_threshold_secs', 30))
-                app_settings['auto_cache_max_size_gb'] = float(request.form.get('auto_cache_max_size_gb', 10))
-                save_settings(app_settings)
-            except ValueError: pass
-                
-        elif action == 'update_shortcuts':
-            app_settings['shortcut_pause'] = request.form.get('shortcut_pause', 'Space')
-            app_settings['shortcut_seek_fwd'] = request.form.get('shortcut_seek_fwd', 'ArrowRight')
-            app_settings['shortcut_seek_bwd'] = request.form.get('shortcut_seek_bwd', 'ArrowLeft')
-            app_settings['shortcut_mute'] = request.form.get('shortcut_mute', 'm')
-            app_settings['shortcut_cc'] = request.form.get('shortcut_cc', 'v')
-            app_settings['shortcut_chap_next'] = request.form.get('shortcut_chap_next', 'PageUp')
-            app_settings['shortcut_chap_prev'] = request.form.get('shortcut_chap_prev', 'PageDown')
-            app_settings['shortcut_speed_up'] = request.form.get('shortcut_speed_up', 'ArrowUp')
-            app_settings['shortcut_speed_down'] = request.form.get('shortcut_speed_down', 'ArrowDown')
-            save_settings(app_settings)
+    elif action == 'update_sb_settings':
+        app_settings['sb_enabled'] = request.form.get('sb_enabled') == 'on'
+        app_settings['sb_action'] = request.form.get('sb_action', 'auto_skip')
+        app_settings['sb_categories'] = request.form.getlist('sb_categories')
 
-        elif action == 'update_cc_settings':
-            try:
-                app_settings['cc_font'] = request.form.get('cc_font', app_settings.get('cc_font'))
-                app_settings['cc_color'] = request.form.get('cc_color', app_settings.get('cc_color'))
-                app_settings['cc_bg'] = request.form.get('cc_bg', app_settings.get('cc_bg'))
-                app_settings['cc_bg_op'] = float(request.form.get('cc_bg_op', app_settings.get('cc_bg_op')))
-                app_settings['cc_scale'] = float(request.form.get('cc_scale', app_settings.get('cc_scale')))
-                app_settings['cc_v_offset'] = float(request.form.get('cc_v_offset', app_settings.get('cc_v_offset')))
-                save_settings(app_settings)
-            except ValueError: pass
-            
-        elif action == 'add_font':
-            name = request.form.get('font_name')
-            val = request.form.get('font_value')
-            if name and val:
-                fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
-                fonts.append({"name": name, "value": val})
-                app_settings['cc_custom_fonts'] = fonts
-                save_settings(app_settings)
-                
-        elif action == 'delete_font':
-            idx = int(request.form.get('font_index', -1))
+        if 'sb_colors' not in app_settings:
+            app_settings['sb_colors'] = DEFAULT_SETTINGS['sb_colors'].copy()
+
+        for k in DEFAULT_SETTINGS['sb_colors'].keys():
+            col = request.form.get(f'sb_color_{k}')
+            if col:
+                app_settings['sb_colors'][k] = col
+
+        save_settings(app_settings)
+
+    elif action == 'update_cache_settings':
+        try:
+            app_settings['cache_max_size_gb'] = float(request.form.get('cache_max_size_gb', 20))
+            app_settings['cache_ttl_hours'] = float(request.form.get('cache_ttl_hours', 24))
+            app_settings['preview_cache_size_mb'] = float(request.form.get('preview_cache_size_mb', 100))
+            app_settings['cache_auto_switch_threshold'] = int(request.form.get('cache_auto_switch_threshold', 720))
+            app_settings['auto_cache_watched'] = request.form.get('auto_cache_watched') == 'on'
+            app_settings['auto_cache_immediate'] = request.form.get('auto_cache_immediate') == 'on'
+            app_settings['auto_cache_threshold_secs'] = int(request.form.get('auto_cache_threshold_secs', 30))
+            app_settings['auto_cache_max_size_gb'] = float(request.form.get('auto_cache_max_size_gb', 10))
+            save_settings(app_settings)
+        except ValueError: pass
+
+    elif action == 'update_shortcuts':
+        app_settings['shortcut_pause'] = request.form.get('shortcut_pause', 'Space')
+        app_settings['shortcut_seek_fwd'] = request.form.get('shortcut_seek_fwd', 'ArrowRight')
+        app_settings['shortcut_seek_bwd'] = request.form.get('shortcut_seek_bwd', 'ArrowLeft')
+        app_settings['shortcut_mute'] = request.form.get('shortcut_mute', 'm')
+        app_settings['shortcut_cc'] = request.form.get('shortcut_cc', 'v')
+        app_settings['shortcut_chap_next'] = request.form.get('shortcut_chap_next', 'PageUp')
+        app_settings['shortcut_chap_prev'] = request.form.get('shortcut_chap_prev', 'PageDown')
+        app_settings['shortcut_speed_up'] = request.form.get('shortcut_speed_up', 'ArrowUp')
+        app_settings['shortcut_speed_down'] = request.form.get('shortcut_speed_down', 'ArrowDown')
+        save_settings(app_settings)
+
+    elif action == 'update_cc_settings':
+        try:
+            app_settings['cc_font'] = request.form.get('cc_font', app_settings.get('cc_font'))
+            app_settings['cc_color'] = request.form.get('cc_color', app_settings.get('cc_color'))
+            app_settings['cc_bg'] = request.form.get('cc_bg', app_settings.get('cc_bg'))
+            app_settings['cc_bg_op'] = float(request.form.get('cc_bg_op', app_settings.get('cc_bg_op')))
+            app_settings['cc_scale'] = float(request.form.get('cc_scale', app_settings.get('cc_scale')))
+            app_settings['cc_v_offset'] = float(request.form.get('cc_v_offset', app_settings.get('cc_v_offset')))
+            save_settings(app_settings)
+        except ValueError: pass
+
+    elif action == 'add_font':
+        name = request.form.get('font_name')
+        val = request.form.get('font_value')
+        if name and val:
             fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
-            if 0 <= idx < len(fonts) and len(fonts) > 1:
-                fonts.pop(idx)
-                app_settings['cc_custom_fonts'] = fonts
-                save_settings(app_settings)
-                
-        elif action == 'import_fonts':
-            file = request.files.get('import_file')
-            if file and file.filename.endswith('.json'):
-                try:
-                    imported_fonts = json.load(file)
-                    if isinstance(imported_fonts, list):
-                        fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
-                        for f in imported_fonts:
-                            if isinstance(f, dict) and 'name' in f and 'value' in f:
-                                fonts.append({"name": f["name"], "value": f["value"]})
-                        app_settings['cc_custom_fonts'] = fonts
-                        save_settings(app_settings)
-                except Exception as e: print(f"Font import error: {e}")
-                
-        return redirect(request.referrer or url_for('views.settings_page'))
-    return render_template('settings.html', subs=subs, app_settings=app_settings)
+            fonts.append({"name": name, "value": val})
+            app_settings['cc_custom_fonts'] = fonts
+            save_settings(app_settings)
+
+    elif action == 'delete_font':
+        try:
+            idx = int(request.form.get('font_index', -1))
+        except ValueError:
+            idx = -1
+        fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
+        if 0 <= idx < len(fonts) and len(fonts) > 1:
+            fonts.pop(idx)
+            app_settings['cc_custom_fonts'] = fonts
+            save_settings(app_settings)
+
+    elif action == 'import_fonts':
+        file = request.files.get('import_file')
+        if file and file.filename.endswith('.json'):
+            try:
+                imported_fonts = json.load(file)
+                if isinstance(imported_fonts, list):
+                    fonts = app_settings.get('cc_custom_fonts', DEFAULT_SETTINGS['cc_custom_fonts'])
+                    for f in imported_fonts:
+                        if isinstance(f, dict) and 'name' in f and 'value' in f:
+                            fonts.append({"name": f["name"], "value": f["value"]})
+                    app_settings['cc_custom_fonts'] = fonts
+                    save_settings(app_settings)
+            except Exception as e: print(f"Font import error: {e}")
+
+
+def _format_duration(seconds):
+    seconds = int(max(0, seconds))
+    days, rem = divmod(seconds, 86400)
+    hours, rem = divmod(rem, 3600)
+    minutes, secs = divmod(rem, 60)
+    if days:
+        return f"{days}d {hours}h {minutes}m"
+    if hours:
+        return f"{hours}h {minutes}m"
+    if minutes:
+        return f"{minutes}m {secs}s"
+    return f"{secs}s"
+
+
+def _build_diagnostics():
+    try:
+        report = dependency_report()
+    except Exception as e:
+        report = {
+            'yt_dlp_version': 'unknown', 'ffmpeg': None, 'deno': None,
+            'impersonation': {'available': False, 'message': str(e)}
+        }
+    imp = report.get('impersonation') or {}
+    buf = get_log_buffer()
+
+    last_feed = feed_cache.get('last_update') or 0
+    try:
+        manifest = get_cache_manifest()
+        cached = sum(1 for v in manifest.values() if v.get('status') == 'complete')
+    except Exception:
+        cached = 0
+
+    def item(label, value, ok=None, mono=False, title=None):
+        return {'label': label, 'value': value, 'ok': ok, 'mono': mono, 'title': title or value}
+
+    return [
+        item('yt-dlp', str(report.get('yt_dlp_version') or 'unknown')),
+        item('Python', f"{platform.python_version()} on {platform.system() or 'unknown'}"),
+        item('ffmpeg', 'Found' if report.get('ffmpeg') else 'Not found',
+             ok=bool(report.get('ffmpeg')), title=report.get('ffmpeg') or 'Merging and audio extraction will fail'),
+        item('deno', 'Found' if report.get('deno') else 'Not found',
+             ok=bool(report.get('deno')), title=report.get('deno') or 'YouTube JS challenges may fail'),
+        item('Impersonation', 'Available' if imp.get('available') else 'Unavailable',
+             ok=bool(imp.get('available')), title=imp.get('message') or ''),
+        item('Uptime', _format_duration(time.time() - PROCESS_STARTED)),
+        item('Last feed refresh', time_ago_str(last_feed) if last_feed else 'Not yet'),
+        item('Cached videos', str(cached)),
+        item('Memory buffer', f"{buf.capacity:,} lines" if buf else 'Disabled'),
+        item('Log file', (buf.file_path if buf and buf.file_path else 'Memory only'), mono=True),
+    ]
+
+
+@views_bp.route('/settings', methods=['GET', 'POST'])
+def settings_page():
+    # Kept for old bookmarks and any form still posting to the bare URL.
+    if request.method == 'POST':
+        _handle_settings_post()
+        return redirect(request.referrer or url_for('views.settings_category', category=DEFAULT_SETTINGS_CATEGORY))
+    return redirect(url_for('views.settings_category', category=DEFAULT_SETTINGS_CATEGORY))
+
+
+@views_bp.route('/settings/<category>', methods=['GET', 'POST'])
+def settings_category(category):
+    if category not in SETTINGS_CATEGORY_MAP:
+        return redirect(url_for('views.settings_category', category=DEFAULT_SETTINGS_CATEGORY))
+
+    if request.method == 'POST':
+        _handle_settings_post()
+        return redirect(url_for('views.settings_category', category=category))
+
+    ctx = {
+        'category': category,
+        'category_meta': SETTINGS_CATEGORY_MAP[category],
+        'app_settings': get_settings(),
+    }
+    if category == 'logs':
+        ctx['diagnostics'] = _build_diagnostics()
+
+    return render_template('settings.html', **ctx)

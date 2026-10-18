@@ -21,12 +21,20 @@ nav a.logo { color: var(--text-color); text-decoration: none; font-weight: bold;
 .nav-spinner { animation: spin 2s linear infinite; }
 
 .layout { display: flex; height: calc(100vh - 64px); }
-.sidebar { width: 240px; background: var(--nav-bg); padding: 20px 10px; overflow-y: auto; flex-shrink: 0; }
+.sidebar { width: 240px; background: var(--nav-bg); padding: 20px 10px; overflow-y: auto; flex-shrink: 0; box-sizing: border-box; }
 .sidebar h3 { font-size: 1rem; color: var(--text-muted); margin: 0 0 10px 10px; text-transform: uppercase; }
-.sidebar a { display: flex; align-items: center; gap: 12px; color: var(--text-color); text-decoration: none; padding: 10px; border-radius: 8px; font-size: 0.95rem; }
+.sidebar a { display: flex; align-items: center; gap: 12px; color: var(--text-color); text-decoration: none; padding: 10px; border-radius: 8px; font-size: 0.95rem; transition: background 0.15s; }
 .sidebar a:hover { background: #333; }
+.sidebar a.active { background: #333; font-weight: 600; }
+.sidebar a.active .nav-icon { color: var(--text-color); }
+.sidebar a:not(.active) .nav-icon { color: #ccc; }
 .sidebar img:not(.nav-icon) { width: 26px; height: 26px; border-radius: 50%; object-fit: cover; }
 .sidebar svg.nav-icon { width: 22px; height: 22px; }
+.sidebar .nav-label { flex: 1; min-width: 0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.sidebar .nav-dot {
+    width: 8px; height: 8px; border-radius: 50%; background: var(--accent);
+    flex-shrink: 0; box-shadow: 0 0 6px rgba(255, 0, 0, 0.6);
+}
 
 .main-content { flex: 1; padding: 20px; overflow-y: auto; overflow-x: hidden; position: relative; }
 

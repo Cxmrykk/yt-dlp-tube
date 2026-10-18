@@ -98,6 +98,9 @@ async function navigateTo(url, pushState, fetchOpts = {}) {
         document.title = doc.title;
         
         if (pushState) history.pushState({ scrollPos: 0, pjax: true }, '', finalUrl);
+
+        // The sidebar is outside #main-content, so its highlight is updated by hand.
+        if (typeof window.updateSidebarActive === 'function') window.updateSidebarActive();
         
         if (typeof window.syncBulkSelectionUI === 'function') window.syncBulkSelectionUI(); 
 

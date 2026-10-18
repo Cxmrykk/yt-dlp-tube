@@ -21,7 +21,35 @@ window.setIcon = function(el, name) {
     if (use) use.setAttribute('href', '#ic-' + name);
 };
 
+/**
+ * Highlight the sidebar link for the current page. The sidebar lives outside
+ * #main-content, so PJAX never re-renders it; this keeps it in sync after
+ * every navigation (called from pjax.js).
+ */
+window.updateSidebarActive = function() {
+    const sidebar = document.getElementById('sidebar');
+    if (!sidebar) return;
+
+    const normalise = p => (p || '/').replace(/\/+$/, '') || '/';
+    const path = normalise(window.location.pathname);
+
+    sidebar.querySelectorAll('a[href]').forEach(a => {
+        let linkPath;
+        try {
+            linkPath = normalise(new URL(a.getAttribute('href'), window.location.origin).pathname);
+        } catch (e) {
+            return;
+        }
+        const active = linkPath === '/'
+            ? path === '/'
+            : (path === linkPath || path.startsWith(linkPath + '/'));
+        a.classList.toggle('active', active);
+    });
+};
+
 document.addEventListener('DOMContentLoaded', () => {
+    window.updateSidebarActive();
+
     const logo = document.querySelector('nav a.logo');
     const sidebar = document.getElementById('sidebar');
     const overlay = document.getElementById('sidebar-overlay');

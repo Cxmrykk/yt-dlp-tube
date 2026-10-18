@@ -2,6 +2,7 @@ from flask import session
 from urllib.parse import quote
 from storage import get_subs, get_settings
 from youtube import get_new_channel_urls, norm_url
+from views import SETTINGS_CATEGORIES
 from utils import (
     format_time_str, format_views_str, time_ago_str,
     linkify_text, to_internal_path
@@ -49,4 +50,10 @@ def register_filters(app):
             else:
                 subs_normal.append(s)
 
-        return dict(subs=subs, subs_new=subs_new, subs_normal=subs_normal, app_settings=get_settings())
+        return dict(
+            subs=subs,
+            subs_new=subs_new,
+            subs_normal=subs_normal,
+            app_settings=get_settings(),
+            settings_categories=SETTINGS_CATEGORIES
+        )

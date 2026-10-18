@@ -1,0 +1,22 @@
+<div class="add-form">
+    <h3>Proxy (yt-dlp)</h3>
+    <form action="/settings/network" method="POST">
+        <input type="hidden" name="action" value="update_network_settings">
+
+        <p class="form-note">
+            * This proxy is strictly used for yt-dlp metadata extraction and downloads. In-app image and subtitle proxying will still use the server's raw IP.
+        </p>
+
+        <label class="field-label">Proxy Mode:</label>
+        <select name="ydl_proxy_type" style="margin-bottom: 15px;">
+            <option value="none" {% if app_settings.ydl_proxy_type == 'none' %}selected{% endif %}>None (Direct Connection)</option>
+            <option value="proxy" {% if app_settings.ydl_proxy_type == 'proxy' %}selected{% endif %}>Global Proxy (--proxy)</option>
+            <option value="geo" {% if app_settings.ydl_proxy_type == 'geo' %}selected{% endif %}>Geo-Verification Proxy (--geo-verification-proxy)</option>
+        </select>
+
+        <label class="field-label">Proxy URL:</label>
+        <input type="text" name="ydl_proxy_url" value="{{ app_settings.ydl_proxy_url }}" placeholder="socks5://user:pass@127.0.0.1:1080/" style="margin-bottom: 20px;">
+
+        <button type="submit" class="btn btn-danger">Save Network Settings</button>
+    </form>
+</div>

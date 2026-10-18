@@ -1,0 +1,51 @@
+<div class="add-form">
+    <h3>Server Diagnostics</h3>
+    <div class="diag-grid">
+        {% for d in diagnostics %}
+        <div class="diag-item" title="{{ d.title }}">
+            <div class="diag-label">{{ d.label }}</div>
+            <div class="diag-value{% if d.ok == True %} ok{% elif d.ok == False %} bad{% endif %}{% if d.mono %} mono{% endif %}">{{ d.value }}</div>
+        </div>
+        {% endfor %}
+    </div>
+</div>
+
+<div class="log-panel">
+    <div class="log-toolbar">
+        <select id="logLevel" aria-label="Minimum level">
+            <option value="debug">All levels</option>
+            <option value="info" selected>Info and above</option>
+            <option value="warning">Warnings and errors</option>
+            <option value="error">Errors only</option>
+        </select>
+        <select id="logSource" aria-label="Source">
+            <option value="">All sources</option>
+        </select>
+        <input type="search" id="logSearch" placeholder="Filter text..." spellcheck="false" autocomplete="off" aria-label="Filter text">
+        <label class="log-check">
+            <input type="checkbox" id="logHideHttp" checked>
+            Hide HTTP requests
+        </label>
+        <div class="log-actions">
+            <button type="button" class="btn" id="logPauseBtn">Pause</button>
+            <button type="button" class="btn" id="logCopyBtn">Copy</button>
+            <a href="/api/logs/download" class="btn" data-no-pjax="true" download>Download</a>
+            <button type="button" class="btn log-btn-danger" id="logClearBtn">Clear</button>
+        </div>
+    </div>
+    <div class="log-status">
+        <span id="logCount">Loading…</span>
+        <span id="logLive" class="log-live">Live</span>
+    </div>
+    <div class="log-view" id="logView" role="log" aria-live="off"></div>
+    <button type="button" class="log-jump" id="logJumpBtn">Jump to latest</button>
+</div>
+
+<p class="form-note" style="margin-top: 12px;">
+    Everything the server writes to its console is captured here: request lines, yt-dlp output, background jobs
+    and tracebacks. Credentials in URLs and the login key are redacted. <strong>Copy</strong> takes the lines that
+    match the current filters; <strong>Download</strong> includes the full log file on disk, which is rotated at
+    5&nbsp;MB with three backups. <strong>Clear</strong> only empties this view.
+</p>
+
+<script src="/static/js/pages/logs.js"></script>

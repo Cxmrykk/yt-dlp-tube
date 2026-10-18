@@ -1,0 +1,68 @@
+<div class="add-form">
+    <h3>Add Channel via URL</h3>
+    <form action="/settings/subscriptions" method="POST">
+        <input type="hidden" name="action" value="add">
+        <input type="text" name="url" placeholder="Channel URL (e.g. https://www.youtube.com/@mkbhd)" required>
+        <button type="submit" class="btn btn-danger">Add Subscription</button>
+    </form>
+</div>
+
+<div class="add-form">
+    <h3>Import &amp; Export</h3>
+
+    <div class="btn-row">
+        <form action="/settings/export" method="GET" data-no-pjax="true" style="margin: 0;">
+            <button type="submit" class="btn">Export JSON</button>
+        </form>
+
+        <form id="importForm" action="/settings/subscriptions" method="POST" enctype="multipart/form-data" data-no-pjax="true" style="margin: 0;">
+            <input type="hidden" name="action" value="import_subs">
+            <input type="file" id="import_file" name="import_file" accept=".json" style="display: none;"
+                   onchange="if(this.value) { document.getElementById('importBtn').innerText = 'Importing...'; this.form.submit(); }">
+            <button type="button" id="importBtn" class="btn" onclick="document.getElementById('import_file').click();">
+                Import JSON
+            </button>
+        </form>
+
+        <form action="/settings/subscriptions" method="POST" style="margin: 0; margin-left: auto;"
+              onsubmit="return confirm('⚠️ Are you sure you want to delete ALL subscriptions? This cannot be undone.');">
+            <input type="hidden" name="action" value="reset_subs">
+            <button type="submit" class="btn" style="background: #d32f2f; color: white;">Reset All</button>
+        </form>
+    </div>
+
+    <p class="form-note" style="margin: 15px 0 0 0;">
+        * Importing a JSON file containing an array of channel URLs will append them to your current list.
+    </p>
+</div>
+
+<h3 class="settings-section-title">
+    Your Subscriptions
+    <span class="count-pill">{{ subs | length }}</span>
+    {% if subs_new %}<span class="count-pill count-pill-new">{{ subs_new | length }} new</span>{% endif %}
+</h3>
+
+<ul class="sub-list">
+    {% for sub in subs_new + subs_normal %}
+    <li class="sub-item{{ ' has-new' if sub.has_new }}">
+        <a href="{{ sub.url | yt_path }}" class="sub-link">
+            <span class="sub-avatar">
+                <img src="{{ (sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff') | proxy_image }}" alt="" loading="lazy">
+                {% if sub.has_new %}<span class="sub-new-dot" title="New uploads"></span>{% endif %}
+            </span>
+            <span class="sub-text">
+                <strong>{{ sub.name }}</strong>
+                {% if sub.has_new %}<span class="sub-new-label">New uploads</span>{% endif %}
+                <span class="sub-url">{{ sub.url }}</span>
+            </span>
+        </a>
+        <form action="/settings/subscriptions" method="POST" style="margin: 0; flex-shrink: 0;">
+            <input type="hidden" name="action" value="remove">
+            <input type="hidden" name="url" value="{{ sub.url }}">
+            <button type="submit" class="btn">Unsubscribe</button>
+        </form>
+    </li>
+    {% else %}
+    <li class="sub-empty">No subscriptions yet. Try adding one above!</li>
+    {% endfor %}
+</ul>

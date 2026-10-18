@@ -3,6 +3,7 @@ import secrets
 import time
 from flask import Blueprint, request, session, redirect, url_for, render_template, jsonify
 from config import DATA_DIR
+from logbuffer import redact
 
 auth_bp = Blueprint('auth', __name__)
 
@@ -20,6 +21,9 @@ def init_auth():
             
     if not APP_SECRET_TOKEN:
         APP_SECRET_TOKEN = secrets.token_urlsafe(32)
+        # Registered before it is printed: the console still shows it once, but
+        # the Logs page and the on-disk log file never contain it.
+        redact(APP_SECRET_TOKEN)
         try:
             with open(AUTH_FILE, 'w') as f:
                 f.write(APP_SECRET_TOKEN)
@@ -31,7 +35,8 @@ def init_auth():
             print("="*70 + "\n")
         except Exception as e:
             print(f"Error writing auth file: {e}")
-            
+
+    redact(APP_SECRET_TOKEN)
     return APP_SECRET_TOKEN
 
 @auth_bp.before_app_request

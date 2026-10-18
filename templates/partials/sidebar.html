@@ -1,36 +1,27 @@
+{% set current_path = request.path %}
 <aside class="sidebar" id="sidebar">
-    <a href="/">
+    <a href="/" class="{{ 'active' if current_path == '/' }}">
         <svg class="ic nav-icon" aria-hidden="true"><use href="#ic-home"></use></svg>
-        Home Feed
+        <span class="nav-label">Home Feed</span>
     </a>
-    <a href="/history">
+    <a href="/history" class="{{ 'active' if current_path == '/history' }}">
         <svg class="ic nav-icon" aria-hidden="true"><use href="#ic-history"></use></svg>
-        History
+        <span class="nav-label">History</span>
     </a>
-    <a href="/fetch">
+    <a href="/fetch" class="{{ 'active' if current_path == '/fetch' }}">
         <svg class="ic nav-icon" aria-hidden="true"><use href="#ic-download"></use></svg>
-        Fetch URL
+        <span class="nav-label">Fetch URL</span>
     </a>
     <hr style="border: 0; border-top: 1px solid #333; margin: 15px 0;">
-    <h3>Subscriptions</h3>
-    
-    {% if subs_new %}
-        {% for sub in subs_new %}
-            <a href="{{ sub.url | yt_path }}">
-                <div style="position: relative; display: inline-flex;">
-                    <img src="{{ (sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff') | proxy_image }}" style="width: 26px; height: 26px; border-radius: 50%; object-fit: cover;">
-                    <span style="position: absolute; top: -2px; right: -2px; width: 8px; height: 8px; background-color: var(--accent); border-radius: 50%; border: 2px solid var(--nav-bg);"></span>
-                </div>
-                <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis; font-weight: bold; color: white;">{{ sub.name }}</span>
-            </a>
-        {% endfor %}
-        <hr style="border: 0; border-top: 1px solid #333; margin: 10px 0;">
-    {% endif %}
+    <h3>Settings</h3>
 
-    {% for sub in subs_normal %}
-        <a href="{{ sub.url | yt_path }}">
-            <img src="{{ (sub.icon or 'https://ui-avatars.com/api/?name='~sub.name~'&background=333&color=fff') | proxy_image }}"> 
-            <span style="white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">{{ sub.name }}</span>
-        </a>
+    {% for cat in settings_categories %}
+    <a href="/settings/{{ cat.id }}" class="{{ 'active' if current_path == ('/settings/' ~ cat.id) }}" title="{{ cat.description }}">
+        <svg class="ic nav-icon" aria-hidden="true"><use href="#ic-{{ cat.icon }}"></use></svg>
+        <span class="nav-label">{{ cat.label }}</span>
+        {% if cat.id == 'subscriptions' and subs_new %}
+        <span class="nav-dot" title="{{ subs_new | length }} channel{{ 's' if subs_new | length != 1 }} with new uploads"></span>
+        {% endif %}
+    </a>
     {% endfor %}
 </aside>

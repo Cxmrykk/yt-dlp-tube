@@ -1,0 +1,47 @@
+<div class="add-form">
+    <h3>Limits</h3>
+    <form action="/settings/cache" method="POST">
+        <input type="hidden" name="action" value="update_cache_settings">
+
+        <label class="field-label">Max Cache Size (GB):</label>
+        <input type="number" name="cache_max_size_gb" value="{{ app_settings.cache_max_size_gb | default(20) }}" min="1" max="100" required>
+
+        <label class="field-label">Cache Time-To-Live (Hours):</label>
+        <input type="number" name="cache_ttl_hours" value="{{ app_settings.cache_ttl_hours | default(24) }}" min="1" max="168" required>
+
+        <label class="field-label">Auto-Preview Cache Max Size (MB):</label>
+        <input type="number" name="preview_cache_size_mb" value="{{ app_settings.preview_cache_size_mb | default(100) }}" min="1" max="1000" required>
+
+        <label class="field-label">Auto-Switch to Cached Resolution (Minimum Threshold):</label>
+        <select name="cache_auto_switch_threshold" style="margin-bottom: 25px; width: 100%;">
+            <option value="1080" {% if app_settings.cache_auto_switch_threshold == 1080 %}selected{% endif %}>1080p</option>
+            <option value="720" {% if app_settings.cache_auto_switch_threshold == 720 %}selected{% endif %}>720p</option>
+            <option value="480" {% if app_settings.cache_auto_switch_threshold == 480 %}selected{% endif %}>480p</option>
+            <option value="9999" {% if app_settings.cache_auto_switch_threshold == 9999 %}selected{% endif %}>Never Auto-Switch</option>
+        </select>
+
+        <h4 class="form-subheading" style="margin-top: 0;">Auto-Cache Watched Videos</h4>
+
+        <label class="check-row" style="margin-bottom: 8px;">
+            <input type="checkbox" name="auto_cache_watched" {% if app_settings.auto_cache_watched %}checked{% endif %}>
+            Automatically cache videos you watch
+        </label>
+        <p class="form-note" style="margin-bottom: 18px;">
+            Downloads run one at a time in the background and never preempt a manual cache job.
+            Auto-cached files are evicted before manually cached ones when space runs low.
+        </p>
+
+        <label class="check-row" style="margin-bottom: 8px;">
+            <input type="checkbox" name="auto_cache_immediate" {% if app_settings.auto_cache_immediate %}checked{% endif %}>
+            Cache immediately upon opening (ignore time threshold)
+        </label>
+
+        <label class="field-label">Start Caching After (seconds watched):</label>
+        <input type="number" name="auto_cache_threshold_secs" value="{{ app_settings.auto_cache_threshold_secs | default(30) }}" min="5" max="3600" required>
+
+        <label class="field-label">Auto-Cache Budget (GB):</label>
+        <input type="number" name="auto_cache_max_size_gb" value="{{ app_settings.auto_cache_max_size_gb | default(10) }}" min="1" max="100" step="0.5" required>
+
+        <button type="submit" class="btn btn-danger">Save Cache Settings</button>
+    </form>
+</div>
